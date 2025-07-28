@@ -1,0 +1,6 @@
+packages:
+  - backend
+  - admin-portal
+  - mobile-app
+
+nodeLinker: hoisted
