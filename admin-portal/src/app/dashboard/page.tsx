@@ -22,7 +22,7 @@ export default function DashboardPage() {
       return;
     }
 
-    fetch(`${process.env.API_URL}/api/auth/me`, {
+    fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/auth/me`, {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then(async (res) => {
@@ -70,4 +70,4 @@ export default function DashboardPage() {
         </button>
       </div>
     </div>
-  );
+  );}

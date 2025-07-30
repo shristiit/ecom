@@ -20,7 +20,7 @@ export default function LoginPage() {
     }
 
     try {
-      const res = await fetch(`${process.env.API_URL}/api/auth/login`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -34,6 +34,9 @@ export default function LoginPage() {
         const { message } = await res.json();
         throw new Error(message || 'Login failed');
       }
+      const { accessToken, refreshToken } = await res.json();
+     localStorage.setItem('accessToken', accessToken);
+     localStorage.setItem('refreshToken', refreshToken);
 
       router.push('/dashboard');
     } catch (err: any) {
