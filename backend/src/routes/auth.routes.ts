@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import { body } from 'express-validator';
-import { login, register, refresh, me } from '../controllers/auth.controller.js';
-import { authGuard } from '../middlewares/authGaurd.js'
+import { login, register, refresh, me,   resetPasswordByEmailOrUsername, listUsers} from '../controllers/auth.controller';
+import { authGuard } from '../middlewares/authGaurd'
+import { roleGuard } from '../middlewares/roleGaurd';
 
 const router = Router();
 
@@ -10,7 +11,8 @@ router.post(
   [
     body('username').isString().trim().isLength({ min: 3 }),
     body('email').isEmail().normalizeEmail(),
-    body('password').isString().isLength({ min: 6 })
+    body('password').isString().isLength({ min: 6 }),
+    body('role').optional().isIn(['admin', 'customer']) .withMessage('Role must be either "admin" or "customer"'),
   ],
   register
 );
@@ -27,5 +29,11 @@ router.post(
 router.post('/refresh', refresh);
 
 router.get('/me', authGuard, me);
+
+router.get('/users',authGuard,roleGuard ('admin'), listUsers );
+
+router.patch(
+  '/users/password', authGuard, roleGuard('admin'), body('emailOrUsername').isString().notEmpty(), body('newPassword').isString().isLength({ min: 6 }),  resetPasswordByEmailOrUsername );
+
 
 export default router;
