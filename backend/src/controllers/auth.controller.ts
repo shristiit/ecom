@@ -71,7 +71,7 @@ export const me = async (req: Request, res: Response) => {
   res.json(req.user);
 };
 
-  export const listUsers = async (_req: Request, res: Response) => {
+export const listUsers = async (_req: Request, res: Response) => {
   const users = await User.find({}, {
     password_hash: 0,    
     __v: 0               
