@@ -15,6 +15,7 @@ app.use(morgan('dev'));
 
 // Routes
 app.use('/api/auth', authRoutes);
+app.use('api/products',productRoutes)
 
 // Healthcheck
 app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
