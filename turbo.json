@@ -1,0 +1,41 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "tasks": {
+    "postinstall": {
+      "cache": false
+    },
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**"]
+    },
+    "lint": {
+      "inputs": ["src/**/*.{ts,tsx,js,jsx,d.ts,mjs}"]
+    },
+    "web": {
+      "dependsOn": ["^build"],
+      "persistent": true,
+      "cache": false
+    },
+    "ios": {
+      "dependsOn": ["^build"],
+      "persistent": true,
+      "cache": false
+    },
+    "android": {
+      "dependsOn": ["^build"],
+      "persistent": true,
+      "cache": false
+    },
+  
+    "serve:mock": {
+      "dependsOn": ["^build"],
+      "persistent": true,
+      "cache": false
+    },
+    "serve:local": {
+      "dependsOn": ["^build"],
+      "persistent": true,
+      "cache": false
+    }
+  }
+}
