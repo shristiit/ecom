@@ -1,10 +1,7 @@
-const withTM = require('next-transpile-modules')([
-  '@gluestack-ui/themed',
-  '@gluestack-style/react',
-  'react-native-svg',
-]);
+import type { NextConfig } from "next";
 
-module.exports = withTM({
-  reactStrictMode: true,
- // experimental: { esmExternals: 'loose' },
-});
+const nextConfig: NextConfig = {
+  /* config options here */
+};
+
+export default nextConfig;
