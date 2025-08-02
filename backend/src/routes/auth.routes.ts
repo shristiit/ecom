@@ -31,7 +31,7 @@ router.post('/refresh', refresh);
 router.get('/me', authGuard, me);
 
 router.get('/users',authGuard,roleGuard ('admin'), listUsers );
-
+console.log(listUsers)
 router.patch(
   '/users/password', authGuard, roleGuard('admin'), body('emailOrUsername').isString().notEmpty(), body('newPassword').isString().isLength({ min: 6 }),  resetPasswordByEmailOrUsername );
 
