@@ -42,7 +42,7 @@ export default function Login() {
       localStorage.setItem("accessToken", data.accessToken);
       localStorage.setItem("refreshToken", data.refreshToken);
 
-      router.push("./dashboard/");
+      router.push("././");
     } catch (err: any) {
       setError(
         err.response?.data?.message ?? err.message ?? "Login failed. Check credentials."
