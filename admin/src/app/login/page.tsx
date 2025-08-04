@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, FormEvent } from "react";
+import { useEffect, useState, FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardHeader, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,13 @@ export default function Login() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const router = useRouter();
+
+  // 🔁 Redirect if already logged in
+  useEffect(() => {
+    if (typeof window !== "undefined" && localStorage.getItem("accessToken")) {
+      router.replace("/");
+    }
+  }, [router]);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -34,15 +41,15 @@ export default function Login() {
           password: pass,
         },
         {
-          withCredentials: true, 
+          withCredentials: true,
         }
       );
 
-      // backend returns { accessToken, refreshToken }
       localStorage.setItem("accessToken", data.accessToken);
       localStorage.setItem("refreshToken", data.refreshToken);
-
-      router.push("././");
+      console.log("login success")
+      router.push("/");
+      console.log("push called")
     } catch (err: any) {
       setError(
         err.response?.data?.message ?? err.message ?? "Login failed. Check credentials."
@@ -87,7 +94,6 @@ export default function Login() {
                 onClick={() => setShowPassword((s) => !s)}
                 className="absolute right-2 top-9 text-sm text-gray-500 focus:outline-none"
                 aria-label={showPassword ? "Hide password" : "Show password"}
-                tabIndex={0}
               >
                 {showPassword ? "Hide" : "Show"}
               </button>

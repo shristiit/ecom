@@ -1,106 +1,30 @@
 "use client";
-
-import { useState, FormEvent } from "react";
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Card, CardHeader, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import api from "@/lib/api";
+import AppBarChart from "./Components/AppBarChart";
+import AppAreaChart from "./Components/AppAreaChart";
+import AppUsers from "./Components/AppUsers";
 
-export default function Login() {
-  const [user, setUser] = useState("");
-  const [pass, setPass] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
+const Page = () => {
   const router = useRouter();
 
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    setError("");
-
-    if (!user.trim() || !pass) {
-      setError("All fields are required");
-      return;
+  useEffect(() => {
+    const token = localStorage.getItem("accessToken");
+    if (!token) {
+      router.replace("/login"); // redirect to login if not logged in
     }
-
-    setLoading(true);
-    try {
-      const { data } = await api.post(
-        "/api/auth/login",
-        {
-          usernameOrEmail: user,
-          password: pass,
-        },
-        {
-          withCredentials: true, 
-        }
-      );
-
-      // backend returns { accessToken, refreshToken }
-      localStorage.setItem("accessToken", data.accessToken);
-      localStorage.setItem("refreshToken", data.refreshToken);
-
-      router.push("./dashboard/");
-    } catch (err: any) {
-      setError(
-        err.response?.data?.message ?? err.message ?? "Login failed. Check credentials."
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, []);
 
   return (
-    <div className="flex min-h-screen items-center justify-center p-4 bg-gray-50">
-      <Card className="w-full max-w-sm">
-        <CardHeader className="text-2xl font-semibold text-center">
-          Admin Login
-        </CardHeader>
-
-        <CardContent>
-          <form onSubmit={submit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="user">Username / E-mail</Label>
-              <Input
-                id="user"
-                value={user}
-                onChange={(e) => setUser(e.target.value)}
-                required
-                disabled={loading}
-              />
-            </div>
-
-            <div className="space-y-2 relative">
-              <Label htmlFor="pass">Password</Label>
-              <Input
-                id="pass"
-                type={showPassword ? "text" : "password"}
-                value={pass}
-                onChange={(e) => setPass(e.target.value)}
-                required
-                disabled={loading}
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword((s) => !s)}
-                className="absolute right-2 top-9 text-sm text-gray-500 focus:outline-none"
-                aria-label={showPassword ? "Hide password" : "Show password"}
-                tabIndex={0}
-              >
-                {showPassword ? "Hide" : "Show"}
-              </button>
-            </div>
-
-            {error && <p className="text-sm text-red-600">{error}</p>}
-
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? "Signing in..." : "Sign in"}
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
+    <div className="grid grid-1 lg:grid-cols-2 2xl:grid-col-3 gap-[5rem]">
+      <div className="border lg:col-span-2"><AppUsers /></div>
+      <div className="rounded-lg"><AppAreaChart /></div>
+      <div><AppBarChart /></div>
+      <div className="bg-yellow-300 rounded-lg lg:col-span-2 2xl:col-span-2">hola</div>
+      <div></div>
+      <div className="bg-pink-300">ciao</div>
     </div>
   );
-}
+};
+
+export default Page;
