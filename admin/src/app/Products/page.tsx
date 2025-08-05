@@ -1,6 +1,6 @@
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card'
 import React from 'react'
-
+import {ProductCategory} from "../Assets/ProductData"
 const Products = () => {
   return (
     <div className="p-4 m-2">
@@ -11,8 +11,16 @@ const Products = () => {
           <CardHeader>General Information</CardHeader>
           <label>Product Name</label>
           <input type='text' className='border m-1 h-10 p-2 w-full' />
+          <label>Product Category</label>
+          <select className='border p-2'>
+           <option>select</option>
+           {ProductCategory.map((brand,index) =>(
+            <option key={index}>{brand}</option>
+           ))}
+          </select>
           <label>Description</label>
           <input type='text' className='border text-base leading-tight m-1 h-[10rem] p-2 w-full' />
+
         </Card>
         <Card>
           <CardHeader>Product Media</CardHeader>

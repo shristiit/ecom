@@ -1,19 +1,24 @@
 "use client";
 import React, { useEffect, useState } from "react";
 import {
-  Table, TableHeader, TableRow, TableHead,
-  TableBody, TableCell,
+  Table,
+  TableHeader,
+  TableRow,
+  TableHead,
+  TableBody,
+  TableCell,
 } from "@/components/ui/table";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import api from "@/lib/api";          // ← use shared instance
-import { useRouter } from "next/router";
+import api from "@/lib/api"; // ← use shared instance
+import { useRouter } from "next/navigation";
 const ITEMS_PER_PAGE = 7;
 
 export default function AppUsers() {
-  const [users, setUsers]       = useState<any[]>([]);
-  const [page, setPage]         = useState(0);
-  const [loading, setLoading]   = useState(true);
+  const route = useRouter()
+  const [users, setUsers] = useState<any[]>([]);
+  const [page, setPage] = useState(0);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchUsers = async () => {
@@ -47,9 +52,7 @@ export default function AppUsers() {
             <TableHead>Email</TableHead>
             <TableHead>Role</TableHead>
             <TableHead>Address</TableHead>
-            <Button variant="secondary"
-            className="flex items-center justify-end"
-            onClick={() =>route.push("/createuser")}>Create User</Button>
+            
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -73,7 +76,10 @@ export default function AppUsers() {
 
       {totalPages > 1 && (
         <div className="flex justify-between items-center m-3">
-          <Button onClick={() => setPage((p) => Math.max(p - 1, 0))} disabled={page === 0}>
+          <Button
+            onClick={() => setPage((p) => Math.max(p - 1, 0))}
+            disabled={page === 0}
+          >
             Previous
           </Button>
           <span>

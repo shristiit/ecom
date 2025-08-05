@@ -12,8 +12,8 @@ const Page = () => {
     const token = localStorage.getItem("accessToken");
     if (!token) {
       router.replace("/login"); // redirect to login if not logged in
-    }
-  }, []);
+    } 
+  }, [router]);
 
   return (
     <div className="grid grid-1 lg:grid-cols-2 2xl:grid-col-3 gap-[5rem]">
