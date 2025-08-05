@@ -16,12 +16,12 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
-  // 🔁 Redirect if already logged in
-  useEffect(() => {
-    if (typeof window !== "undefined" && localStorage.getItem("accessToken")) {
-      router.replace("/Dashboard");
-    }
-  }, [router]);
+  // // 🔁 Redirect if already logged in
+  // useEffect(() => {
+  //   if (typeof window !== "undefined" && localStorage.getItem("accessToken")) {
+  //     router.replace("/");
+  //   }
+  // }, [router]);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -46,7 +46,7 @@ export default function Login() {
       );
 
       localStorage.setItem("accessToken", data.accessToken);
-      localStorage.setItem("refreshToken", data.refreshToken);
+     
       console.log("login success")
       router.push("/");
       console.log("push called")
