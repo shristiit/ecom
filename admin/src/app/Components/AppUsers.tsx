@@ -7,7 +7,7 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import api from "@/lib/api";          // ← use shared instance
-
+import { useRouter } from "next/router";
 const ITEMS_PER_PAGE = 7;
 
 export default function AppUsers() {
@@ -47,6 +47,9 @@ export default function AppUsers() {
             <TableHead>Email</TableHead>
             <TableHead>Role</TableHead>
             <TableHead>Address</TableHead>
+            <Button variant="secondary"
+            className="flex items-center justify-end"
+            onClick={() =>route.push("/createuser")}>Create User</Button>
           </TableRow>
         </TableHeader>
         <TableBody>

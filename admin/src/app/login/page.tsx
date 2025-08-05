@@ -19,7 +19,7 @@ export default function Login() {
   // 🔁 Redirect if already logged in
   useEffect(() => {
     if (typeof window !== "undefined" && localStorage.getItem("accessToken")) {
-      router.replace("/");
+      router.replace("/Dashboard");
     }
   }, [router]);
 

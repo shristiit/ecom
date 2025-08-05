@@ -15,10 +15,11 @@ import axios from "axios";
 
 const Page = () => {
   const [form, setForm] = useState({
+    name:"",
     username: "",
-    // lastName: "",
     email: "",
     password: "",
+    confirmpassword:"",
     role: "",
   });
 
@@ -41,7 +42,7 @@ const Page = () => {
 
   return (
     <div className="flex items-center justify-center h-screen">
-      <Card className="w-full max-w-md">
+      <Card >
         <form onSubmit={submitHandle}>
           <CardHeader>
             <CardTitle>Create User</CardTitle>
@@ -50,8 +51,17 @@ const Page = () => {
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-6">
-            <div className="grid gap-2">
-              <Label htmlFor="username">Username</Label>
+            <div className="flex gap-2">
+              <Label htmlFor="name">Name</Label>
+              <Input
+                id="name"
+                type="text"
+                placeholder="John"
+                value={form.name}
+                onChange={handleChange}
+                required
+              />
+               <Label htmlFor="username">Username</Label>
               <Input
                 id="username"
                 type="text"
@@ -61,17 +71,7 @@ const Page = () => {
                 required
               />
             </div>
-            {/* <div className="grid gap-2">
-              <Label htmlFor="lastName">Last Name</Label>
-              <Input
-                id="lastName"
-                type="text"
-                placeholder="Doe"
-                value={form.lastName}
-                onChange={handleChange}
-                required
-              />
-            </div> */}
+            
             <div className="grid gap-2">
               <Label htmlFor="email">Email</Label>
               <Input
@@ -83,7 +83,7 @@ const Page = () => {
                 required
               />
             </div>
-            <div className="grid gap-2">
+            <div className="flex gap-2">
               <Label htmlFor="password">Password</Label>
               <Input
                 id="password"
@@ -92,16 +92,30 @@ const Page = () => {
                 onChange={handleChange}
                 required
               />
+              <Label htmlFor="confirm password">Confirm Password</Label>
+              <Input
+                id="password"
+                type="password"
+                value={form.confirmpassword}
+                onChange={handleChange}
+                required
+              />
+              
             </div>
             <div className="grid gap-2">
               <Label htmlFor="role">Role</Label>
-              <Input
+              <select 
+                className="border p-2 rounded-md"
                 id="role"
                 type="text"
                 value={form.role}
                 onChange={handleChange}
                 required
-              />
+              >
+                <option>Select Role</option>
+                <option>Admin</option>
+                <option>Users</option>
+              </select>
             </div>
           </CardContent>
           <CardFooter className="flex-col gap-2 m-2">
