@@ -19,7 +19,7 @@ const admin = [authGuard, roleGuard('admin')];
 
 router.post(
   '/create',
-  admin,
+  
   [
     body('sku').isString().trim().isLength({ min: 5, max: 30 }),
     body('name').isString().trim().notEmpty(),
@@ -59,7 +59,7 @@ router.delete(
 );
 
 
-router.get('/list', authGuard, listProducts);
+router.get('/list', listProducts);
 
 
 router.get(
