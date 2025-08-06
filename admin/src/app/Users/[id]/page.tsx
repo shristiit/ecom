@@ -236,22 +236,20 @@ export default function UserDetailsPage() {
         {/* Password section */}
         <section className="space-y-3">
           <h2 className="font-medium">Password</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="opacity-70">
-              <Label>Current password</Label>
-              <Input value="(not retrievable)" readOnly />
-            </div>
+        
             <div>
               <Label htmlFor="newPassword">New password</Label>
               <Input
                 id="newPassword"
-                type="text" // client requirement
+                type="text" 
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
+                pattern=".{6,}"
+                title="Password must be at least 6 characters"
                 placeholder="Leave blank to keep unchanged"
               />
             </div>
-          </div>
+      
         </section>
 
         {/* Store section */}

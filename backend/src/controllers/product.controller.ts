@@ -1,31 +1,29 @@
-import { Request, Response } from 'express';
-import { validationResult } from 'express-validator';
-import Product from '../models/product.model';
-import Media, { IMedia } from '../models/media.model';
-import { Types } from 'mongoose';
+import { Request, Response } from "express";
+import { validationResult } from "express-validator";
+import { isValidObjectId, Types } from "mongoose";
+import Product from "../models/product.model";
+import Media, { IMedia } from "../models/media.model";
 
+// Utility: normalize color to array if provided as comma-separated string
+const normalizeColor = (color: unknown): string[] | undefined => {
+  if (Array.isArray(color)) return color.map(String).map(s => s.trim()).filter(Boolean);
+  if (typeof color === "string") {
+    return color
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+  return undefined;
+};
 
+/** POST /api/products/create */
 export const createProduct = async (req: Request, res: Response) => {
   const errors = validationResult(req);
-  if (!errors.isEmpty())
-    return res.status(400).json({ errors: errors.array() });
-
-  const {
-    sku,
-    name,
-    category,
-    supplier,
-    season,
-    color,
-    wholesalePrice,
-    rrp,
-    description,
-    media: mediaItems = [],
-  } = req.body;
+  if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
 
   try {
-    const product = await Product.create({
-      sku: sku.toUpperCase(),
+    const {
+      sku,
       name,
       category,
       supplier,
@@ -34,9 +32,23 @@ export const createProduct = async (req: Request, res: Response) => {
       wholesalePrice,
       rrp,
       description,
+      media: mediaItems = [],
+    } = req.body;
+
+    const product = await Product.create({
+      sku: String(sku).toUpperCase(),
+      name,
+      category,
+      supplier,
+      season,
+      color: normalizeColor(color) ?? [],
+      wholesalePrice,
+      rrp,
+      description,
       media: [],
     });
 
+    // Optional: attach media by URL from body
     if (Array.isArray(mediaItems) && mediaItems.length > 0) {
       const mediaIds: Types.ObjectId[] = [];
       for (const m of mediaItems) {
@@ -45,53 +57,84 @@ export const createProduct = async (req: Request, res: Response) => {
           url: m.url,
           type: m.type,
           altText: m.altText,
-          order: m.order,
-        } as Omit<IMedia, '_id'>);
+          order: typeof m.order === "number" ? m.order : 0,
+        } as Omit<IMedia, "_id">);
         mediaIds.push(newMedia._id);
       }
       product.media = mediaIds;
       await product.save();
     }
 
-    res.status(201).json(product);
+    const created = await Product.findById(product._id).populate("media");
+    res.status(201).json(created);
   } catch (err: any) {
-    res
-      .status(500)
-      .json({ message: 'Failed to create product', error: err.message });
+    res.status(500).json({ message: "Failed to create product", error: err.message });
   }
 };
 
-export const updateProduct = async (req: Request, res: Response) => {
-  const { sku } = req.params;
-  const errors = validationResult(req);
-  if (!errors.isEmpty())
-    return res.status(400).json({ errors: errors.array() });
+/** GET /api/products/list */
+export const listProducts = async (_req: Request, res: Response) => {
+  try {
+    const products = await Product.find().sort({ createdAt: -1 }).populate("media");
+    res.json(products); // return array (frontend does client-side pagination)
+  } catch (err: any) {
+    res.status(500).json({ message: "Failed to list products", error: err.message });
+  }
+};
 
-  const {
-    name,
-    category,
-    supplier,
-    season,
-    color,
-    wholesalePrice,
-    rrp,
-    description,
-    media: mediaItems = [],
-  } = req.body;
+/** GET /api/products/:id */
+export const getProductById = async (req: Request, res: Response) => {
+  const { id } = req.params;
+  if (!isValidObjectId(id)) return res.status(400).json({ message: "Invalid id" });
 
   try {
-    const product = await Product.findOne({ sku: sku.toUpperCase() });
-    if (!product) return res.status(404).json({ message: 'Product not found' });
+    const product = await Product.findById(id).populate("media");
+    if (!product) return res.status(404).json({ message: "Product not found" });
+    res.json(product);
+  } catch (err: any) {
+    res.status(500).json({ message: "Failed to get product", error: err.message });
+  }
+};
 
+/** PATCH /api/products/:id */
+export const patchProductById = async (req: Request, res: Response) => {
+  const { id } = req.params;
+  if (!isValidObjectId(id)) return res.status(400).json({ message: "Invalid id" });
+
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+
+  try {
+    const {
+      sku,
+      name,
+      category,
+      supplier,
+      season,
+      color,
+      wholesalePrice,
+      rrp,
+      description,
+      media: mediaItems = [],
+    } = req.body;
+
+    const product = await Product.findById(id);
+    if (!product) return res.status(404).json({ message: "Product not found" });
+
+    if (sku) product.sku = String(sku).toUpperCase();
     if (name) product.name = name;
     if (category) product.category = category;
     if (supplier) product.supplier = supplier;
     if (season) product.season = season;
-    if (Array.isArray(color)) product.color = color;
+
+    const normalizedColor = normalizeColor(color);
+    if (normalizedColor) product.color = normalizedColor;
+
     if (wholesalePrice !== undefined) product.wholesalePrice = wholesalePrice;
     if (rrp !== undefined) product.rrp = rrp;
-    if (description) product.description = description;
+    if (description !== undefined) product.description = description;
 
+    // Optionally append media from body (URL entries)
     if (Array.isArray(mediaItems) && mediaItems.length > 0) {
       for (const m of mediaItems) {
         const newMedia = await Media.create({
@@ -99,110 +142,89 @@ export const updateProduct = async (req: Request, res: Response) => {
           url: m.url,
           type: m.type,
           altText: m.altText,
-          order: m.order,
-        } as Omit<IMedia, '_id'>);
+          order: typeof m.order === "number" ? m.order : product.media.length,
+        } as Omit<IMedia, "_id">);
         product.media.push(newMedia._id);
       }
     }
 
     await product.save();
-    res.json(product);
+    const updated = await Product.findById(id).populate("media");
+    res.json(updated);
   } catch (err: any) {
-    res
-      .status(500)
-      .json({ message: 'Failed to update product', error: err.message });
+    res.status(500).json({ message: "Failed to update product", error: err.message });
   }
 };
 
+/** DELETE /api/products/:id */
+export const deleteProductById = async (req: Request, res: Response) => {
+  const { id } = req.params;
+  if (!isValidObjectId(id)) return res.status(400).json({ message: "Invalid id" });
 
-export const deleteProduct = async (req: Request, res: Response) => {
   try {
-    const sku = req.params.sku.toUpperCase();
-    const product = await Product.findOneAndDelete({ sku });
-    if (!product) return res.status(404).json({ message: 'Product not found' });
+    const product = await Product.findByIdAndDelete(id);
+    if (!product) return res.status(404).json({ message: "Product not found" });
     await Media.deleteMany({ productId: product._id });
-    res.status(204).send();
+    res.json({ deleted: true });
   } catch (err: any) {
-    res
-      .status(500)
-      .json({ message: 'Failed to delete product', error: err.message });
+    res.status(500).json({ message: "Failed to delete product", error: err.message });
   }
 };
 
+/** POST /api/products/:id/media/upload */
+export const uploadMediaFilesById = async (req: Request, res: Response) => {
+  const { id } = req.params;
+  if (!isValidObjectId(id)) return res.status(400).json({ message: "Invalid id" });
 
-export const listProducts = async (_req: Request, res: Response) => {
-  try {
-    const products = await Product.find()
-      .sort({ createdAt: -1 })
-      .populate('media');
-    res.json(products);
-  } catch (err: any) {
-    res
-      .status(500)
-      .json({ message: 'Failed to list products', error: err.message });
-  }
-};
-
-
-export const getProductBySku = async (req: Request, res: Response) => {
-  try {
-    const product = await Product.findOne({
-      sku: req.params.sku.toUpperCase(),
-    }).populate('media');
-    if (!product) return res.status(404).json({ message: 'Product not found' });
-    res.json(product);
-  } catch (err: any) {
-    res
-      .status(500)
-      .json({ message: 'Failed to get product', error: err.message });
-  }
-};
-
-
-export const getProductByName = async (req: Request, res: Response) => {
-  try {
-    const name = String(req.params.name);
-    const products = await Product.find({
-      name: new RegExp(name, 'i'),
-    })
-      .sort({ createdAt: -1 })
-      .populate('media');
-    res.json(products);
-  } catch (err: any) {
-    res
-      .status(500)
-      .json({ message: 'Failed to search products', error: err.message });
-  }
-};
-
-
-export const uploadMediaFiles = async (req: Request, res: Response) => {
-  const { sku } = req.params;
-  const product = await Product.findOne({ sku: sku.toUpperCase() });
-  if (!product) return res.status(404).json({ message: 'Product not found' });
+  const product = await Product.findById(id);
+  if (!product) return res.status(404).json({ message: "Product not found" });
 
   const files = req.files as Express.Multer.File[];
-  if (!files || files.length === 0)
-    return res.status(400).json({ message: 'No files uploaded' });
+  if (!files || files.length === 0) return res.status(400).json({ message: "No files uploaded" });
 
   try {
     const created: IMedia[] = [];
     for (const file of files) {
+      // Safety check; multer should also enforce this
+      if (file.size > 5 * 1024 * 1024) {
+        return res.status(413).json({ message: `${file.originalname} exceeds 5MB limit` });
+      }
       const media = await Media.create({
         productId: product._id,
         url: `/static/uploads/${file.filename}`,
-        type: 'image',
+        type: "image",
         altText: file.originalname,
         order: product.media.length + created.length,
-      } as Omit<IMedia, '_id'>);
+      } as Omit<IMedia, "_id">);
       product.media.push(media._id);
       created.push(media);
     }
     await product.save();
     res.status(201).json(created);
   } catch (err: any) {
-    res
-      .status(500)
-      .json({ message: 'Failed to upload media files', error: err.message });
+    res.status(500).json({ message: "Failed to upload media files", error: err.message });
+  }
+};
+
+/** DELETE /api/products/:id/media/:mediaId */
+export const deleteMediaById = async (req: Request, res: Response) => {
+  const { id, mediaId } = req.params;
+  if (!isValidObjectId(id) || !isValidObjectId(mediaId)) {
+    return res.status(400).json({ message: "Invalid id(s)" });
+  }
+
+  try {
+    const product = await Product.findById(id);
+    if (!product) return res.status(404).json({ message: "Product not found" });
+
+    const media = await Media.findOneAndDelete({ _id: mediaId, productId: id });
+    if (!media) return res.status(404).json({ message: "Media not found" });
+
+    product.media = product.media.filter((mId) => mId.toString() !== mediaId);
+    await product.save();
+
+    res.json({ deleted: true });
+  } catch (err: any) {
+    res.status(500).json({ message: "Failed to delete media", error: err.message });
   }
 };
