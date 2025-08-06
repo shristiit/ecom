@@ -49,7 +49,7 @@ export default function ProductsPage() {
     <div className="space-y-4 rounded-lg p-4">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">Products</h1>
-        <Link href="/Products/new">
+        <Link href="/products/new">
           <Button>
             <Plus className="mr-2 h-4 w-4" />
             Create product
@@ -73,7 +73,7 @@ export default function ProductsPage() {
           {visible.map((p) => (
             <TableRow key={p._id} className="hover:bg-gray-50">
               <TableCell>
-                <Link href={`/Products/${p._id}`} className="text-blue-500 hover:underline">
+                <Link href={`/products/${p._id}`} className="text-blue-500 hover:underline">
                   {p.sku}
                 </Link>
               </TableCell>
