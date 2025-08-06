@@ -2,7 +2,6 @@ import { Schema, model, Types } from 'mongoose';
 import bcrypt from 'bcrypt';
 
 export interface IUser {
-  /** Mongo-generated primary key */
   _id: Types.ObjectId;
 
   username: string;
@@ -10,16 +9,36 @@ export interface IUser {
   password_hash: string;
   role: 'admin' | 'customer';
 
-  /** helper added in the schema */
+  storenumber: number;
+  storename?: string;
+  manager?: string;
+  location?: string;
+  address?: string;
+  deliveryaddress?: string;
+  contact?: string;
+  companycontact?: string;
+  vat?: string;
+
   comparePassword(pwd: string): Promise<boolean>;
 }
 
 const UserSchema = new Schema<IUser>(
   {
-    username: { type: String, unique: true, lowercase: true, required: true },
-    email:    { type: String, unique: true, lowercase: true, required: true },
+    username: { type: String, unique: true, lowercase: true, trim: true, required: true },
+    email: { type: String, unique: true, lowercase: true, trim: true, required: true },
     password_hash: { type: String, required: true },
-    role:     { type: String, enum: ['admin', 'customer'], default: 'customer' }
+    role: { type: String, enum: ['admin', 'customer'], default: 'customer' },
+
+    // Store fields (flat)
+    storenumber: { type: Number, required: true, min: 0 }, // set min/max if you need 5 digits
+    storename: { type: String, trim: true },
+    manager: { type: String, trim: true },
+    location: { type: String, trim: true },
+    address: { type: String, trim: true },
+    deliveryaddress: { type: String, trim: true },
+    contact: { type: String, trim: true },
+    companycontact: { type: String, trim: true },
+    vat: { type: String, trim: true },
   },
   { timestamps: true }
 );
