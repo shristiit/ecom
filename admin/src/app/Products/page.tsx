@@ -1,127 +1,107 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
+  Table, TableHeader, TableRow, TableHead, TableBody, TableCell,
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
+import { Plus } from "lucide-react";
+import api from "@/lib/api";
 
-interface Product {
-  _id?: string;
+type Product = {
+  _id: string;
+  sku: string;
   name: string;
-  sku?: string;
-  description?: string;
-  color?: string[];
-  rrp?: number;
-  wholesalePrice?: number;
-  supplier?: string;
   category?: string;
-}
+  supplier?: string;
+  color?: string[];
+  wholesalePrice?: number;
+  rrp?: number;
+};
 
-const Products = () => {
+const ITEMS_PER_PAGE = 15;
+
+export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
-  const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 15;
+  const [page, setPage] = useState(0);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch("http://localhost:4000/api/products/list")
-      .then((res) => res.json())
-      .then((data) => {
-        const productList = Array.isArray(data.products) ? data.products : data;
-        setProducts(productList);
-      })
-      .catch((err) => console.error("Failed to fetch products:", err));
+    (async () => {
+      try {
+        const { data } = await api.get<Product[]>("/api/products/list");
+        const list = Array.isArray((data as any)?.products) ? (data as any).products : data;
+        setProducts(list);
+      } finally {
+        setLoading(false);
+      }
+    })();
   }, []);
 
-  const totalPages = Math.ceil(products.length / itemsPerPage);
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const currentProducts = products.slice(startIndex, startIndex + itemsPerPage);
+  const start = page * ITEMS_PER_PAGE;
+  const visible = products.slice(start, start + ITEMS_PER_PAGE);
+  const totalPages = Math.ceil(products.length / ITEMS_PER_PAGE);
 
-  const goPrev = () => setCurrentPage((p) => Math.max(p - 1, 1));
-  const goNext = () => setCurrentPage((p) => Math.min(p + 1, totalPages));
-  const route = useRouter()
+  if (loading) return <div className="p-4">Loading products…</div>;
+
   return (
-    <div className="p-4 m-2 max-w-7xl mx-auto">
-      <h1 className="text-xl font-semibold text-center border-b-4 mb-4 pb-2">
-        Product Information
-      </h1>
-
-      {/* Create Product Button */}
-      <div className="flex justify-end mb-4">
-        <Link href="/Products/CreateProducts">
-          <Button variant="default" onClick={()=>route.push("/Products/CreateProducts")}>Create Product</Button>
+    <div className="space-y-4 rounded-lg p-4">
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl font-semibold">Products</h1>
+        <Link href="/Products/new">
+          <Button>
+            <Plus className="mr-2 h-4 w-4" />
+            Create product
+          </Button>
         </Link>
       </div>
 
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>Name</TableHead>
             <TableHead>SKU</TableHead>
-            <TableHead>Description</TableHead>
-            <TableHead>Color</TableHead>
-            <TableHead>RRP</TableHead>
-            <TableHead>Wholesale Price</TableHead>
-            <TableHead>Supplier</TableHead>
+            <TableHead>Name</TableHead>
             <TableHead>Category</TableHead>
+            <TableHead>Supplier</TableHead>
+            <TableHead>Color</TableHead>
+            <TableHead>Wholesale</TableHead>
+            <TableHead>RRP</TableHead>
           </TableRow>
         </TableHeader>
-
         <TableBody>
-          {currentProducts.length === 0 ? (
-            <TableRow>
-              <TableCell colSpan={8} className="text-center">
-                No products found.
+          {visible.map((p) => (
+            <TableRow key={p._id} className="hover:bg-gray-50">
+              <TableCell>
+                <Link href={`/Products/${p._id}`} className="text-blue-500 hover:underline">
+                  {p.sku}
+                </Link>
               </TableCell>
+              <TableCell>{p.name}</TableCell>
+              <TableCell>{p.category ?? "—"}</TableCell>
+              <TableCell>{p.supplier ?? "—"}</TableCell>
+              <TableCell>{p.color?.join(", ") ?? "—"}</TableCell>
+              <TableCell>{p.wholesalePrice ?? "—"}</TableCell>
+              <TableCell>{p.rrp ?? "—"}</TableCell>
             </TableRow>
-          ) : (
-            currentProducts.map((prod, index) => (
-              <TableRow key={prod._id || index} className="hover:bg-gray-50">
-                <TableCell>{prod.name}</TableCell>
-                <TableCell>
-                  {prod._id ? (
-                    <Link
-                      href={`/Products/${prod._id}`}
-                      className="text-blue-600 hover:underline"
-                    >
-                      {prod.sku}
-                    </Link>
-                  ) : (
-                    prod.sku
-                  )}
-                </TableCell>
-                <TableCell>{prod.description}</TableCell>
-                <TableCell>{prod.color?.join(", ") || "-"}</TableCell>
-                <TableCell>{prod.rrp ?? "-"}</TableCell>
-                <TableCell>{prod.wholesalePrice ?? "-"}</TableCell>
-                <TableCell>{prod.supplier || "-"}</TableCell>
-                <TableCell>{prod.category || "-"}</TableCell>
-              </TableRow>
-            ))
-          )}
+          ))}
         </TableBody>
       </Table>
 
-      <div className="flex justify-center gap-4 mt-4">
-        <Button onClick={goPrev} disabled={currentPage === 1}>
-          Previous
-        </Button>
-        <span className="flex items-center">
-          Page {currentPage} of {totalPages}
-        </span>
-        <Button onClick={goNext} disabled={currentPage === totalPages}>
-          Next
-        </Button>
-      </div>
+      {totalPages > 1 && (
+        <div className="flex justify-between items-center m-3">
+          <Button onClick={() => setPage((p) => Math.max(p - 1, 0))} disabled={page === 0}>
+            Previous
+          </Button>
+          <span>Page {page + 1} of {totalPages}</span>
+          <Button
+            onClick={() => setPage((p) => Math.min(p + 1, totalPages - 1))}
+            disabled={page >= totalPages - 1}
+          >
+            Next
+          </Button>
+        </div>
+      )}
     </div>
   );
-};
-
-export default Products;
+}
