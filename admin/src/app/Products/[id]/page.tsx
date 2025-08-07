@@ -7,7 +7,7 @@ import api from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/app/Components/textarea"; 
+import { Textarea } from "@/app/Components/textarea";
 import { Trash2 } from "lucide-react";
 
 type Media = {
@@ -163,6 +163,7 @@ export default function ProductDetailsPage() {
       const isVideo = f.type.startsWith("video/");
       if (!isImage && !isVideo) {
         alert(`${f.name}: only images or videos are allowed.`);
+
         return;
       }
       // client-side size checks (server also enforces)
@@ -209,23 +210,43 @@ export default function ProductDetailsPage() {
         <section className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <Label htmlFor="sku">SKU</Label>
-            <Input id="sku" value={form.sku} onChange={(e) => update("sku", e.target.value)} />
+            <Input
+              id="sku"
+              value={form.sku}
+              onChange={(e) => update("sku", e.target.value)}
+            />
           </div>
           <div>
             <Label htmlFor="name">Name</Label>
-            <Input id="name" value={form.name} onChange={(e) => update("name", e.target.value)} />
+            <Input
+              id="name"
+              value={form.name}
+              onChange={(e) => update("name", e.target.value)}
+            />
           </div>
           <div>
             <Label htmlFor="category">Category</Label>
-            <Input id="category" value={form.category ?? ""} onChange={(e) => update("category", e.target.value)} />
+            <Input
+              id="category"
+              value={form.category ?? ""}
+              onChange={(e) => update("category", e.target.value)}
+            />
           </div>
           <div>
             <Label htmlFor="supplier">Supplier</Label>
-            <Input id="supplier" value={form.supplier ?? ""} onChange={(e) => update("supplier", e.target.value)} />
+            <Input
+              id="supplier"
+              value={form.supplier ?? ""}
+              onChange={(e) => update("supplier", e.target.value)}
+            />
           </div>
           <div>
             <Label htmlFor="season">Season</Label>
-            <Input id="season" value={form.season ?? ""} onChange={(e) => update("season", e.target.value)} />
+            <Input
+              id="season"
+              value={form.season ?? ""}
+              onChange={(e) => update("season", e.target.value)}
+            />
           </div>
           <div>
             <Label htmlFor="color">Color(s)</Label>
@@ -236,7 +257,10 @@ export default function ProductDetailsPage() {
               onChange={(e) =>
                 update(
                   "color",
-                  e.target.value.split(",").map((s) => s.trim()).filter(Boolean)
+                  e.target.value
+                    .split(",")
+                    .map((s) => s.trim())
+                    .filter(Boolean)
                 )
               }
             />
@@ -249,7 +273,10 @@ export default function ProductDetailsPage() {
               step="0.01"
               value={form.wholesalePrice ?? ""}
               onChange={(e) =>
-                update("wholesalePrice", e.target.value === "" ? undefined : Number(e.target.value))
+                update(
+                  "wholesalePrice",
+                  e.target.value === "" ? undefined : Number(e.target.value)
+                )
               }
             />
           </div>
@@ -260,7 +287,12 @@ export default function ProductDetailsPage() {
               type="number"
               step="0.01"
               value={form.rrp ?? ""}
-              onChange={(e) => update("rrp", e.target.value === "" ? undefined : Number(e.target.value))}
+              onChange={(e) =>
+                update(
+                  "rrp",
+                  e.target.value === "" ? undefined : Number(e.target.value)
+                )
+              }
             />
           </div>
           <div className="md:col-span-2">
@@ -278,26 +310,63 @@ export default function ProductDetailsPage() {
         <section className="space-y-3">
           <h2 className="font-medium">Media</h2>
 
-          {form.media?.length ? (
-            <div className="grid grid-cols-3 gap-3">
-              {form.media
-                .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-                .map((m) => (
-                  <div key={m._id} className="border rounded p-2 flex flex-col items-center">
-                    {m.type === "video" ? (
-                      <video src={m.url} controls className="w-full h-28 object-cover rounded" />
+          {files && files.length > 0 && (
+            <div className="grid grid-cols-3 gap-2">
+              {Array.from(files).map((file, index) => {
+                const url = URL.createObjectURL(file);
+                const isVideo = file.type.startsWith("video/");
+                return (
+                  <div key={index} className="border rounded p-1">
+                    {isVideo ? (
+                      <video
+                        src={url}
+                        controls
+                        className="w-full h-28 object-cover rounded"
+                      />
                     ) : (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={m.url} alt={m.altText || "image"} className="w-full h-28 object-cover rounded" />
+                      <img
+                        src={url}
+                        alt={file.name}
+                        className="w-full h-28 object-cover rounded"
+                      />
                     )}
-                    <span className="text-xs mt-1 truncate w-full text-center">
-                      {m.altText || m.type}
-                    </span>
                   </div>
-                ))}
+                );
+              })}
             </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">No media yet.</p>
+          )}
+
+          {/* NEW: Uploaded media preview from product data */}
+          {form.media.length > 0 && (
+            <>
+              <h3 className="mt-4 font-semibold">Uploaded Media</h3>
+              <div className="grid grid-cols-3 gap-2">
+                {form.media.map((item) => {
+                  const baseURL = "http://localhost:4000/uploads"; // <-- adjust this to your backend media URL base
+                  // Compose full URL to media item
+                  const mediaUrl = item.url.startsWith("http")
+                    ? item.url
+                    : `${baseURL}${item.url}`;
+                  return (
+                    <div key={item._id} className="border rounded p-1">
+                      {item.type === "video" ? (
+                        <video
+                          src={mediaUrl}
+                          controls
+                          className="w-full h-28 object-cover rounded"
+                        />
+                      ) : (
+                        <img
+                          src={mediaUrl}
+                          alt={item.altText || ""}
+                          className="w-full h-28 object-cover rounded"
+                        />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </>
           )}
 
           <div className="flex items-center gap-2">
@@ -307,10 +376,16 @@ export default function ProductDetailsPage() {
               accept="image/*,video/*"
               onChange={(e) => setFiles(e.target.files)}
             />
-            <Button type="button" onClick={onUpload} disabled={uploading || !files?.length}>
+            <Button
+              type="button"
+              onClick={onUpload}
+              disabled={uploading || !files?.length}
+            >
               {uploading ? "Uploading…" : "Upload"}
             </Button>
-            <span className="text-xs text-muted-foreground">(max 5 files, images ≤ 5MB, videos ≤ 50MB)</span>
+            <span className="text-xs text-muted-foreground">
+              (max 5 files, images ≤ 5MB, videos ≤ 50MB)
+            </span>
           </div>
         </section>
 
@@ -320,10 +395,19 @@ export default function ProductDetailsPage() {
           <Button type="submit" disabled={saving}>
             {saving ? "Saving…" : "Save changes"}
           </Button>
-          <Button type="button" variant="secondary" onClick={() => router.refresh()}>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => router.refresh()}
+          >
             Refresh
           </Button>
-          <Button type="button" variant="destructive" onClick={onDelete} className="ml-auto">
+          <Button
+            type="button"
+            variant="destructive"
+            onClick={onDelete}
+            className="ml-auto"
+          >
             <Trash2 className="h-4 w-4 mr-2" />
             Delete product
           </Button>

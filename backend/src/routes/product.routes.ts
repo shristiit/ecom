@@ -65,7 +65,6 @@ router.delete("/:id", admin, [param("id").isString().notEmpty()], deleteProductB
 // Upload media (by id)
 router.post(
   "/:id/media/upload",
-  admin,
   [param("id").isString().notEmpty()],
   // set file limits in storage (5 files, 5MB each); this is enforced by multer config
   upload.array("file", 5),
@@ -79,5 +78,7 @@ router.delete(
   [param("id").isString().notEmpty(), param("mediaId").isString().notEmpty()],
   deleteMediaById
 );
+
+
 
 export default router;
