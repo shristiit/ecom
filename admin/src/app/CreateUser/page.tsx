@@ -15,23 +15,61 @@ import axios from "axios";
 
 const Page = () => {
   const [form, setForm] = useState({
-    name:"",
+    name: "",
     username: "",
     email: "",
     password: "",
-    confirmpassword:"",
+    confirmpassword: "",
     role: "",
   });
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setForm({
       ...form,
-      [e.target.id]: e.target.value, // use id to match field
+      [e.target.id]: e.target.value,
     });
+    setErrors({
+      ...errors,
+      [e.target.id]: "", // clear error on change
+    });
+  };
+
+  const validateForm = () => {
+    const newErrors: Record<string, string> = {};
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const usernameRegex = /^[a-zA-Z0-9_]{3,16}$/;
+    const passwordRegex = /^(?=.*[A-Z])(?=.*\d)[A-Za-z\d@$!%*?&]{6,}$/;
+
+    if (!form.name.trim()) {
+      newErrors.name = "Name is required.";
+    }
+    if (!usernameRegex.test(form.username)) {
+      newErrors.username = "3–16 chars";
+    }
+    if (!emailRegex.test(form.email)) {
+      newErrors.email = "Invalid email format.";
+    }
+    if (!passwordRegex.test(form.password)) {
+      newErrors.password =
+        "Min 6 chars, 1 uppercase letter & 1 number required.";
+    }
+    if (form.password !== form.confirmpassword) {
+      newErrors.confirmpassword = "Passwords do not match.";
+    }
+    if (!form.role) {
+      newErrors.role = "Please select a role.";
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
   };
 
   const submitHandle = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!validateForm()) return;
+
     try {
       const res = await axios.post("http://localhost:4000/api/auth/register", form);
       alert(res.data.message || "User created");
@@ -41,39 +79,50 @@ const Page = () => {
   };
 
   return (
-    <div className="flex items-center justify-center h-screen">
-      <Card >
+    <div className="flex items-center justify-center h-screen bg-gray-50">
+      <Card className="w-full max-w-2xl bg-white shadow-lg rounded-xl border border-gray-200">
         <form onSubmit={submitHandle}>
-          <CardHeader>
-            <CardTitle>Create User</CardTitle>
-            <CardDescription>
+          <CardHeader className="border-b-4 border-gray-200 pb-4">
+            <CardTitle className="text-2xl font-bold text-center text-gray-800">
+              Create User
+            </CardTitle>
+            <CardDescription className="text-center text-gray-600">
               Enter details below to create a new account
             </CardDescription>
           </CardHeader>
-          <CardContent className="flex flex-col gap-6">
-            <div className="flex gap-2">
-              <Label htmlFor="name">Name</Label>
-              <Input
-                id="name"
-                type="text"
-                placeholder="John"
-                value={form.name}
-                onChange={handleChange}
-                required
-              />
-               <Label htmlFor="username">Username</Label>
-              <Input
-                id="username"
-                type="text"
-                placeholder="John"
-                value={form.username}
-                onChange={handleChange}
-                required
-              />
+
+          <CardContent className="flex flex-col gap-6 mt-4">
+            {/* Name & Username */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="name" className="font-medium">Name</Label>
+                <Input
+                  id="name"
+                  type="text"
+                  placeholder="John"
+                  value={form.name}
+                  onChange={handleChange}
+                  required
+                />
+                {errors.name && <p className="text-sm text-red-500 mt-1">{errors.name}</p>}
+              </div>
+              <div>
+                <Label htmlFor="username" className="font-medium">Username</Label>
+                <Input
+                  id="username"
+                  type="text"
+                  placeholder="john_doe"
+                  value={form.username}
+                  onChange={handleChange}
+                  required
+                />
+                {errors.username && <p className="text-sm text-red-500 mt-1">{errors.username}</p>}
+              </div>
             </div>
-            
-            <div className="grid gap-2">
-              <Label htmlFor="email">Email</Label>
+
+            {/* Email */}
+            <div>
+              <Label htmlFor="email" className="font-medium">Email</Label>
               <Input
                 id="email"
                 type="email"
@@ -82,44 +131,60 @@ const Page = () => {
                 onChange={handleChange}
                 required
               />
+              {errors.email && <p className="text-sm text-red-500 mt-1">{errors.email}</p>}
             </div>
-            <div className="flex gap-2">
-              <Label htmlFor="password">Password</Label>
-              <Input
-                id="password"
-                type="password"
-                value={form.password}
-                onChange={handleChange}
-                required
-              />
-              <Label htmlFor="confirm password">Confirm Password</Label>
-              <Input
-                id="password"
-                type="password"
-                value={form.confirmpassword}
-                onChange={handleChange}
-                required
-              />
-              
+
+            {/* Password & Confirm Password */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="password" className="font-medium">Password</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  placeholder="••••••••"
+                  value={form.password}
+                  onChange={handleChange}
+                  required
+                />
+                {errors.password && <p className="text-sm text-red-500 mt-1">{errors.password}</p>}
+              </div>
+              <div>
+                <Label htmlFor="confirmpassword" className="font-medium">Confirm Password</Label>
+                <Input
+                  id="confirmpassword"
+                  type="password"
+                  placeholder="••••••••"
+                  value={form.confirmpassword}
+                  onChange={handleChange}
+                  required
+                />
+                {errors.confirmpassword && <p className="text-sm text-red-500 mt-1">{errors.confirmpassword}</p>}
+              </div>
             </div>
-            <div className="grid gap-2">
-              <Label htmlFor="role">Role</Label>
-              <select 
-                className="border p-2 rounded-md"
+
+            {/* Role */}
+            <div>
+              <Label htmlFor="role" className="font-medium">Role</Label>
+              <select
                 id="role"
-                type="text"
                 value={form.role}
                 onChange={handleChange}
+                className="border p-2 rounded-md w-full"
                 required
               >
-                <option>Select Role</option>
-                <option>Admin</option>
-                <option>Users</option>
+                <option value="">Select Role</option>
+                <option value="admin">Admin</option>
+                <option value="user">User</option>
               </select>
+              {errors.role && <p className="text-sm text-red-500 mt-1">{errors.role}</p>}
             </div>
           </CardContent>
-          <CardFooter className="flex-col gap-2 m-2">
-            <Button type="submit" className="w-full">
+
+          <CardFooter className="flex-col gap-2 m-4">
+            <Button
+              type="submit"
+              className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold shadow-md transition-all"
+            >
               Create User
             </Button>
           </CardFooter>
