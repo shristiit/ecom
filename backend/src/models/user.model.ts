@@ -29,7 +29,7 @@ const UserSchema = new Schema<IUser>(
     password_hash: { type: String, required: true },
     role: { type: String, enum: ['admin', 'customer'], default: 'customer' },
 
-    // Store fields (flat)
+   
     storenumber: { type: Number, required: true, min: 0 }, // set min/max if you need 5 digits
     storename: { type: String, trim: true },
     manager: { type: String, trim: true },

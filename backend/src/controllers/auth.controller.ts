@@ -5,13 +5,9 @@ import { validationResult } from 'express-validator';
 import User from '../models/user.model';
 import { signTokens, verifyToken } from '../utils/jwt';
 
-/**
- * POST /register
- */
-export const register = async (req: Request, res: Response) => {
-  // Helpful while you test; remove later if you want
-  // console.log('REGISTER body:', JSON.stringify(req.body));
 
+export const register = async (req: Request, res: Response) => {
+ 
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({ errors: errors.array() });
@@ -22,7 +18,7 @@ export const register = async (req: Request, res: Response) => {
   const rawStoreNumber =
     b.storenumber ??
     b.store?.storenumber ??
-    b.storenymber ?? // safety for old typo
+    b.storenymber ?? 
     b.store?.storenymber;
 
   const storenumber = Number(rawStoreNumber);
@@ -55,7 +51,7 @@ export const register = async (req: Request, res: Response) => {
   const payload: any = {
     username,
     email,
-    password_hash: password, // pre('save') will hash this
+    password_hash: password, 
     storenumber,
     storename,
     manager,
@@ -80,9 +76,7 @@ export const register = async (req: Request, res: Response) => {
   }
 };
 
-/**
- * POST /login
- */
+
 export const login = async (req: Request, res: Response) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
@@ -106,9 +100,7 @@ export const login = async (req: Request, res: Response) => {
   res.json(tokens);
 };
 
-/**
- * POST /refresh
- */
+
 export const refresh = async (req: Request, res: Response) => {
   const { refreshToken } = req.body;
   if (!refreshToken) {
@@ -127,34 +119,25 @@ export const refresh = async (req: Request, res: Response) => {
   }
 };
 
-/**
- * GET /me
- */
+
 export const me = async (req: Request, res: Response) => {
   res.json((req as any).user);
 };
 
-/**
- * GET /users
- */
+
 export const listUsers = async (_req: Request, res: Response) => {
   const users = await User.find({}, { password_hash: 0, __v: 0 }).sort({ createdAt: -1 });
   res.json(users);
 };
 
-/**
- * GET /users/:id
- */
+
 export const getUser = async (req: Request, res: Response) => {
   const user = await User.findById(req.params.id).select('-password_hash -__v').lean();
   if (!user) return res.status(404).json({ message: 'Not found' });
   res.json(user);
 };
 
-/**
- * PATCH /users/:id
- * (admin can edit any user; can set new password via "password")
- */
+
 export const updateUser = async (req: Request, res: Response) => {
   const allowed: string[] = [
     'username',
@@ -202,9 +185,7 @@ export const updateUser = async (req: Request, res: Response) => {
   }
 };
 
-/**
- * PATCH /users/password
- */
+
 export const resetPasswordByEmailOrUsername = async (req: Request, res: Response) => {
   const { emailOrUsername, newPassword } = req.body;
 
@@ -229,9 +210,7 @@ export const resetPasswordByEmailOrUsername = async (req: Request, res: Response
   res.status(204).send();
 };
 
-/**
- * DELETE /users/:id
- */
+
 export const deleteUser = async (req: Request, res: Response) => {
   const { id } = req.params;
   if (!mongoose.isValidObjectId(id)) return res.status(400).json({ message: 'Invalid user id' });
