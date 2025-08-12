@@ -8,6 +8,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Plus } from "lucide-react";
 import api from "@/lib/api";
+import { useRouter } from "next/navigation";
 
 type Product = {
   _id: string;
@@ -24,26 +25,31 @@ const ITEMS_PER_PAGE = 15;
 
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
-  const [page, setPage] = useState(0);
+  const [currentPage, setCurrentPage] = useState(0); // start from page 0
   const [loading, setLoading] = useState(true);
+  const router = useRouter();
 
   useEffect(() => {
     (async () => {
       try {
-        const { data } = await api.get<Product[]>("/api/products/list");
-        const list = Array.isArray((data as any)?.products) ? (data as any).products : data;
+        const { data } = await api.get("/api/products/list");
+        const list = Array.isArray(data?.products) ? data.products : data;
         setProducts(list);
+      } catch (error) {
+        console.error("Error fetching products:", error);
       } finally {
         setLoading(false);
       }
     })();
   }, []);
 
-  const start = page * ITEMS_PER_PAGE;
+  const start = currentPage * ITEMS_PER_PAGE;
   const visible = products.slice(start, start + ITEMS_PER_PAGE);
   const totalPages = Math.ceil(products.length / ITEMS_PER_PAGE);
 
-  if (loading) return <div className="p-4">Loading products…</div>;
+  if (loading) {
+    return <div className="p-4">Loading products…</div>;
+  }
 
   return (
     <div className="space-y-4 rounded-lg p-4">
@@ -90,13 +96,18 @@ export default function ProductsPage() {
 
       {totalPages > 1 && (
         <div className="flex justify-between items-center m-3">
-          <Button onClick={() => setPage((p) => Math.max(p - 1, 0))} disabled={page === 0}>
+          <Button
+            onClick={() => setCurrentPage((p) => Math.max(p - 1, 0))}
+            disabled={currentPage === 0}
+          >
             Previous
           </Button>
-          <span>Page {page + 1} of {totalPages}</span>
+          <span>
+            Page {currentPage + 1} of {totalPages}
+          </span>
           <Button
-            onClick={() => setPage((p) => Math.min(p + 1, totalPages - 1))}
-            disabled={page >= totalPages - 1}
+            onClick={() => setCurrentPage((p) => Math.min(p + 1, totalPages - 1))}
+            disabled={currentPage >= totalPages - 1}
           >
             Next
           </Button>
