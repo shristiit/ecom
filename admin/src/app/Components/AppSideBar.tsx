@@ -15,6 +15,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger, DropdownMenuIte
 const AppSideBar = () => {
   const listServices = [
     { id: 1, name: 'Home', route: '/', icon: Home },
+
     { id: 2, name: 'Products', route: '/products', icon: Inbox },
     { id: 3, name: 'Users', route: '/users', icon: Users },
     { id: 4, name: 'Create Store', route: '/CreateStore', icon: Settings },
