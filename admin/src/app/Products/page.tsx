@@ -1,49 +1,51 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
+  Table, TableHeader, TableRow, TableHead, TableBody, TableCell,
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
+import { Plus } from "lucide-react";
+import api from "@/lib/api";
 
-interface Product {
-  _id?: string;
+type Product = {
+  _id: string;
+  sku: string;
   name: string;
-  sku?: string;
-  description?: string;
-  color?: string[];
-  rrp?: number;
-  wholesalePrice?: number;
-  supplier?: string;
   category?: string;
-}
+  supplier?: string;
+  color?: string[];
+  wholesalePrice?: number;
+  rrp?: number;
+};
 
-const Products = () => {
+const ITEMS_PER_PAGE = 15;
+
+export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
+
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 15;
   const route = useRouter();
 
+
   useEffect(() => {
-    fetch("http://localhost:4000/api/products/list")
-      .then((res) => res.json())
-      .then((data) => {
-        const productList = Array.isArray(data.products) ? data.products : data;
-        setProducts(productList);
-      })
-      .catch((err) => console.error("Failed to fetch products:", err));
+    (async () => {
+      try {
+        const { data } = await api.get<Product[]>("/api/products/list");
+        const list = Array.isArray((data as any)?.products) ? (data as any).products : data;
+        setProducts(list);
+      } finally {
+        setLoading(false);
+      }
+    })();
   }, []);
 
-  const totalPages = Math.ceil(products.length / itemsPerPage);
-  const startIndex = (currentPage - 1) * itemsPerPage;
-  const currentProducts = products.slice(startIndex, startIndex + itemsPerPage);
+  const start = page * ITEMS_PER_PAGE;
+  const visible = products.slice(start, start + ITEMS_PER_PAGE);
+  const totalPages = Math.ceil(products.length / ITEMS_PER_PAGE);
+
 
   const goPrev = () => setCurrentPage((p) => Math.max(p - 1, 1));
   const goNext = () => setCurrentPage((p) => Math.min(p + 1, totalPages));
@@ -144,6 +146,4 @@ const Products = () => {
       </div>
     </div>
   );
-};
-
-export default Products;
+}
