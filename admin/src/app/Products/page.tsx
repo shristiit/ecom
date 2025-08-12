@@ -24,8 +24,11 @@ const ITEMS_PER_PAGE = 15;
 
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
-  const [page, setPage] = useState(0);
-  const [loading, setLoading] = useState(true);
+
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 15;
+  const route = useRouter();
+
 
   useEffect(() => {
     (async () => {
@@ -43,65 +46,104 @@ export default function ProductsPage() {
   const visible = products.slice(start, start + ITEMS_PER_PAGE);
   const totalPages = Math.ceil(products.length / ITEMS_PER_PAGE);
 
-  if (loading) return <div className="p-4">Loading products…</div>;
+
+  const goPrev = () => setCurrentPage((p) => Math.max(p - 1, 1));
+  const goNext = () => setCurrentPage((p) => Math.min(p + 1, totalPages));
 
   return (
-    <div className="space-y-4 rounded-lg p-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold">Products</h1>
-        <Link href="/products/new">
-          <Button>
-            <Plus className="mr-2 h-4 w-4" />
-            Create product
-          </Button>
-        </Link>
+    <div className="max-w-7xl mx-auto px-6 py-8 bg-white shadow-lg rounded-xl border border-gray-200">
+      {/* Heading */}
+      <h1 className="text-2xl font-bold text-center text-gray-800 border-b-4 border pb-3 mb-6">
+        Product Information
+      </h1>
+
+      {/* Create Product Button */}
+      <div className="flex justify-end mb-4">
+        <Button
+          className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-md transition-all"
+          onClick={() => route.push("/Products/CreateProducts")}
+        >
+          Create Product
+        </Button>
       </div>
 
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>SKU</TableHead>
-            <TableHead>Name</TableHead>
-            <TableHead>Category</TableHead>
-            <TableHead>Supplier</TableHead>
-            <TableHead>Color</TableHead>
-            <TableHead>Wholesale</TableHead>
-            <TableHead>RRP</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {visible.map((p) => (
-            <TableRow key={p._id} className="hover:bg-gray-50">
-              <TableCell>
-                <Link href={`/products/${p._id}`} className="text-blue-500 hover:underline">
-                  {p.sku}
-                </Link>
-              </TableCell>
-              <TableCell>{p.name}</TableCell>
-              <TableCell>{p.category ?? "—"}</TableCell>
-              <TableCell>{p.supplier ?? "—"}</TableCell>
-              <TableCell>{p.color?.join(", ") ?? "—"}</TableCell>
-              <TableCell>{p.wholesalePrice ?? "—"}</TableCell>
-              <TableCell>{p.rrp ?? "—"}</TableCell>
+      {/* Table */}
+      <div className="overflow-x-auto border rounded-lg shadow-sm">
+        <Table className="w-full border-collapse text-sm">
+          <TableHeader>
+            <TableRow className="bg-gray-100">
+              <TableHead className="text-gray-700 font-semibold">Name</TableHead>
+              <TableHead className="text-gray-700 font-semibold">SKU</TableHead>
+              <TableHead className="text-gray-700 font-semibold">Description</TableHead>
+              <TableHead className="text-gray-700 font-semibold">Color</TableHead>
+              <TableHead className="text-gray-700 font-semibold">RRP</TableHead>
+              <TableHead className="text-gray-700 font-semibold">Wholesale Price</TableHead>
+              <TableHead className="text-gray-700 font-semibold">Supplier</TableHead>
+              <TableHead className="text-gray-700 font-semibold">Category</TableHead>
             </TableRow>
-          ))}
-        </TableBody>
-      </Table>
+          </TableHeader>
 
-      {totalPages > 1 && (
-        <div className="flex justify-between items-center m-3">
-          <Button onClick={() => setPage((p) => Math.max(p - 1, 0))} disabled={page === 0}>
-            Previous
-          </Button>
-          <span>Page {page + 1} of {totalPages}</span>
-          <Button
-            onClick={() => setPage((p) => Math.min(p + 1, totalPages - 1))}
-            disabled={page >= totalPages - 1}
-          >
-            Next
-          </Button>
-        </div>
-      )}
+          <TableBody>
+            {currentProducts.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={8} className="text-center py-6 text-gray-500">
+                  No products found.
+                </TableCell>
+              </TableRow>
+            ) : (
+              currentProducts.map((prod, index) => (
+                <TableRow
+                  key={prod._id || index}
+                  className="hover:bg-indigo-50 transition-colors cursor-pointer"
+                >
+                  <TableCell className="font-medium text-gray-800">{prod.name}</TableCell>
+                  <TableCell>
+                    {prod._id ? (
+                      <Link
+                        href={`/Products/${prod._id}`}
+                        className="text-indigo-600 hover:underline"
+                      >
+                        {prod.sku}
+                      </Link>
+                    ) : (
+                      prod.sku
+                    )}
+                  </TableCell>
+                  <TableCell className="text-gray-700">{prod.description}</TableCell>
+                  <TableCell className="text-gray-700">{prod.color?.join(", ") || "-"}</TableCell>
+                  <TableCell className="text-gray-700">{prod.rrp ?? "-"}</TableCell>
+                  <TableCell className="text-gray-700">{prod.wholesalePrice ?? "-"}</TableCell>
+                  <TableCell className="text-gray-700">{prod.supplier || "-"}</TableCell>
+                  <TableCell className="text-gray-700">{prod.category || "-"}</TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </div>
+
+      {/* Pagination */}
+      <div className="flex justify-center gap-4 mt-6">
+        <Button
+          variant="outline"
+          onClick={goPrev}
+          disabled={currentPage === 1}
+          className="disabled:opacity-50"
+        >
+          Previous
+        </Button>
+        <span className="flex items-center text-gray-700">
+          Page {currentPage} of {totalPages}
+        </span>
+        <Button
+          variant="outline"
+          onClick={goNext}
+          disabled={currentPage === totalPages}
+          className="disabled:opacity-50"
+        >
+          Next
+        </Button>
+      </div>
     </div>
   );
 }
