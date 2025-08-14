@@ -58,12 +58,9 @@ export default function NavBar() {
 
   return (
     <nav className="flex items-center justify-between m-3">
-      <SidebarTrigger />
+      <SidebarTrigger className="mb-2" />
 
       <div className="flex items-center gap-4">
-        <Link href="/">dashboard</Link>
-        <Moon />
-
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Avatar className="cursor-pointer">
@@ -80,18 +77,6 @@ export default function NavBar() {
               {fullName ?? "Loading…"}
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
-
-            <DropdownMenuItem asChild>
-              <Link href="/profile" className="flex gap-2 items-center">
-                <User size={16} /> Profile
-              </Link>
-            </DropdownMenuItem>
-
-            <DropdownMenuItem asChild>
-              <Link href="/settings" className="flex gap-2 items-center">
-                <Settings size={16} /> Settings
-              </Link>
-            </DropdownMenuItem>
 
             <DropdownMenuSeparator />
             <DropdownMenuItem
