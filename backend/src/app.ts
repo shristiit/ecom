@@ -8,12 +8,11 @@ import authRoutes from './routes/auth.routes';
 import productRoutes from './routes/product.routes';
 import { errorHandler } from './middlewares/errorHandler';
 
-// If/when you add the inventory & media modules we discussed, import and mount here:
-// import catalogRoutes from './routes/catalog.routes';
-// import mediaRoutes from './routes/media.routes';
-// import inventoryRoutes from './routes/inventory.routes';
-// import locationsRoutes from './routes/locations.routes';
-// import poRoutes from './routes/po.routes';
+import catalogRoutes from './routes/catalog.routes';
+import mediaRoutes from './routes/media.routes';
+import inventoryRoutes from './routes/inventory.routes';
+import locationsRoutes from './routes/locations.routes';
+import poRoutes from './routes/po.routes';
 
 const app = express();
 
@@ -37,16 +36,16 @@ app.use(
 // Local media storage (works with our media service; change MEDIA_ROOT later when you move to S3/CDN proxy)
 app.use('/media', express.static(process.env.MEDIA_ROOT || '/var/data/media'));
 
-// Routes
+// Routes- old routes 
 app.use('/api/auth', authRoutes);
 app.use('/api/products', productRoutes);
 
-// Optional: mount the extra modules when you add them
-// app.use('/api/catalog', catalogRoutes);
-// app.use('/api/media', mediaRoutes);
-// app.use('/api/inventory', inventoryRoutes);
-// app.use('/api/locations', locationsRoutes);
-// app.use('/api/pos', poRoutes);
+
+app.use('/api/catalog', catalogRoutes);
+app.use('/api/media', mediaRoutes);
+app.use('/api/inventory', inventoryRoutes);
+app.use('/api/locations', locationsRoutes);
+ app.use('/api/pos', poRoutes);
 
 // Healthcheck
 app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));

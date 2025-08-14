@@ -1,14 +1,14 @@
 import { Schema, model, Types, Document } from 'mongoose';
 
 export interface ISizeVariant extends Document<Types.ObjectId> {
-  skuId: Types.ObjectId;             // parent color-level SKU
-  size: string;                      // e.g., S, M, EU 42
-  barcode: string;                   // globally unique
+  skuId: Types.ObjectId;             
+  size: string;                      
+  barcode: string;                   
   qrData?: string;
   priceOverride?: number;
   weight?: { value?: number; unit?: string };
   dimensions?: { l?: number; w?: number; h?: number; unit?: string };
-  media: Types.ObjectId[];           // size-specific media
+  media: Types.ObjectId[];        //size-specific media references
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
