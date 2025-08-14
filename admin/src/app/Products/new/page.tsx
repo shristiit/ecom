@@ -7,22 +7,22 @@ import api from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-// You said you keep Textarea here:
 import { Textarea } from "@/app/Components/textarea"; 
+import { X } from "lucide-react";
 
 export default function NewProductPage() {
   const router = useRouter();
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
+  const [colorInput,setColorInput] = useState("");
+  const [colors,setColors] = useState<string[]>([]);
   const [form, setForm] = useState({
     sku: "",
     name: "",
     category: "",
     supplier: "",
     season: "",
-    color: "",
     wholesalePrice: "" as number | string,
     rrp: "" as number | string,
     description: "",
@@ -43,12 +43,9 @@ export default function NewProductPage() {
       name: form.name,
       description: form.description,
       category: form.category || undefined,
+      color: colors,
       supplier: form.supplier || undefined,
       season: form.season || undefined,
-      color: String(form.color || "")
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean),
       wholesalePrice: form.wholesalePrice === "" ? undefined : Number(form.wholesalePrice),
       rrp: form.rrp === "" ? undefined : Number(form.rrp),
     };
@@ -143,12 +140,33 @@ export default function NewProductPage() {
           </div>
           <div>
             <Label htmlFor="color">Color(s)</Label>
+            <div className="flex gap-2">
             <Input
               id="color"
               placeholder="comma separated"
-              value={form.color}
-              onChange={(e) => update("color", e.target.value)}
+              value={colorInput}
+              onChange={(e) => setColorInput(e.target.value)}
             />
+            <Button variant="secondary"
+            onClick={()=>{
+              const newColor = colorInput.trim() 
+              if (newColor && !colors.includes(newColor)) {
+        setColors([...colors, newColor]);
+        setColorInput("");
+      }
+      console.log(colors)
+            }}
+            >Add</Button>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {colors.map((list,index) =>(
+                <span key={index} className="bg-blue-200 rounded-lg flex items-center justify-between p-3 gap-2">{list}
+                <button onClick={() =>{
+                  setColors(colors.filter(c => c!==list))
+                }}><X /></button>
+                </span>
+              ))}
+            </div>
           </div>
           <div>
             <Label htmlFor="wholesalePrice">Wholesale</Label>
