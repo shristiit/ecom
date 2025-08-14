@@ -73,7 +73,7 @@ export default function ProductsPage() {
       <div className="flex justify-end mb-4">
         <Button
           className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-md transition-all"
-          onClick={() => router.push("/products/new")}
+          onClick={() => router.push("/Products/new")}
         >
           <Plus className="mr-2 h-4 w-4" />
           Create product
