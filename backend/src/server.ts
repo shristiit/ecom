@@ -1,44 +1,34 @@
-import express from 'express';
-import cors from 'cors';
-import morgan from 'morgan';
+// src/server.ts
+import 'dotenv/config';
+import app from './app';
 import { connectDB } from './config/db';
 import { PORT } from './config/env';
-import authRoutes from './routes/auth.routes';
-import productRoutes from './routes/product.routes';
-import { errorHandler } from './middlewares/errorHandler';
-import path from 'path';
 
-const app = express();
+const port = Number(PORT || process.env.PORT || 4000);
 
-// Middleware
-app.use(cors({ origin: 'http://localhost:3000', credentials: true }));
-app.use(express.json());
-app.use(morgan('dev'));
+async function start() {
+  try {
+    await connectDB();
+    const server = app.listen(port, () => {
+      console.log(`Server running on http://localhost:${port}`);
+    });
 
-app.use(
-  '/static/uploads',
-  express.static(path.join(process.cwd(), 'uploads'), {
-    maxAge: '30d',     
-  })
-);
-
-// Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/products',productRoutes);
-
-// Healthcheck
-app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
-
-// Error handler
-app.use(errorHandler);
-
-const start = async () => {
-  await connectDB();
-  app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-  });
-};
-
-
+    // Graceful shutdown (optional)
+    const shutdown = (signal: string) => {
+      console.log(`${signal} received. Shutting down...`);
+      server.close(() => {
+        console.log('HTTP server closed.');
+        process.exit(0);
+      });
+      // Force exit if not closed in time
+      setTimeout(() => process.exit(1), 10_000);
+    };
+    process.on('SIGINT', () => shutdown('SIGINT'));
+    process.on('SIGTERM', () => shutdown('SIGTERM'));
+  } catch (err) {
+    console.error('Failed to start server:', err);
+    process.exit(1);
+  }
+}
 
 start();
