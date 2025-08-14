@@ -30,9 +30,11 @@ const ITEMS_PER_PAGE = 15;
 
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
+
   const [currentPage, setCurrentPage] = useState(0);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
+
 
   useEffect(() => {
     (async () => {
@@ -52,13 +54,16 @@ export default function ProductsPage() {
   const visible = products.slice(start, start + ITEMS_PER_PAGE);
   const totalPages = Math.ceil(products.length / ITEMS_PER_PAGE);
 
+
   if (loading) {
     return <div className="p-6 text-lg font-medium">Loading products…</div>;
   }
 
+
   return (
     <div className="max-w-7xl mx-auto px-6 py-8 bg-white shadow-lg rounded-xl border border-gray-200">
       {/* Heading */}
+
       <div className="flex items-center justify-between">
       <h1 className="text-2xl font-bold mb-6">
         Products
@@ -74,10 +79,12 @@ export default function ProductsPage() {
           Create product
         </Button>
       </div>
+
       </div>
 
       {/* Table */}
       <div className="overflow-x-auto border rounded-lg shadow-sm">
+
         <Table>
           <TableHeader>
             <TableRow className="bg-gray-100">
@@ -144,6 +151,7 @@ export default function ProductsPage() {
           </Button>
         </div>
       )}
+
     </div>
   );
 }
