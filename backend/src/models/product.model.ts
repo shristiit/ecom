@@ -1,58 +1,34 @@
-import { Schema, model, Types, Document, Model } from 'mongoose';
+import { Schema, model, Document, Types } from 'mongoose';
 
-export interface IProduct extends Document<Types.ObjectId> {
-  sku: string;
-  name: string;
-  category?: string;
-  supplier?: string;
-  season?: string;
-  color?: string[];
-  wholesalePrice?: number;
-  rrp?: number;
-  description: string;
-  media: Types.ObjectId[];
-  createdAt: Date;
-  updatedAt: Date;
+export type ProductStatus = 'active' | 'inactive' | 'draft' | 'archived';
+
+export interface ProductDoc extends Document {
+  styleNumber: string;      // unique product-level style number
+  title: string;
+  description?: string;
+  price: number;            // base/list price (use cents to avoid float drift)
+  attributes?: Record<string, any>; // brand, category, etc.
+  status: ProductStatus;    // active/inactive for sales gating
+  isDeleted: boolean;
+  createdBy?: Types.ObjectId;
+  updatedBy?: Types.ObjectId;
 }
 
-interface ProductModel extends Model<IProduct> {
-  build(attrs: Omit<IProduct, '_id' | 'media' | 'createdAt' | 'updatedAt'>): Promise<IProduct>;
-}
-
-const ProductSchema = new Schema<IProduct, ProductModel>(
+const ProductSchema = new Schema<ProductDoc>(
   {
-    sku: {
-      type: String,
-      required: true,
-      uppercase: true,
-      trim: true,
-      minlength: 5,
-      maxlength: 30,
-    },
-    name: { type: String, required: true, trim: true },
-    category: { type: String, trim: true },
-    supplier: { type: String, trim: true },
-    season:   { type: String, trim: true },
-    color:    { type: [String], default: [] },
-    wholesalePrice: { type: Number, min: 0 },
-    rrp:           { type: Number, min: 0 },
-    description:   { type: String, required: true, trim: true },
-    media:         [{ type: Schema.Types.ObjectId, ref: 'Media' }],
+    styleNumber: { type: String, required: true, unique: true, index: true },
+    title:       { type: String, required: true, index: true },
+    description: { type: String },
+    price:       { type: Number, required: true, min: 0 },
+    attributes:  { type: Schema.Types.Mixed },
+    status:      { type: String, enum: ['active','inactive','draft','archived'], default: 'draft', index: true },
+    isDeleted:   { type: Boolean, default: false, index: true },
+    createdBy:   { type: Schema.Types.ObjectId, ref: 'User' },
+    updatedBy:   { type: Schema.Types.ObjectId, ref: 'User' },
   },
-  {
-    timestamps: true,
-    versionKey: false,
-    toJSON:   { getters: true, virtuals: true },
-    toObject: {getters: true, virtuals: true },
-  }
+  { timestamps: true }
 );
 
-ProductSchema.index({ sku: 1 }, { unique: true });
-ProductSchema.index({ name: 1 });
+ProductSchema.index({ title: 'text', description: 'text' });
 
-
-ProductSchema.statics.build = function (attrs) {
-  return this.create(attrs);
-};
-
-export default model<IProduct, ProductModel>('Product', ProductSchema);
+export default model<ProductDoc>('Product', ProductSchema);

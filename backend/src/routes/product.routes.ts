@@ -1,84 +1,24 @@
-import { Router } from "express";
-import { body, param } from "express-validator";
-import {
-  createProduct,
-  listProducts,
-  getProductById,
-  patchProductById,
-  deleteProductById,
-  uploadMediaFilesById,
-  deleteMediaById,
-} from "../controllers/product.controller";
-import { authGuard } from "../middlewares/authGaurd";
-import { roleGuard } from "../middlewares/roleGaurd";
-import { upload } from "../config/storage"; // multer instance with limits
+import { Router } from 'express';
+import * as ctrl from '../controllers/product.controller';
 
-const router = Router();
-const admin = [authGuard, roleGuard("admin")];
+const r = Router();
 
-// Create
-router.post(
-  "/create",
-  admin,
-  [
-    body("sku").isString().trim().isLength({ min: 5, max: 30 }),
-    body("name").isString().trim().notEmpty(),
-    body("description").isString().trim().notEmpty(),
-    body("wholesalePrice").optional().isFloat({ min: 0 }),
-    body("rrp").optional().isFloat({ min: 0 }),
-    body("color").optional().customSanitizer((v) => v).custom((v) => Array.isArray(v) || typeof v === "string"),
-    body("media").optional().isArray(),
-    body("media.*.url").optional().isString(),
-    body("media.*.type").optional().isIn(["image", "video"]),
-  ],
-  createProduct
-);
+// Public create: product + variants + sizes
+r.post('/', ctrl.createProductDeep);
 
-// List (public or add authGuard if you prefer)
-router.get("/list", listProducts);
+// Public reads
+r.get('/', ctrl.listProducts);
+r.get('/:id', ctrl.getProductDeep);
 
-// Read by id
-router.get("/:id", authGuard, [param("id").isString().notEmpty()], getProductById);
+// (Optional) keep these public during dev only; lock down later
+r.patch('/:id', ctrl.updateProduct);
+r.post('/:id/status', ctrl.setProductStatus);
+r.post('/:id/variants', ctrl.addVariant);
+r.patch('/variants/:variantId', ctrl.updateVariant);
+r.delete('/variants/:variantId', ctrl.deleteVariantCascadeArchive);
+r.post('/variants/:variantId/sizes', ctrl.addSize);
+r.patch('/sizes/:sizeId', ctrl.updateSize);
+r.delete('/sizes/:sizeId', ctrl.deleteSizeArchive);
+r.delete('/:id', ctrl.deleteProductCascadeArchive);
 
-// Patch by id
-router.patch(
-  "/:id",
-  admin,
-  [
-    param("id").isString().notEmpty(),
-    body("sku").optional().isString().trim().isLength({ min: 5, max: 30 }),
-    body("name").optional().isString().trim(),
-    body("description").optional().isString().trim(),
-    body("wholesalePrice").optional().isFloat({ min: 0 }),
-    body("rrp").optional().isFloat({ min: 0 }),
-    body("color").optional().customSanitizer((v) => v).custom((v) => Array.isArray(v) || typeof v === "string"),
-    body("media").optional().isArray(),
-    body("media.*.url").optional().isString(),
-    body("media.*.type").optional().isIn(["image", "video"]),
-  ],
-  patchProductById
-);
-
-// Delete by id
-router.delete("/:id", admin, [param("id").isString().notEmpty()], deleteProductById);
-
-// Upload media (by id)
-router.post(
-  "/:id/media/upload",
-  [param("id").isString().notEmpty()],
-  // set file limits in storage (5 files, 5MB each); this is enforced by multer config
-  upload.array("file", 5),
-  uploadMediaFilesById
-);
-
-// Delete a media item
-router.delete(
-  "/:id/media/:mediaId",
-  admin,
-  [param("id").isString().notEmpty(), param("mediaId").isString().notEmpty()],
-  deleteMediaById
-);
-
-
-
-export default router;
+export default r;
