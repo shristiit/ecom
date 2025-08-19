@@ -1,418 +1,457 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useParams, useRouter } from "next/navigation";
 import api from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/app/Components/textarea";
-import { Trash2 } from "lucide-react";
 
-type Media = {
+type Size = {
   _id: string;
-  url: string;
-  type: "image" | "video";
-  altText?: string;
-  order?: number;
+  label: string;
+  barcode: string;
+  totalQuantity?: number;
+  reservedTotal?: number;
+  sellableQuantity?: number;
 };
 
-type ProductDto = {
+type Variant = {
   _id: string;
   sku: string;
-  name: string;
-  category?: string;
-  supplier?: string;
-  season?: string;
-  color?: string[];
-  wholesalePrice?: number;
-  rrp?: number;
-  description?: string;
-  media: Media[];
+  status?: "active" | "inactive";
+  color?: { name?: string; code?: string };
+  sizes?: Size[];
 };
 
+type ProductDeep = {
+  _id: string;
+  styleNumber: string;
+  title: string;
+  description?: string;
+  price: number; // minor units (pence)
+  status: "active" | "inactive" | "draft" | "archived";
+  attributes?: Record<string, any>;
+  variants?: Variant[];
+};
+
+const PRODUCT_STATUSES: ProductDeep["status"][] = ["active", "inactive", "draft", "archived"];
+const VARIANT_STATUSES: NonNullable<Variant["status"]>[] = ["active", "inactive"];
+
+function poundsFromMinor(minor?: number) {
+  if (typeof minor !== "number") return "";
+  return (minor / 100).toFixed(2);
+}
+function minorFromPounds(s: string) {
+  const n = Number(s);
+  if (Number.isNaN(n)) return undefined;
+  return Math.round(n * 100);
+}
+
 export default function ProductDetailsPage() {
-  const params = useParams<{ id: string }>();
-  const id = (params?.id || "") as string;
+  const { id } = useParams<{ id: string }>();
   const router = useRouter();
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
 
-  const [form, setForm] = useState<ProductDto>({
-    _id: "",
+  // product fields
+  const [styleNumber, setStyleNumber] = useState("");
+  const [title, setTitle] = useState("");
+  const [desc, setDesc] = useState("");
+  const [pricePounds, setPricePounds] = useState(""); // UI in pounds
+  const [status, setStatus] = useState<ProductDeep["status"]>("draft");
+  const [attributes, setAttributes] = useState<Record<string, string>>({});
+
+  // variants (editable)
+  const [variants, setVariants] = useState<Variant[]>([]);
+  const [addingVariant, setAddingVariant] = useState(false);
+  const [newVariant, setNewVariant] = useState<{ sku: string; colorName: string; colorCode: string; status: "active"|"inactive" }>({
     sku: "",
-    name: "",
-    category: "",
-    supplier: "",
-    season: "",
-    color: [],
-    wholesalePrice: undefined,
-    rrp: undefined,
-    description: "",
-    media: [],
+    colorName: "",
+    colorCode: "",
+    status: "active",
   });
 
-  const [files, setFiles] = useState<FileList | null>(null);
+  // Load product (deep)
+  async function refreshProduct() {
+    setLoading(true);
+    setErr(null);
+    try {
+      const { data } = await api.get<ProductDeep>(`/api/products/${id}`);
+      setStyleNumber(data.styleNumber || "");
+      setTitle(data.title || "");
+      setDesc(data.description || "");
+      setPricePounds(poundsFromMinor(data.price));
+      setStatus(data.status || "draft");
 
-  const update = (k: keyof ProductDto, v: any) =>
-    setForm((f) => ({ ...f, [k]: v }));
+      const attrs: Record<string, string> = {};
+      if (data.attributes && typeof data.attributes === "object") {
+        Object.entries(data.attributes).forEach(([k, v]) => { attrs[k] = v != null ? String(v) : ""; });
+      }
+      setAttributes(attrs);
+
+      setVariants(data.variants || []);
+    } catch (e: any) {
+      setErr(e?.response?.data?.message || "Failed to load product.");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   useEffect(() => {
     if (!id) return;
-    (async () => {
-      try {
-        setLoading(true);
-        const { data } = await api.get<ProductDto>(`/api/products/${id}`);
-        setForm(data);
-      } catch (err: any) {
-        if (err.response?.status === 401) {
-          window.location.href = "/login";
-        } else if (err.response?.status === 403) {
-          setError("You don't have permission to view this product.");
-        } else if (err.response?.status === 404) {
-          setError("Product not found.");
-        } else {
-          setError("Failed to load product.");
-          console.error(err);
-        }
-      } finally {
-        setLoading(false);
-      }
-    })();
+    refreshProduct();
   }, [id]);
 
-  const onSave = async (e: React.FormEvent) => {
+  const attrPairs = useMemo(() => Object.entries(attributes), [attributes]);
+
+  function addAttrRow() {
+    let i = 1;
+    let key = "key";
+    while (attributes[key]) { i += 1; key = `key${i}`; }
+    setAttributes((a) => ({ ...a, [key]: "" }));
+  }
+  function updateAttrKey(oldKey: string, newKey: string) {
+    if (!newKey || newKey === oldKey) return;
+    setAttributes((attrs) => {
+      const next: Record<string, string> = {};
+      Object.entries(attrs).forEach(([k, v]) => {
+        if (k === oldKey) next[newKey] = v;
+        else next[k] = v;
+      });
+      return next;
+    });
+  }
+  function updateAttrVal(k: string, v: string) {
+    setAttributes((a) => ({ ...a, [k]: v }));
+  }
+  function removeAttr(k: string) {
+    setAttributes((a) => {
+      const { [k]: _, ...rest } = a;
+      return rest;
+    });
+  }
+
+  async function onSaveProduct(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
-    setError(null);
-
-    const payload: any = {
-      sku: form.sku,
-      name: form.name,
-      category: form.category || undefined,
-      supplier: form.supplier || undefined,
-      season: form.season || undefined,
-      color: Array.isArray(form.color)
-        ? form.color
-        : String(form.color || "")
-            .split(",")
-            .map((s) => s.trim())
-            .filter(Boolean),
-      wholesalePrice: form.wholesalePrice ?? undefined,
-      rrp: form.rrp ?? undefined,
-      description: form.description ?? undefined,
-    };
-
+    setErr(null);
     try {
-      const { data } = await api.patch(`/api/products/${id}`, payload);
-      setForm(data);
-      alert("Product saved ✅");
-    } catch (err: any) {
-      if (err.response?.status === 400) {
-        setError("Validation failed. Check your inputs.");
-      } else if (err.response?.status === 401) {
-        window.location.href = "/login";
-      } else if (err.response?.status === 403) {
-        setError("You don't have permission to edit this product.");
-      } else {
-        setError("Failed to save product.");
-        console.error(err);
+      const cleanAttrs: Record<string, any> = {};
+      for (const [k, v] of Object.entries(attributes)) {
+        if (!k.trim()) continue;
+        cleanAttrs[k.trim()] = v;
       }
+      const payload: Partial<ProductDeep> = {
+        styleNumber: styleNumber.trim(),
+        title: title.trim(),
+        description: desc,
+        status,
+        attributes: cleanAttrs,
+      };
+      const cents = minorFromPounds(pricePounds);
+      if (typeof cents === "number") payload.price = cents;
+
+      const { data } = await api.patch(`/api/products/${id}`, payload);
+      setStyleNumber(data.styleNumber || payload.styleNumber || "");
+      setTitle(data.title || payload.title || "");
+      setDesc(data.description || payload.description || "");
+      setStatus(data.status || payload.status || "draft");
+      setPricePounds(poundsFromMinor(data.price ?? cents));
+      alert("Saved ✅");
+    } catch (e: any) {
+      setErr(e?.response?.data?.message || "Failed to save product.");
     } finally {
       setSaving(false);
     }
-  };
+  }
 
-  const onDelete = async () => {
-    if (!window.confirm("Delete this product? This cannot be undone.")) return;
+  async function onDeleteProduct() {
+    if (!confirm("Archive this product (and its variants & sizes)?")) return;
     try {
       const { data } = await api.delete(`/api/products/${id}`);
-      if (!data?.deleted) {
-        setError("Delete API responded but did not confirm deletion.");
-        return;
-      }
-      alert("Product deleted.");
-      router.replace("/products");
-    } catch (err: any) {
-      if (err.response?.status === 401) {
-        window.location.href = "/login";
-      } else if (err.response?.status === 403) {
-        setError("You don't have permission to delete this product.");
-      } else if (err.response?.status === 404) {
-        setError("Product already deleted.");
+      if (data?.deleted || data?.ok || true) {
+        alert("Product archived.");
         router.replace("/products");
-      } else {
-        setError("Failed to delete product.");
-        console.error(err);
       }
+    } catch (e: any) {
+      setErr(e?.response?.data?.message || "Failed to delete product.");
     }
-  };
+  }
 
-  const onUpload = async () => {
-    if (!files || files.length === 0) return;
+  // ------- VARIANT EDIT HELPERS -------
 
-    const selected = Array.from(files).slice(0, 5);
-    const formData = new FormData();
+  function updateVariantLocal(vId: string, patch: Partial<Variant>) {
+    setVariants(prev => prev.map(v => v._id === vId ? { ...v, ...patch, color: { ...(v.color || {}), ...(patch.color || {}) } } : v));
+  }
 
-    for (const f of selected) {
-      const isImage = f.type.startsWith("image/");
-      const isVideo = f.type.startsWith("video/");
-      if (!isImage && !isVideo) {
-        alert(`${f.name}: only images or videos are allowed.`);
-
-        return;
-      }
-      // client-side size checks (server also enforces)
-      if (isImage && f.size > 5 * 1024 * 1024) {
-        alert(`${f.name} is larger than 5MB (image limit).`);
-        return;
-      }
-      if (isVideo && f.size > 50 * 1024 * 1024) {
-        alert(`${f.name} is larger than 50MB (video limit).`);
-        return;
-      }
-      formData.append("file", f);
-    }
-
+  async function saveVariant(v: Variant) {
     try {
-      setUploading(true);
-      await api.post(`/api/products/${id}/media/upload`, formData, {
-        headers: { "Content-Type": "multipart/form-data" },
+      const payload: Partial<Variant> = {
+        sku: v.sku,
+        status: (v.status as any) || "active",
+        color: { name: v.color?.name || "", code: v.color?.code || undefined },
+      };
+      const { data } = await api.patch(`/api/products/variants/${v._id}`, payload);
+      // reflect canonicalized server response if any
+      updateVariantLocal(v._id, {
+        sku: data.sku ?? payload.sku ?? v.sku,
+        status: data.status ?? payload.status ?? v.status,
+        color: data.color ?? payload.color ?? v.color,
       });
-      const { data } = await api.get<ProductDto>(`/api/products/${id}`);
-      setForm(data);
-      setFiles(null);
-    } catch (err) {
-      alert("Media upload failed.");
-    } finally {
-      setUploading(false);
+    } catch (e: any) {
+      alert(e?.response?.data?.message || "Failed to save variant.");
     }
-  };
+  }
 
-  if (loading) return <div className="p-4">Loading product…</div>;
-  if (error) return <div className="p-4 text-red-600">{error}</div>;
+  async function deleteVariant(vId: string) {
+    if (!confirm("Delete this variant? Its sizes will be archived too.")) return;
+    try {
+      await api.delete(`/api/products/variants/${vId}`);
+      setVariants(prev => prev.filter(v => v._id !== vId));
+    } catch (e: any) {
+      alert(e?.response?.data?.message || "Failed to delete variant.");
+    }
+  }
+
+  async function addVariant() {
+    if (!newVariant.sku.trim() || !newVariant.colorName.trim()) {
+      alert("SKU and Color name are required.");
+      return;
+    }
+    try {
+      const payload = {
+        sku: newVariant.sku.trim(),
+        color: { name: newVariant.colorName.trim(), code: newVariant.colorCode.trim() || undefined },
+        media: [],
+        status: newVariant.status,
+      };
+      const { data } = await api.post(`/api/products/${id}/variants`, payload);
+      // refresh full product to pull sizes etc.
+      await refreshProduct();
+      setNewVariant({ sku: "", colorName: "", colorCode: "", status: "active" });
+      setAddingVariant(false);
+    } catch (e: any) {
+      alert(e?.response?.data?.message || "Failed to add variant.");
+    }
+  }
+
+   if (loading) return <div className="p-4">Loading…</div>;
+  if (err) return <div className="p-4 text-red-600">{err}</div>;
 
   return (
-    <div className="p-4 space-y-6 max-w-3xl">
+    <div className="p-4 space-y-8 max-w-5xl">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">Edit Product</h1>
-        <Link href="/products" className="underline">
-          Back to Products
-        </Link>
+        <Link href="/products" className="underline">Back to Products</Link>
       </div>
 
-      <form onSubmit={onSave} className="space-y-6">
-        {/* Fields */}
-        <section className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {/* Product core form */}
+      <form onSubmit={onSaveProduct} className="space-y-8">
+        <section className="grid grid-cols-1 md:grid-cols-2 gap-4 border rounded p-4">
           <div>
-            <Label htmlFor="sku">SKU</Label>
-            <Input
-              id="sku"
-              value={form.sku}
-              onChange={(e) => update("sku", e.target.value)}
-            />
+            <Label>Style number</Label>
+            <Input value={styleNumber} onChange={(e) => setStyleNumber(e.target.value)} required />
           </div>
           <div>
-            <Label htmlFor="name">Name</Label>
-            <Input
-              id="name"
-              value={form.name}
-              onChange={(e) => update("name", e.target.value)}
-            />
+            <Label>Title</Label>
+            <Input value={title} onChange={(e) => setTitle(e.target.value)} required />
           </div>
+
           <div>
-            <Label htmlFor="category">Category</Label>
+            <Label>Price (GBP)</Label>
             <Input
-              id="category"
-              value={form.category ?? ""}
-              onChange={(e) => update("category", e.target.value)}
-            />
-          </div>
-          <div>
-            <Label htmlFor="supplier">Supplier</Label>
-            <Input
-              id="supplier"
-              value={form.supplier ?? ""}
-              onChange={(e) => update("supplier", e.target.value)}
-            />
-          </div>
-          <div>
-            <Label htmlFor="season">Season</Label>
-            <Input
-              id="season"
-              value={form.season ?? ""}
-              onChange={(e) => update("season", e.target.value)}
-            />
-          </div>
-          <div>
-            <Label htmlFor="color">Color(s)</Label>
-            <Input
-              id="color"
-              placeholder="comma separated (e.g., Red, Blue)"
-              value={Array.isArray(form.color) ? form.color.join(", ") : ""}
-              onChange={(e) =>
-                update(
-                  "color",
-                  e.target.value
-                    .split(",")
-                    .map((s) => s.trim())
-                    .filter(Boolean)
-                )
-              }
-            />
-          </div>
-          <div>
-            <Label htmlFor="wholesalePrice">Wholesale</Label>
-            <Input
-              id="wholesalePrice"
               type="number"
               step="0.01"
-              value={form.wholesalePrice ?? ""}
-              onChange={(e) =>
-                update(
-                  "wholesalePrice",
-                  e.target.value === "" ? undefined : Number(e.target.value)
-                )
-              }
+              value={pricePounds}
+              onChange={(e) => setPricePounds(e.target.value)}
+              placeholder="e.g. 79.99"
             />
           </div>
+
           <div>
-            <Label htmlFor="rrp">RRP</Label>
-            <Input
-              id="rrp"
-              type="number"
-              step="0.01"
-              value={form.rrp ?? ""}
-              onChange={(e) =>
-                update(
-                  "rrp",
-                  e.target.value === "" ? undefined : Number(e.target.value)
-                )
-              }
-            />
-          </div>
-          <div className="md:col-span-2">
-            <Label htmlFor="description">Description</Label>
-            <Textarea
-              id="description"
-              rows={4}
-              value={form.description ?? ""}
-              onChange={(e) => update("description", e.target.value)}
-            />
-          </div>
-        </section>
-
-        {/* Media */}
-        <section className="space-y-3">
-          <h2 className="font-medium">Media</h2>
-
-          {files && files.length > 0 && (
-            <div className="grid grid-cols-3 gap-2">
-              {Array.from(files).map((file, index) => {
-                const url = URL.createObjectURL(file);
-                const isVideo = file.type.startsWith("video/");
-                return (
-                  <div key={index} className="border rounded p-1">
-                    {isVideo ? (
-                      <video
-                        src={url}
-                        controls
-                        className="w-full h-28 object-cover rounded"
-                      />
-                    ) : (
-                      <img
-                        src={url}
-                        alt={file.name}
-                        className="w-full h-28 object-cover rounded"
-                      />
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          {/* NEW: Uploaded media preview from product data */}
-          {form.media.length > 0 && (
-            <>
-              <h3 className="mt-4 font-semibold">Uploaded Media</h3>
-              <div className="grid grid-cols-3 gap-2">
-                {form.media.map((item) => {
-                  const baseURL = "http://localhost:4000/uploads"; // <-- adjust this to your backend media URL base
-                  // Compose full URL to media item
-                  const mediaUrl = item.url.startsWith("http")
-                    ? item.url
-                    : `${baseURL}${item.url}`;
-                  return (
-                    <div key={item._id} className="border rounded p-1">
-                      {item.type === "video" ? (
-                        <video
-                          src={mediaUrl}
-                          controls
-                          className="w-full h-28 object-cover rounded"
-                        />
-                      ) : (
-                        <img
-                          src={mediaUrl}
-                          alt={item.altText || ""}
-                          className="w-full h-28 object-cover rounded"
-                        />
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </>
-          )}
-
-          <div className="flex items-center gap-2">
-            <Input
-              type="file"
-              multiple
-              accept="image/*,video/*"
-              onChange={(e) => setFiles(e.target.files)}
-            />
-            <Button
-              type="button"
-              onClick={onUpload}
-              disabled={uploading || !files?.length}
+            <Label>Status</Label>
+            <select
+              className="w-full h-10 border rounded px-3"
+              value={status}
+              onChange={(e) => setStatus(e.target.value as ProductDeep["status"])}
             >
-              {uploading ? "Uploading…" : "Upload"}
-            </Button>
-            <span className="text-xs text-muted-foreground">
-              (max 5 files, images ≤ 5MB, videos ≤ 50MB)
-            </span>
+              {PRODUCT_STATUSES.map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="md:col-span-2">
+            <Label>Description</Label>
+            <Textarea rows={4} value={desc} onChange={(e) => setDesc(e.target.value)} />
           </div>
         </section>
 
-        {error && <p className="text-red-600">{error}</p>}
+        {/* Attributes editor */}
+        <section className="border rounded p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <h2 className="font-medium">Attributes</h2>
+            <Button type="button" variant="secondary" onClick={addAttrRow}>
+              Add row
+            </Button>
+          </div>
 
-        <div className="flex flex-wrap gap-2 items-center">
-          <Button type="submit" disabled={saving}>
-            {saving ? "Saving…" : "Save changes"}
-          </Button>
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={() => router.refresh()}
-          >
-            Refresh
-          </Button>
-          <Button
-            type="button"
-            variant="destructive"
-            onClick={onDelete}
-            className="ml-auto"
-          >
-            <Trash2 className="h-4 w-4 mr-2" />
-            Delete product
+          {attrPairs.length === 0 && (
+            <p className="text-sm text-muted-foreground">No attributes yet.</p>
+          )}
+
+          {attrPairs.map(([k, v]) => (
+            <div key={k} className="grid grid-cols-1 md:grid-cols-3 gap-2">
+              <Input
+                value={k}
+                onChange={(e) => updateAttrKey(k, e.target.value)}
+                placeholder="key (e.g., brand)"
+              />
+              <Input
+                value={v}
+                onChange={(e) => updateAttrVal(k, e.target.value)}
+                placeholder="value (e.g., Aurum)"
+              />
+              <div className="flex gap-2">
+                <Button type="button" variant="secondary" onClick={() => updateAttrVal(k, "")}>Clear</Button>
+                <Button type="button" variant="destructive" onClick={() => removeAttr(k)}>Remove</Button>
+              </div>
+            </div>
+          ))}
+        </section>
+
+        <div className="flex flex-wrap gap-2">
+          <Button type="submit" disabled={saving}>{saving ? "Saving…" : "Save product"}</Button>
+          <Button type="button" variant="secondary" onClick={() => router.refresh()}>Refresh</Button>
+          <Button type="button" variant="destructive" className="ml-auto" onClick={onDeleteProduct}>
+            Archive product
           </Button>
         </div>
       </form>
+
+      {/* ------- VARIANTS (Editable) ------- */}
+      <section className="border rounded p-4 space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="font-medium">Variants</h2>
+          {!addingVariant ? (
+            <Button type="button" variant="secondary" onClick={() => setAddingVariant(true)}>
+              Add variant
+            </Button>
+          ) : null}
+        </div>
+
+        {/* Add new variant */}
+        {addingVariant && (
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-2 p-3 rounded border bg-gray-50">
+            <div>
+              <Label>SKU</Label>
+              <Input value={newVariant.sku} onChange={e => setNewVariant(v => ({ ...v, sku: e.target.value }))} />
+            </div>
+            <div>
+              <Label>Color name</Label>
+              <Input value={newVariant.colorName} onChange={e => setNewVariant(v => ({ ...v, colorName: e.target.value }))} />
+            </div>
+            <div>
+              <Label>Color code</Label>
+              <Input placeholder="#000000" value={newVariant.colorCode} onChange={e => setNewVariant(v => ({ ...v, colorCode: e.target.value }))} />
+            </div>
+            <div>
+              <Label>Status</Label>
+              <select
+                className="w-full h-10 border rounded px-3"
+                value={newVariant.status}
+                onChange={(e) => setNewVariant(v => ({ ...v, status: e.target.value as "active"|"inactive" }))}
+              >
+                {VARIANT_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+            <div className="flex items-end gap-2">
+              <Button type="button" onClick={addVariant}>Create</Button>
+              <Button type="button" variant="secondary" onClick={() => setAddingVariant(false)}>Cancel</Button>
+            </div>
+          </div>
+        )}
+
+        {variants.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No variants yet.</p>
+        ) : (
+          <div className="space-y-3">
+            {variants.map(v => (
+              <div key={v._id} className="border rounded p-3 space-y-3">
+                <div className="grid grid-cols-1 md:grid-cols-6 gap-2 items-end">
+                  <div>
+                    <Label>SKU</Label>
+                    <Input value={v.sku} onChange={(e) => updateVariantLocal(v._id, { sku: e.target.value })} />
+                  </div>
+                  <div>
+                    <Label>Color name</Label>
+                    <Input
+                      value={v.color?.name || ""}
+                      onChange={(e) => updateVariantLocal(v._id, { color: { ...(v.color || {}), name: e.target.value } })}
+                    />
+                  </div>
+                  <div>
+                    <Label>Color code</Label>
+                    <Input
+                      placeholder="#000000"
+                      value={v.color?.code || ""}
+                      onChange={(e) => updateVariantLocal(v._id, { color: { ...(v.color || {}), code: e.target.value } })}
+                    />
+                  </div>
+                  <div>
+                    <Label>Status</Label>
+                    <select
+                      className="w-full h-10 border rounded px-3"
+                      value={v.status || "active"}
+                      onChange={(e) => updateVariantLocal(v._id, { status: e.target.value as any })}
+                    >
+                      {VARIANT_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button type="button" onClick={() => saveVariant(v)}>Save</Button>
+                    <Button type="button" variant="destructive" onClick={() => deleteVariant(v._id)}>
+                      Delete
+                    </Button>
+                  </div>
+                  {/* live color preview */}
+                  <div className="flex items-center gap-2">
+                    <div
+                      className="w-8 h-8 rounded border"
+                      style={{ backgroundColor: v.color?.code || "#ffffff" }}
+                      title={v.color?.code}
+                    />
+                    <span className="text-xs text-muted-foreground">Preview</span>
+                  </div>
+                </div>
+
+                {/* Sizes overview (read-only for now) */}
+                {v.sizes && v.sizes.length > 0 && (
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-sm mt-2">
+                    {v.sizes.map((s) => (
+                      <div key={s._id} className="border rounded p-2">
+                        <div className="font-medium">{s.label}</div>
+                        <div className="text-xs text-muted-foreground break-all">{s.barcode}</div>
+                        {typeof s.totalQuantity === "number" && (
+                          <div className="mt-1 text-xs">
+                            Total: {s.totalQuantity} · Reserved: {s.reservedTotal ?? 0} ·
+                            Sellable: {s.sellableQuantity ?? Math.max(0, (s.totalQuantity || 0) - (s.reservedTotal || 0))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
     </div>
   );
 }

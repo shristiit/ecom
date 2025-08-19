@@ -5,11 +5,13 @@ import Order from "../models/order.model";
 /** Create Order */
 export const createOrder = async (req: Request, res: Response) => {
   const errors = validationResult(req);
-  if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+  if (!errors.isEmpty()) return res.status(400).json({ message: "Validation failed", errors: errors.array() });
 
   try {
-    const { customer, products, totalAmount, shippingAddress } = req.body;
-
+    const { customer, products, shippingAddress } = req.body;
+    const totalAmount = products.reduce(
+      (sum: number, p: {price: number; quantity: number}) => sum + (p.price * p.quantity), 0
+    )
     const order = await Order.create({
       customer,
       products,

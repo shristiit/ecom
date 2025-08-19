@@ -5,8 +5,8 @@ import * as sizeSvc from '../services/size.service';
 import asyncHandler from '../utils/asyncHandler';
 
 export const createProductDeep = asyncHandler(async (req: Request, res: Response) => {
-  const actorId = req.user?._id ?? null; // safe
-  const created = await productSvc.createDeep(req.body, actorId);
+  const adminId = req.user?._id ?? null; // safe
+  const created = await productSvc.createDeep(req.body, adminId);
   res.status(201).json(created);
 });
 

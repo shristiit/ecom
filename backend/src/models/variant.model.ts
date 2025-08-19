@@ -14,7 +14,7 @@ export interface VariantDoc extends Document {
     name: string;
     code?: string;         // hex like #FF00AA
   };
-  media: MediaItem[];
+  media: MediaItem[];         
   isDeleted: boolean;
   status: 'active' | 'inactive';
   createdBy?: Types.ObjectId;

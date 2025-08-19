@@ -19,7 +19,7 @@ const AppSideBar = () => {
   const listServices = [
     { id: 1, name: 'Home', route: '/', icon: Home },
 
-    { id: 2, name: 'Products', route: '/Products', icon: Inbox },
+    { id: 2, name: 'Products', route: '/products', icon: Inbox },
     { id: 3, name: 'Users', route: '/Users', icon: Users },
     {id: 4, name: "Orders", route: '/orders', icon: LucideListOrdered}
   ];
