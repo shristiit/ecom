@@ -95,15 +95,50 @@ export async function list({ page, limit, q, status }:{
 export async function getDeep(productId: string) {
   const [doc] = await Product.aggregate([
     { $match: { _id: new mongoose.Types.ObjectId(productId), isDeleted: false } },
-    { $lookup: { from: 'variants', localField: '_id', foreignField: 'productId', as: 'variants',
-      pipeline: [
-        { $match: { isDeleted: false } },
-        { $lookup: { from: 'sizes', localField: '_id', foreignField: 'variantId', as: 'sizes',
-          pipeline: [ { $match: { isDeleted: false } } ] } }
-      ] } }
+    {
+      $lookup: {
+        from: 'variants',
+        localField: '_id',
+        foreignField: 'productId',
+        as: 'variants',
+        pipeline: [
+          { $match: { isDeleted: false } },
+          {
+            $lookup: {
+              from: 'sizes',
+              localField: '_id',
+              foreignField: 'variantId',
+              as: 'sizes',
+              pipeline: [
+                { $match: { isDeleted: false } },
+                // compute totals per size
+                {
+                  $addFields: {
+                    totalQuantity: { $sum: "$inventory.onHand" },
+                    reservedTotal: { $sum: "$inventory.reserved" },
+                    onOrderTotal:  { $sum: "$inventory.onOrder" }
+                  }
+                },
+                {
+                  $addFields: {
+                    sellableQuantity: {
+                      $max: [
+                        { $subtract: ["$totalQuantity", "$reservedTotal"] },
+                        0
+                      ]
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
   ]).exec();
   return doc;
 }
+
 
 export async function updatePartial(productId: string, patch: any, adminId: any) {
   return Product.findByIdAndUpdate(

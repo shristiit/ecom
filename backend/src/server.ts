@@ -34,7 +34,7 @@ app.use((req, _res, next) => {
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/products', productRoutes);  // public products router (no guards)
-app.use('/api/orders', orderRoutes);
+app.use('/api/orders',orderRoutes)
 
 // Healthcheck
 app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));

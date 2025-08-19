@@ -80,7 +80,7 @@ export default function NewUserPage() {
     <div className="p-4 space-y-6 max-w-3xl">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">Create User</h1>
-        <Link href="/users" className="underline">Back to Users</Link>
+        <Link href="/Users" className="underline">Back to Users</Link>
       </div>
 
       <form onSubmit={onSave} className="space-y-6">
@@ -172,7 +172,7 @@ export default function NewUserPage() {
         {error && <p className="text-red-600">{error}</p>}
 
         <div className="flex gap-2">
-          <Button type="submit" disabled={saving}>{saving ? "Creating…" : "Create user"}</Button>
+          <Button className="bg-green-600" type="submit" disabled={saving}>{saving ? "Creating…" : "Create user"}</Button>
         </div>
       </form>
     </div>
