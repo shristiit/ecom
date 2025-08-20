@@ -90,7 +90,7 @@ export default function OrdersPage() {
         : Array.isArray(data?.rows)
         ? data.rows
         : [];
-
+console.log(data)
       setOrders(list);
     } catch (e: any) {
       setErr(e?.response?.data?.message || "Failed to load orders.");

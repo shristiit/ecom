@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import api from "@/lib/api";
@@ -8,181 +8,312 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/app/Components/textarea";
-import { Plus, Trash2, X } from "lucide-react";
+import { Trash2, Pencil, Check, X as XIcon } from "lucide-react";
 
-/* ---------- helpers ---------- */
-function colorSkuSuffix(name: string) {
-  const letters = name.replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+/* ---------------- helpers ---------------- */
+function skuSuffixFromColor(name: string) {
+  const letters = (name || "").replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
   return letters.slice(0, 6) || "CLR";
 }
-function detectMediaTypeFromName(name: string): "image" | "video" {
-  const n = name.toLowerCase();
-  if (/\.(mp4|mov|webm|mkv|avi|m4v)$/.test(n)) return "video";
-  return "image";
-}
-function toMinor(pounds: number | string) {
+function toMinor(pounds: string | number) {
   const n = Number(pounds);
   return Number.isFinite(n) ? Math.round(n * 100) : 0;
 }
-function rand(n = 4) {
+function rand(n = 6) {
   return Math.random().toString(36).slice(-n).toUpperCase();
 }
+function tokenize(s: string) {
+  return (s || "").replace(/\s+/g, "").replace(/[^a-zA-Z0-9]/g, "").toUpperCase();
+}
+function normColor(s: string) {
+  return (s || "").trim().toLowerCase();
+}
+function normSize(s: string) {
+  return (s || "").trim().toLowerCase();
+}
 
-/* ---------- types for the form ---------- */
-type InvRow = { location: string; onHand: number; onOrder: number; reserved: number };
-type SizeRow = { label: string; barcode: string; inventory: InvRow[] };
-type VariantRow = {
-  sku: string;
-  status: "active" | "inactive";
+/* ---------------- localStorage key ---------------- */
+const DRAFT_KEY = "product:new:draft:v1";
+
+/* ---------------- types ---------------- */
+type Line = {
+  id: string;              // stable key
+  colorName: string;
+  colorCode?: string;
+  sizeLabel: string;
+  quantity: number;        // onHand at WH-DEFAULT
+};
+
+type DraftShape = {
+  styleNumber: string;
+  title: string;
+  desc: string;
+  priceGBP: string | number;
+  status: "active" | "inactive" | "draft" | "archived";
+  category: string;
+  supplier: string;
+  season: string;
+  wholesale: string | number;
+
+  // quick add mini-form
   colorName: string;
   colorCode: string;
-  mediaUrls: string[];       // URLs to include in deep create
-  files?: FileList | null;   // optional file uploads after creation
-  sizes: SizeRow[];
+  sizeLabel: string;
+  quantity: number;
+
+  // table
+  lines: Line[];
 };
 
 export default function NewProductPage() {
   const router = useRouter();
-  const [saving, setSaving] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-  const [info, setInfo] = useState<string | null>(null);
 
-  /* ---------- product fields ---------- */
+  // product fields
   const [styleNumber, setStyleNumber] = useState("");
   const [title, setTitle] = useState("");
   const [desc, setDesc] = useState("");
   const [priceGBP, setPriceGBP] = useState<string | number>("");
-  const [status, setStatus] = useState<"active" | "inactive" | "draft" | "archived">("active");
+  const [status, setStatus] =
+    useState<"active" | "inactive" | "draft" | "archived">("active");
   const [category, setCategory] = useState("");
   const [supplier, setSupplier] = useState("");
   const [season, setSeason] = useState("");
   const [wholesale, setWholesale] = useState<string | number>("");
 
-  /* ---------- variants state ---------- */
-  const defaultInv: InvRow = { location: "WH-DEFAULT", onHand: 0, onOrder: 0, reserved: 0 };
-  const defaultSize: SizeRow = { label: "OS", barcode: "", inventory: [ { ...defaultInv } ] };
-  const [variants, setVariants] = useState<VariantRow[]>([
-    { sku: "", status: "active", colorName: "Default", colorCode: "", mediaUrls: [], files: null, sizes: [ { ...defaultSize } ] }
+  // quick add row (top mini-form)
+  const [colorName, setColorName] = useState("");
+  const [colorCode, setColorCode] = useState("");
+  const [sizeLabel, setSizeLabel] = useState("");
+  const [quantity, setQuantity] = useState<number>(0);
+
+  // table rows
+  const [lines, setLines] = useState<Line[]>([]);
+
+  // inline edit state
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [draft, setDraft] = useState<Line | null>(null);
+
+  // ui
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
+
+  // preview SKU for current color (per-color)
+  const skuPreview = useMemo(() => {
+    const sty = tokenize(styleNumber);
+    const suf = skuSuffixFromColor(colorName);
+    return sty ? `${sty}-${suf}` : `STYLE?-${suf}`;
+  }, [styleNumber, colorName]);
+
+  /* ---------------- DRAFT: load on mount ---------------- */
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY);
+      if (!raw) return;
+      const parsed: Partial<DraftShape> = JSON.parse(raw);
+
+      if (parsed.styleNumber != null) setStyleNumber(parsed.styleNumber);
+      if (parsed.title != null) setTitle(parsed.title);
+      if (parsed.desc != null) setDesc(parsed.desc);
+      if (parsed.priceGBP != null) setPriceGBP(parsed.priceGBP);
+      if (parsed.status === "active" || parsed.status === "inactive" || parsed.status === "draft" || parsed.status === "archived") {
+        setStatus(parsed.status);
+      }
+      if (parsed.category != null) setCategory(parsed.category);
+      if (parsed.supplier != null) setSupplier(parsed.supplier);
+      if (parsed.season != null) setSeason(parsed.season);
+      if (parsed.wholesale != null) setWholesale(parsed.wholesale);
+
+      if (parsed.colorName != null) setColorName(parsed.colorName);
+      if (parsed.colorCode != null) setColorCode(parsed.colorCode);
+      if (parsed.sizeLabel != null) setSizeLabel(parsed.sizeLabel);
+      if (typeof parsed.quantity === "number") setQuantity(parsed.quantity);
+
+      if (Array.isArray(parsed.lines)) setLines(parsed.lines);
+      setInfo("Draft restored from local storage.");
+    } catch {
+      // ignore bad drafts
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /* ---------------- DRAFT: autosave (debounced) ---------------- */
+  const autosaveTimer = useRef<number | null>(null);
+  function scheduleAutosave() {
+    if (autosaveTimer.current) window.clearTimeout(autosaveTimer.current);
+    autosaveTimer.current = window.setTimeout(() => {
+      const snapshot: DraftShape = {
+        styleNumber, title, desc, priceGBP, status, category, supplier, season, wholesale,
+        colorName, colorCode, sizeLabel, quantity,
+        lines,
+      };
+      try {
+        localStorage.setItem(DRAFT_KEY, JSON.stringify(snapshot));
+      } catch {
+        // ignore write failures
+      }
+    }, 300);
+  }
+
+  // watch all form states
+  useEffect(() => { scheduleAutosave(); }, [
+    styleNumber, title, desc, priceGBP, status, category, supplier, season, wholesale,
+    colorName, colorCode, sizeLabel, quantity,
+    lines
   ]);
 
-  /* ---------- product field changes ---------- */
-  function addVariant() {
-    setVariants(v => [
-      ...v,
-      { sku: "", status: "active", colorName: "", colorCode: "", mediaUrls: [], files: null, sizes: [ { ...defaultSize } ] }
-    ]);
+  /* ---------------- Manual draft actions ---------------- */
+  function clearDraft() {
+    localStorage.removeItem(DRAFT_KEY);
+    setInfo("Draft cleared.");
   }
-  function removeVariant(i: number) {
-    setVariants(v => v.filter((_, idx) => idx !== i));
+  function saveDraftNow() {
+    const snapshot: DraftShape = {
+      styleNumber, title, desc, priceGBP, status, category, supplier, season, wholesale,
+      colorName, colorCode, sizeLabel, quantity,
+      lines,
+    };
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(snapshot));
+    setInfo("Draft saved.");
   }
-  function setVariant(i: number, patch: Partial<VariantRow>) {
-    setVariants(v => {
-      const next = [...v];
-      next[i] = { ...next[i], ...patch };
-      return next;
-    });
-  }
-  function addSize(i: number) {
-    setVariants(v => {
-      const next = [...v];
-      next[i].sizes = [...next[i].sizes, { label: "OS", barcode: "", inventory: [ { ...defaultInv } ] }];
-      return next;
-    });
-  }
-  function removeSize(vi: number, si: number) {
-    setVariants(v => {
-      const next = [...v];
-      next[vi].sizes = next[vi].sizes.filter((_, idx) => idx !== si);
-      return next;
-    });
-  }
-  function setSize(vi: number, si: number, patch: Partial<SizeRow>) {
-    setVariants(v => {
-      const next = [...v];
-      next[vi].sizes[si] = { ...next[vi].sizes[si], ...patch };
-      return next;
-    });
-  }
-  function addInvRow(vi: number, si: number) {
-    setVariants(v => {
-      const next = [...v];
-      next[vi].sizes[si].inventory = [...next[vi].sizes[si].inventory, { ...defaultInv }];
-      return next;
-    });
-  }
-  function removeInvRow(vi: number, si: number, ii: number) {
-    setVariants(v => {
-      const next = [...v];
-      next[vi].sizes[si].inventory = next[vi].sizes[si].inventory.filter((_, idx) => idx !== ii);
-      return next;
-    });
-  }
-  function setInvRow(vi: number, si: number, ii: number, patch: Partial<InvRow>) {
-    setVariants(v => {
-      const next = [...v];
-      const inv = next[vi].sizes[si].inventory;
-      inv[ii] = { ...inv[ii], ...patch };
-      return next;
-    });
-  }
-  function addMediaUrl(vi: number, url: string) {
-    const clean = url.trim();
-    if (!clean) return;
-    setVariants(v => {
-      const next = [...v];
-      if (!next[vi].mediaUrls.includes(clean)) next[vi].mediaUrls.push(clean);
-      return next;
-    });
-  }
-  function removeMediaUrl(vi: number, url: string) {
-    setVariants(v => {
-      const next = [...v];
-      next[vi].mediaUrls = next[vi].mediaUrls.filter(u => u !== url);
-      return next;
+
+  /* ---------------- add / merge ---------------- */
+  function addOrMergeRow(newRow: Omit<Line, "id">) {
+    setLines(prev => {
+      const i = prev.findIndex(
+        r => normColor(r.colorName) === normColor(newRow.colorName) &&
+             normSize(r.sizeLabel) === normSize(newRow.sizeLabel)
+      );
+      if (i >= 0) {
+        const next = [...prev];
+        next[i] = { ...next[i], quantity: next[i].quantity + Math.max(0, newRow.quantity) };
+        return next;
+      }
+      return [...prev].concat([{ id: rand(), ...newRow }]);
     });
   }
 
-  /* ---------- save ---------- */
-  const onSave = async (e: React.FormEvent) => {
+  function addLine() {
+    setErr(null);
+    const c = colorName.trim();
+    const s = sizeLabel.trim();
+    const q = Number(quantity);
+
+    if (!c) return setErr("Color is required.");
+    if (!s) return setErr("Size is required.");
+    if (!Number.isFinite(q) || q < 0) return setErr("Quantity must be ≥ 0.");
+
+    addOrMergeRow({ colorName: c, colorCode: colorCode || undefined, sizeLabel: s, quantity: q });
+
+    // reset size + qty (keep color if you prefer; currently clears)
+    setSizeLabel("");
+    setColorName("");
+    setColorCode("");
+    setQuantity(0);
+  }
+
+  function removeLine(i: number) {
+    setLines(prev => prev.filter((_, idx) => idx !== i));
+    if (editingIndex === i) {
+      setEditingIndex(null);
+      setDraft(null);
+    }
+  }
+
+  /* ---------------- inline edit ---------------- */
+  function startEdit(i: number) {
+    setErr(null);
+    setEditingIndex(i);
+    setDraft({ ...lines[i] });
+  }
+  function cancelEdit() {
+    setEditingIndex(null);
+    setDraft(null);
+  }
+  function applyEdit() {
+    if (editingIndex === null || !draft) return;
+    const { colorName, sizeLabel, quantity } = draft;
+    if (!colorName.trim()) return setErr("Color is required.");
+    if (!sizeLabel.trim()) return setErr("Size is required.");
+    if (!Number.isFinite(quantity) || quantity < 0) return setErr("Quantity must be ≥ 0.");
+
+    setLines(prev => {
+      const next = [...prev];
+      const id = next[editingIndex].id;
+      // check if this edit collides with another row -> merge
+      const dupIdx = next.findIndex(
+        (r, idx) =>
+          idx !== editingIndex &&
+          normColor(r.colorName) === normColor(colorName) &&
+          normSize(r.sizeLabel) === normSize(sizeLabel)
+      );
+      if (dupIdx >= 0) {
+        // merge into dupIdx
+        next[dupIdx] = {
+          ...next[dupIdx],
+          quantity: next[dupIdx].quantity + Math.max(0, quantity),
+          colorCode: draft.colorCode || next[dupIdx].colorCode,
+        };
+        // remove the original edited row
+        next.splice(editingIndex, 1);
+      } else {
+        // simple replace
+        next[editingIndex] = { ...draft, id };
+      }
+      return next;
+    });
+
+    setEditingIndex(null);
+    setDraft(null);
+  }
+
+  /* ---------------- submit ---------------- */
+  async function onSave(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
     setErr(null);
     setInfo(null);
 
     try {
-      const style = styleNumber.trim().toUpperCase();
+      const style = tokenize(styleNumber);
       if (!style) throw new Error("Style number is required.");
       if (!title.trim()) throw new Error("Title is required.");
+      if (lines.length === 0) throw new Error("Add at least one variant row.");
+      if (editingIndex !== null) throw new Error("Finish or cancel the edit in progress.");
 
-      // Prepare deep payload (product + variants + sizes)
-      const deepVariants = variants.map((v, idx) => {
-        const suffix = colorSkuSuffix(v.colorName || "CLR");
-        const autoSku = `${style}-${suffix}`;
-        const sku = (v.sku || autoSku).toUpperCase();
+      // group rows by color
+      const byColor = new Map<
+        string,
+        { colorName: string; colorCode?: string; sizes: Array<{ label: string; quantity: number }> }
+      >();
+      for (const ln of lines) {
+        const key = normColor(ln.colorName);
+        const entry = byColor.get(key) || { colorName: ln.colorName, colorCode: ln.colorCode, sizes: [] };
+        entry.sizes.push({ label: ln.sizeLabel, quantity: ln.quantity });
+        if (ln.colorCode) entry.colorCode = ln.colorCode;
+        byColor.set(key, entry);
+      }
 
-        const sizes = v.sizes.map((s) => {
-          const barcode = s.barcode?.trim() ||
-            `${style}-${suffix}-${(s.label || "OS").replace(/\s+/g, "").toUpperCase()}-${rand(5)}`;
-          const inventory = (s.inventory || []).map(r => ({
-            location: String(r.location || "WH-DEFAULT"),
-            onHand:   Math.max(0, Number(r.onHand ?? 0)),
-            onOrder:  Math.max(0, Number(r.onOrder ?? 0)),
-            reserved: Math.max(0, Number(r.reserved ?? 0)),
-          }));
-          return { label: s.label || "OS", barcode, inventory };
+      // build deep variants
+      const variants = Array.from(byColor.values()).map(group => {
+        const suffix = skuSuffixFromColor(group.colorName);
+        const sku = `${style}-${suffix}`;
+        const sizes = group.sizes.map(s => {
+          const sizeTok = tokenize(s.label || "OS");
+          const barcode = `${style}-${suffix}-${sizeTok}-${rand(5)}`;
+          return {
+            label: s.label || "OS",
+            barcode,
+            inventory: [
+              { location: "WH-DEFAULT", onHand: Math.max(0, Number(s.quantity || 0)), onOrder: 0, reserved: 0 },
+            ],
+          };
         });
-
-        const media = (v.mediaUrls || []).map(url => ({
-          url,
-          type: detectMediaTypeFromName(url),
-          isPrimary: false as boolean
-        }));
-
         return {
           sku,
-          color: { name: v.colorName || "Default", code: v.colorCode || undefined },
-          status: v.status,
-          media,
+          color: { name: group.colorName, code: group.colorCode || undefined },
+          status: "active" as const,
+          media: [] as Array<{ url: string; type: "image" | "video"; isPrimary?: boolean }>,
           sizes,
         };
       });
@@ -192,7 +323,7 @@ export default function NewProductPage() {
           styleNumber: style,
           title: title.trim(),
           description: desc || undefined,
-          price: toMinor(priceGBP), // minor units (pence)
+          price: toMinor(priceGBP),
           attributes: {
             category:  category || undefined,
             supplier:  supplier || undefined,
@@ -201,53 +332,15 @@ export default function NewProductPage() {
           },
           status,
         },
-        variants: deepVariants,
+        variants,
       };
 
-      // 1) Create deep
       const { data: created } = await api.post("/api/products", payload);
+      const productId = created?._id;
+      if (!productId) throw new Error("Create API did not return product _id");
 
-      // created is deep product doc (from your service's getDeep return)
-      const productId: string | undefined = created?._id;
-      if (!productId) {
-        throw new Error("Create API did not return product _id.");
-      }
-
-      // Map variantId by SKU (reliable lookup)
-      const idBySku = new Map<string, string>();
-      (created?.variants || []).forEach((v: any) => { if (v?.sku) idBySku.set(v.sku, v._id); });
-
-      // 2) Upload big files (optional) and attach to variants
-      for (const v of variants) {
-        if (!v.files || v.files.length === 0) continue;
-        const variantSku = (v.sku || `${style}-${colorSkuSuffix(v.colorName || "CLR")}`).toUpperCase();
-        const variantId = idBySku.get(variantSku);
-        if (!variantId) continue;
-
-        const formData = new FormData();
-        Array.from(v.files).forEach((f) => formData.append("file", f));
-        // No client-side size caps; rely on backend config (multer limits).
-        // Expect server returns [{ url, type, ...}, ...]
-        try {
-          const up = await api.post(`/api/products/${productId}/media/upload`, formData, {
-            headers: { "Content-Type": "multipart/form-data" },
-          });
-          const uploaded: Array<{ url: string; type?: "image" | "video" }> = Array.isArray(up.data) ? up.data : up.data?.files || [];
-          const newMedia = [
-            ...(deepVariants.find(dv => dv.sku === variantSku)?.media || []),
-            ...uploaded.map((m) => ({
-              url: m.url,
-              type: m.type || detectMediaTypeFromName(m.url || ""),
-              isPrimary: false,
-            })),
-          ];
-          // Patch variant media
-          await api.patch(`/api/products/variants/${variantId}`, { media: newMedia });
-        } catch (uploadErr: any) {
-          console.warn(`Media upload failed for SKU ${variantSku}:`, uploadErr?.response?.data || uploadErr?.message);
-          // Non-blocking: product created even if media fails
-        }
-      }
+      // clear draft after successful save
+      localStorage.removeItem(DRAFT_KEY);
 
       setInfo("Product created successfully.");
       router.push(`/products/${productId}`);
@@ -256,19 +349,23 @@ export default function NewProductPage() {
     } finally {
       setSaving(false);
     }
-  };
+  }
 
   return (
     <div className="p-4 space-y-6 max-w-5xl">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">Create Product</h1>
-        <Link href="/products" className="underline">
-          Back to Products
-        </Link>
+        <Link href="/products" className="underline">Back to Products</Link>
       </div>
 
+      {/* Draft controls */}
+      {/* <div className="flex items-center gap-2">
+        <Button type="button" variant="secondary" onClick={saveDraftNow}>Save draft</Button>
+        <Button type="button" variant="secondary" onClick={clearDraft}>Discard draft</Button>
+      </div> */}
+
       <form onSubmit={onSave} className="space-y-8">
-        {/* --------- Product core --------- */}
+        {/* ---------- Product core ---------- */}
         <section className="grid grid-cols-1 md:grid-cols-2 gap-4 border rounded p-4">
           <div>
             <Label>Style Number</Label>
@@ -313,216 +410,169 @@ export default function NewProductPage() {
           </div>
         </section>
 
-        {/* --------- Variants builder --------- */}
+        {/* ---------- Quick add row ---------- */}
         <section className="space-y-4 border rounded p-4">
-          <div className="flex items-center justify-between">
-            <h2 className="font-medium">Variants</h2>
-            <Button type="button" variant="secondary" onClick={addVariant}>
-              <Plus className="h-4 w-4 mr-2" /> Add variant
-            </Button>
+          <h2 className="font-medium">Add Color rows</h2>
+
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
+            <div>
+              <Label>Color name</Label>
+              <Input value={colorName} onChange={(e) => setColorName(e.target.value)} placeholder="Enter Color" />
+            </div>
+            <div>
+              <Label>Color code</Label>
+              <Input value={colorCode} onChange={(e) => setColorCode(e.target.value)} placeholder="#111111 (optional)" />
+            </div>
+            <div>
+              <Label>Size</Label>
+              <Input value={sizeLabel} onChange={(e) => setSizeLabel(e.target.value)} placeholder="OS / S / M / UK 8" />
+            </div>
+            <div>
+              <Label>Quantity (onHand)</Label>
+              <Input
+                type="number"
+                min={0}
+                value={quantity}
+                onChange={(e) => setQuantity(Math.max(0, Number(e.target.value || 0)))}
+                placeholder="0"
+              />
+            </div>
+            <div className="flex items-end">
+              <Button className="" type="button" onClick={addLine}>Add</Button>
+            </div>
           </div>
 
-          {variants.map((v, vi) => (
-            <div key={vi} className="border rounded p-3 space-y-3 bg-gray-50">
-              <div className="flex items-center justify-between">
-                <div className="font-medium">Variant {vi + 1}</div>
-                <Button type="button" variant="destructive" onClick={() => removeVariant(vi)}>
-                  <Trash2 className="h-4 w-4 mr-2" /> Remove
-                </Button>
-              </div>
+          <p className="text-xs text-muted-foreground">
+            SKU will be generated per color: <code>{skuPreview}</code>. Each size gets an auto barcode.
+          </p>
 
-              <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-                <div>
-                  <Label>SKU</Label>
-                  <Input
-                    value={v.sku}
-                    onChange={(e) => setVariant(vi, { sku: e.target.value })}
-                    placeholder="auto if empty (STYLE-COLOR)"
-                  />
-                </div>
-                <div>
-                  <Label>Color name</Label>
-                  <Input value={v.colorName} onChange={(e) => setVariant(vi, { colorName: e.target.value })} placeholder="Black" />
-                </div>
-                <div>
-                  <Label>Color code</Label>
-                  <Input value={v.colorCode} onChange={(e) => setVariant(vi, { colorCode: e.target.value })} placeholder="#111111" />
-                </div>
-                <div>
-                  <Label>Status</Label>
-                  <select
-                    className="w-full h-10 border rounded px-3"
-                    value={v.status}
-                    onChange={(e) => setVariant(vi, { status: e.target.value as any })}
-                  >
-                    <option value="active">active</option>
-                    <option value="inactive">inactive</option>
-                  </select>
-                </div>
-                <div className="flex items-end gap-2">
-                  <div
-                    className="w-10 h-10 rounded border"
-                    style={{ backgroundColor: v.colorCode || "#fff" }}
-                    title={v.colorCode || ""}
-                  />
-                  <span className="text-xs text-muted-foreground">Preview</span>
-                </div>
-              </div>
+          {/* ---------- Editable table ---------- */}
+          <div className="overflow-x-auto border rounded">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-gray-100">
+                  <th className="text-left p-2">#</th>
+                  <th className="text-left p-2">Color</th>
+                  <th className="text-left p-2">Code</th>
+                  <th className="text-left p-2">Size</th>
+                  <th className="text-left p-2">Qty</th>
+                  <th className="text-right p-2">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {lines.length === 0 ? (
+                  <tr>
+                    <td className="p-3 text-center text-gray-500" colSpan={6}>No variant rows yet. Add one above.</td>
+                  </tr>
+                ) : (
+                  lines.map((ln, i) => {
+                    const isEdit = editingIndex === i;
+                    return (
+                      <tr key={ln.id} className="border-t">
+                        <td className="p-2 align-middle">{i + 1}</td>
 
-              {/* Media URLs */}
-              <div className="space-y-2">
-                <Label>Media URLs</Label>
-                <AddUrlRow onAdd={(url) => addMediaUrl(vi, url)} />
-                <div className="flex flex-wrap gap-2">
-                  {v.mediaUrls.map((u) => (
-                    <span key={u} className="px-2 py-1 rounded bg-blue-100 text-xs flex items-center gap-2">
-                      <a className="underline" href={u} target="_blank" rel="noreferrer">{u.length > 40 ? u.slice(0,40)+"…" : u}</a>
-                      <button type="button" onClick={() => removeMediaUrl(vi, u)}><X size={14} /></button>
-                    </span>
-                  ))}
-                </div>
-              </div>
+                        {/* Color */}
+                        <td className="p-2 align-middle">
+                          {isEdit ? (
+                            <Input
+                              value={draft?.colorName || ""}
+                              onChange={(e) => setDraft(d => d ? { ...d, colorName: e.target.value } : d)}
+                            />
+                          ) : (
+                            ln.colorName
+                          )}
+                        </td>
 
-              {/* Optional big file upload */}
-              <div className="space-y-1">
-                <Label>Upload files (images/videos)</Label>
-                <Input
-                  type="file"
-                  multiple
-                  accept="image/*,video/*"
-                  onChange={(e) => setVariant(vi, { files: e.target.files })}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Big files allowed. Your backend must permit large multipart bodies (e.g., Multer <code>limits.fileSize</code>).
-                </p>
-              </div>
+                        {/* Color Code + swatch */}
+                        <td className="p-2 align-middle">
+                          {isEdit ? (
+                            <div className="flex items-center gap-2">
+                              <Input
+                                value={draft?.colorCode || ""}
+                                onChange={(e) => setDraft(d => d ? { ...d, colorCode: e.target.value } : d)}
+                                placeholder="#11111"
+                              />
+                              <span className="inline-block w-5 h-5 rounded border" style={{ backgroundColor: draft?.colorCode || "#fff" }} />
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-2">
+                              <span className="inline-block w-5 h-5 rounded border" style={{ backgroundColor: ln.colorCode || "#fff" }} />
+                              <span className="font-mono text-xs">{ln.colorCode || "—"}</span>
+                            </div>
+                          )}
+                        </td>
 
-              {/* Sizes */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label>Sizes</Label>
-                  <Button type="button" variant="secondary" onClick={() => addSize(vi)}>
-                    <Plus className="h-4 w-4 mr-2" /> Add size
-                  </Button>
-                </div>
+                        {/* Size */}
+                        <td className="p-2 align-middle">
+                          {isEdit ? (
+                            <Input
+                              value={draft?.sizeLabel || ""}
+                              onChange={(e) => setDraft(d => d ? { ...d, sizeLabel: e.target.value } : d)}
+                            />
+                          ) : (
+                            ln.sizeLabel
+                          )}
+                        </td>
 
-                {v.sizes.map((s, si) => (
-                  <div key={si} className="border rounded p-3 bg-white space-y-3">
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
-                      <div>
-                        <Label>Label</Label>
-                        <Input
-                          value={s.label}
-                          onChange={(e) => setSize(vi, si, { label: e.target.value })}
-                          placeholder="OS / S / M / UK 8"
-                        />
-                      </div>
-                      <div className="md:col-span-2">
-                        <Label>Barcode</Label>
-                        <Input
-                          value={s.barcode}
-                          onChange={(e) => setSize(vi, si, { barcode: e.target.value })}
-                          placeholder="auto if empty"
-                        />
-                      </div>
-                      <div className="flex justify-end">
-                        <Button type="button" variant="destructive" onClick={() => removeSize(vi, si)}>
-                          <Trash2 className="h-4 w-4 mr-2" /> Remove size
-                        </Button>
-                      </div>
-                    </div>
+                        {/* Qty */}
+                        <td className="p-2 align-middle">
+                          {isEdit ? (
+                            <Input
+                              type="number"
+                              min={0}
+                              value={draft?.quantity ?? 0}
+                              onChange={(e) =>
+                                setDraft(d => d ? { ...d, quantity: Math.max(0, Number(e.target.value || 0)) } : d)
+                              }
+                            />
+                          ) : (
+                            ln.quantity
+                          )}
+                        </td>
 
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <Label>Inventory by location</Label>
-                        <Button type="button" variant="secondary" onClick={() => addInvRow(vi, si)}>
-                          <Plus className="h-4 w-4 mr-2" /> Add location
-                        </Button>
-                      </div>
-
-                      {s.inventory.map((r, ii) => (
-                        <div key={ii} className="grid grid-cols-1 md:grid-cols-5 gap-2">
-                          <Input
-                            value={r.location}
-                            onChange={(e) => setInvRow(vi, si, ii, { location: e.target.value })}
-                            placeholder="WH-DEFAULT"
-                          />
-                          <Input
-                            type="number"
-                            min={0}
-                            value={r.onHand}
-                            onChange={(e) => setInvRow(vi, si, ii, { onHand: Number(e.target.value || 0) })}
-                            placeholder="onHand"
-                          />
-                          <Input
-                            type="number"
-                            min={0}
-                            value={r.onOrder}
-                            onChange={(e) => setInvRow(vi, si, ii, { onOrder: Number(e.target.value || 0) })}
-                            placeholder="onOrder"
-                          />
-                          <Input
-                            type="number"
-                            min={0}
-                            value={r.reserved}
-                            onChange={(e) => setInvRow(vi, si, ii, { reserved: Number(e.target.value || 0) })}
-                            placeholder="reserved"
-                          />
-                          <div className="flex justify-end">
-                            <Button type="button" variant="destructive" onClick={() => removeInvRow(vi, si, ii)}>
-                              Remove
-                            </Button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
+                        {/* Actions */}
+                        <td className="p-2 align-middle text-right">
+                          {isEdit ? (
+                            <div className="flex justify-end gap-2">
+                              <Button type="button" size="sm" onClick={applyEdit}>
+                                <Check className="h-4 w-4 mr-2" /> Save
+                              </Button>
+                              <Button type="button" size="sm" variant="secondary" onClick={cancelEdit}>
+                                <XIcon className="h-4 w-4 mr-2" /> Cancel
+                              </Button>
+                            </div>
+                          ) : (
+                            <div className="flex justify-end gap-2">
+                              <Button type="button" size="sm" variant="secondary" onClick={() => startEdit(i)}>
+                                <Pencil className="h-4 w-4 mr-2" /> Edit
+                              </Button>
+                              <Button type="button" size="sm" variant="destructive" onClick={() => removeLine(i)}>
+                                <Trash2 className="h-4 w-4 mr-2" /> Remove
+                              </Button>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
         </section>
 
         {err && <p className="text-red-600">{err}</p>}
-        {info && <p className="text-emerald-700">{info}</p>}
+        {/* {info && <p className="text-emerald-700">{info}</p>} */}
 
         <div className="flex gap-2">
           <Button className="bg-green-600" type="submit" disabled={saving}>
             {saving ? "Saving…" : "Create product"}
           </Button>
+          <Button type="button" variant="secondary" onClick={() => router.push("/products")}>
+            Cancel
+          </Button>
         </div>
       </form>
-    </div>
-  );
-}
-
-/* ---------- small controlled URL adder ---------- */
-function AddUrlRow({ onAdd }: { onAdd: (url: string) => void }) {
-  const [val, setVal] = useState("");
-  return (
-    <div className="flex gap-2">
-      <Input
-        placeholder="https://cdn.example.com/path/file.jpg (or .mp4)"
-        value={val}
-        onChange={(e) => setVal(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            onAdd(val);
-            setVal("");
-          }
-        }}
-      />
-      <Button
-        type="button"
-        variant="secondary"
-        onClick={() => {
-          onAdd(val);
-          setVal("");
-        }}
-      >
-        Add URL
-      </Button>
     </div>
   );
 }
