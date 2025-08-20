@@ -93,6 +93,7 @@ export default function NewOrderPage() {
           : Array.isArray(data)
           ? data
           : [];
+          console.log("data", arr);
         setProducts(
           arr.map((p) => ({
             _id: p._id,
