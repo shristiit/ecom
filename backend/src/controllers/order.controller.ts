@@ -26,6 +26,32 @@ export const createOrder = async (req: Request, res: Response) => {
   }
 };
 
+/*Update*/
+
+export const updateOrder = async (req: Request, res: Response) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ message: "Validation failed", errors: errors.array() });
+
+  try {
+    const { customer, products, shippingAddress } = req.body;
+    const totalAmount = products.reduce(
+      (sum: number, p: {price: number; quantity: number}) => sum + (p.price * p.quantity), 0
+    )
+    const order = await Order.create({
+      customer,
+      products,
+      totalAmount,
+      shippingAddress,
+      // orderNumber is auto-generated
+    });
+
+    res.status(201).json(order);
+  } catch (err: any) {
+    res.status(500).json({ message: "Failed to create order", error: err.message });
+  }
+};
+
+
 /** List Orders */
 export const listOrders = async (_req: Request, res: Response) => {
   try {
