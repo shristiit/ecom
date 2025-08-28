@@ -72,7 +72,7 @@ export default function UsersPage() {
       <div className="flex justify-end mb-4">
         <Button
           className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-md transition-all"
-          onClick={() => route.push("/Users/new")}
+          onClick={() => route.push("/users/new")}
         >
           <Plus className="mr-2 h-4 w-4" />
           Create User

@@ -32,16 +32,39 @@ function normSize(s: string) {
   return (s || "").trim().toLowerCase();
 }
 
+/** Parse a size input like "S,M,L" or "S:10,M:5,UK 8:0" into entries. */
+function parseSizesInput(
+  input: string,
+  defaultQty: number
+): Array<{ label: string; quantity: number }> {
+  const out: Array<{ label: string; quantity: number }> = [];
+  for (const raw of (input || "")
+    .split(",")
+    .map((t) => t.trim())
+    .filter(Boolean)) {
+    const [labelPart, qtyPart] = raw.split(":");
+    const label = (labelPart || "").trim();
+    if (!label) continue;
+    let qty = defaultQty;
+    if (qtyPart != null && qtyPart.trim() !== "") {
+      const qn = Number(qtyPart);
+      if (Number.isFinite(qn) && qn >= 0) qty = qn;
+    }
+    out.push({ label, quantity: qty });
+  }
+  return out;
+}
+
 /* ---------------- localStorage key ---------------- */
 const DRAFT_KEY = "product:new:draft:v1";
 
 /* ---------------- types ---------------- */
 type Line = {
-  id: string;              // stable key
+  id: string; // stable key
   colorName: string;
   colorCode?: string;
   sizeLabel: string;
-  quantity: number;        // onHand at WH-DEFAULT
+  quantity: number; // onHand at WH-DEFAULT
 };
 
 type DraftShape = {
@@ -116,7 +139,12 @@ export default function NewProductPage() {
       if (parsed.title != null) setTitle(parsed.title);
       if (parsed.desc != null) setDesc(parsed.desc);
       if (parsed.priceGBP != null) setPriceGBP(parsed.priceGBP);
-      if (parsed.status === "active" || parsed.status === "inactive" || parsed.status === "draft" || parsed.status === "archived") {
+      if (
+        parsed.status === "active" ||
+        parsed.status === "inactive" ||
+        parsed.status === "draft" ||
+        parsed.status === "archived"
+      ) {
         setStatus(parsed.status);
       }
       if (parsed.category != null) setCategory(parsed.category);
@@ -143,8 +171,19 @@ export default function NewProductPage() {
     if (autosaveTimer.current) window.clearTimeout(autosaveTimer.current);
     autosaveTimer.current = window.setTimeout(() => {
       const snapshot: DraftShape = {
-        styleNumber, title, desc, priceGBP, status, category, supplier, season, wholesale,
-        colorName, colorCode, sizeLabel, quantity,
+        styleNumber,
+        title,
+        desc,
+        priceGBP,
+        status,
+        category,
+        supplier,
+        season,
+        wholesale,
+        colorName,
+        colorCode,
+        sizeLabel,
+        quantity,
         lines,
       };
       try {
@@ -156,10 +195,23 @@ export default function NewProductPage() {
   }
 
   // watch all form states
-  useEffect(() => { scheduleAutosave(); }, [
-    styleNumber, title, desc, priceGBP, status, category, supplier, season, wholesale,
-    colorName, colorCode, sizeLabel, quantity,
-    lines
+  useEffect(() => {
+    scheduleAutosave();
+  }, [
+    styleNumber,
+    title,
+    desc,
+    priceGBP,
+    status,
+    category,
+    supplier,
+    season,
+    wholesale,
+    colorName,
+    colorCode,
+    sizeLabel,
+    quantity,
+    lines,
   ]);
 
   /* ---------------- Manual draft actions ---------------- */
@@ -169,8 +221,19 @@ export default function NewProductPage() {
   }
   function saveDraftNow() {
     const snapshot: DraftShape = {
-      styleNumber, title, desc, priceGBP, status, category, supplier, season, wholesale,
-      colorName, colorCode, sizeLabel, quantity,
+      styleNumber,
+      title,
+      desc,
+      priceGBP,
+      status,
+      category,
+      supplier,
+      season,
+      wholesale,
+      colorName,
+      colorCode,
+      sizeLabel,
+      quantity,
       lines,
     };
     localStorage.setItem(DRAFT_KEY, JSON.stringify(snapshot));
@@ -179,14 +242,18 @@ export default function NewProductPage() {
 
   /* ---------------- add / merge ---------------- */
   function addOrMergeRow(newRow: Omit<Line, "id">) {
-    setLines(prev => {
+    setLines((prev) => {
       const i = prev.findIndex(
-        r => normColor(r.colorName) === normColor(newRow.colorName) &&
-             normSize(r.sizeLabel) === normSize(newRow.sizeLabel)
+        (r) =>
+          normColor(r.colorName) === normColor(newRow.colorName) &&
+          normSize(r.sizeLabel) === normSize(newRow.sizeLabel)
       );
       if (i >= 0) {
         const next = [...prev];
-        next[i] = { ...next[i], quantity: next[i].quantity + Math.max(0, newRow.quantity) };
+        next[i] = {
+          ...next[i],
+          quantity: next[i].quantity + Math.max(0, newRow.quantity),
+        };
         return next;
       }
       return [...prev].concat([{ id: rand(), ...newRow }]);
@@ -203,17 +270,28 @@ export default function NewProductPage() {
     if (!s) return setErr("Size is required.");
     if (!Number.isFinite(q) || q < 0) return setErr("Quantity must be ≥ 0.");
 
-    addOrMergeRow({ colorName: c, colorCode: colorCode || undefined, sizeLabel: s, quantity: q });
+    const entries = parseSizesInput(s, q);
+    if (entries.length === 0)
+      return setErr("Provide at least one size (e.g., S,M,L or S:10,M:5).");
 
-    // reset size + qty (keep color if you prefer; currently clears)
+    for (const { label, quantity } of entries) {
+      addOrMergeRow({
+        colorName: c,
+        colorCode: colorCode || undefined,
+        sizeLabel: label,
+        quantity: Math.max(0, quantity),
+      });
+    }
+
+    // Keep color so you can add more size batches for the same color
     setSizeLabel("");
-    setColorName("");
-    setColorCode("");
     setQuantity(0);
+    // If you prefer clearing color too, uncomment:
+    // setColorName(""); setColorCode("");
   }
 
   function removeLine(i: number) {
-    setLines(prev => prev.filter((_, idx) => idx !== i));
+    setLines((prev) => prev.filter((_, idx) => idx !== i));
     if (editingIndex === i) {
       setEditingIndex(null);
       setDraft(null);
@@ -235,9 +313,10 @@ export default function NewProductPage() {
     const { colorName, sizeLabel, quantity } = draft;
     if (!colorName.trim()) return setErr("Color is required.");
     if (!sizeLabel.trim()) return setErr("Size is required.");
-    if (!Number.isFinite(quantity) || quantity < 0) return setErr("Quantity must be ≥ 0.");
+    if (!Number.isFinite(quantity) || quantity < 0)
+      return setErr("Quantity must be ≥ 0.");
 
-    setLines(prev => {
+    setLines((prev) => {
       const next = [...prev];
       const id = next[editingIndex].id;
       // check if this edit collides with another row -> merge
@@ -279,33 +358,48 @@ export default function NewProductPage() {
       if (!style) throw new Error("Style number is required.");
       if (!title.trim()) throw new Error("Title is required.");
       if (lines.length === 0) throw new Error("Add at least one variant row.");
-      if (editingIndex !== null) throw new Error("Finish or cancel the edit in progress.");
+      if (editingIndex !== null)
+        throw new Error("Finish or cancel the edit in progress.");
 
       // group rows by color
       const byColor = new Map<
         string,
-        { colorName: string; colorCode?: string; sizes: Array<{ label: string; quantity: number }> }
+        {
+          colorName: string;
+          colorCode?: string;
+          sizes: Array<{ label: string; quantity: number }>;
+        }
       >();
       for (const ln of lines) {
         const key = normColor(ln.colorName);
-        const entry = byColor.get(key) || { colorName: ln.colorName, colorCode: ln.colorCode, sizes: [] };
+        const entry =
+          byColor.get(key) || {
+            colorName: ln.colorName,
+            colorCode: ln.colorCode,
+            sizes: [],
+          };
         entry.sizes.push({ label: ln.sizeLabel, quantity: ln.quantity });
         if (ln.colorCode) entry.colorCode = ln.colorCode;
         byColor.set(key, entry);
       }
 
       // build deep variants
-      const variants = Array.from(byColor.values()).map(group => {
+      const variants = Array.from(byColor.values()).map((group) => {
         const suffix = skuSuffixFromColor(group.colorName);
         const sku = `${style}-${suffix}`;
-        const sizes = group.sizes.map(s => {
+        const sizes = group.sizes.map((s) => {
           const sizeTok = tokenize(s.label || "OS");
           const barcode = `${style}-${suffix}-${sizeTok}-${rand(5)}`;
           return {
             label: s.label || "OS",
             barcode,
             inventory: [
-              { location: "WH-DEFAULT", onHand: Math.max(0, Number(s.quantity || 0)), onOrder: 0, reserved: 0 },
+              {
+                location: "WH-DEFAULT",
+                onHand: Math.max(0, Number(s.quantity || 0)),
+                onOrder: 0,
+                reserved: 0,
+              },
             ],
           };
         });
@@ -313,7 +407,11 @@ export default function NewProductPage() {
           sku,
           color: { name: group.colorName, code: group.colorCode || undefined },
           status: "active" as const,
-          media: [] as Array<{ url: string; type: "image" | "video"; isPrimary?: boolean }>,
+          media: [] as Array<{
+            url: string;
+            type: "image" | "video";
+            isPrimary?: boolean;
+          }>,
           sizes,
         };
       });
@@ -325,9 +423,9 @@ export default function NewProductPage() {
           description: desc || undefined,
           price: toMinor(priceGBP),
           attributes: {
-            category:  category || undefined,
-            supplier:  supplier || undefined,
-            season:    season || undefined,
+            category: category || undefined,
+            supplier: supplier || undefined,
+            season: season || undefined,
             wholesale: wholesale === "" ? undefined : Number(wholesale),
           },
           status,
@@ -345,7 +443,9 @@ export default function NewProductPage() {
       setInfo("Product created successfully.");
       router.push(`/products/${productId}`);
     } catch (e: any) {
-      setErr(e?.response?.data?.message || e?.message || "Failed to create product.");
+      setErr(
+        e?.response?.data?.message || e?.message || "Failed to create product."
+      );
     } finally {
       setSaving(false);
     }
@@ -355,7 +455,9 @@ export default function NewProductPage() {
     <div className="p-4 space-y-6 max-w-5xl">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">Create Product</h1>
-        <Link href="/products" className="underline">Back to Products</Link>
+        <Link href="/products" className="underline">
+          Back to Products
+        </Link>
       </div>
 
       {/* Draft controls */}
@@ -368,20 +470,40 @@ export default function NewProductPage() {
         {/* ---------- Product core ---------- */}
         <section className="grid grid-cols-1 md:grid-cols-2 gap-4 border rounded p-4">
           <div>
-            <Label>Style Number</Label>
-            <Input value={styleNumber} onChange={(e) => setStyleNumber(e.target.value)} required placeholder="STY-500010" />
+            <Label className="m-2">Style Number</Label>
+            <Input
+              value={styleNumber}
+              onChange={(e) => setStyleNumber(e.target.value)}
+              required
+              placeholder="STY-500010"
+            />
           </div>
           <div>
-            <Label>Title</Label>
-            <Input value={title} onChange={(e) => setTitle(e.target.value)} required placeholder="Men's Running Shoe" />
+            <Label className="m-2">Title</Label>
+            <Input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              required
+              placeholder="Men's Running Shoe"
+            />
           </div>
           <div>
-            <Label>Price (GBP)</Label>
-            <Input type="number" step="0.01" value={priceGBP} onChange={(e) => setPriceGBP(e.target.value)} placeholder="79.99" />
+            <Label className="m-2">Price (GBP)</Label>
+            <Input
+              type="number"
+              step="0.01"
+              value={priceGBP}
+              onChange={(e) => setPriceGBP(e.target.value)}
+              placeholder="79.99"
+            />
           </div>
           <div>
-            <Label>Status</Label>
-            <select className="w-full h-10 border rounded px-3" value={status} onChange={(e) => setStatus(e.target.value as any)}>
+            <Label className="m-2">Status</Label>
+            <select
+              className="w-full h-10 border rounded px-3"
+              value={status}
+              onChange={(e) => setStatus(e.target.value as any)}
+            >
               <option value="active">active</option>
               <option value="inactive">inactive</option>
               <option value="draft">draft</option>
@@ -389,61 +511,89 @@ export default function NewProductPage() {
             </select>
           </div>
           <div className="md:col-span-2">
-            <Label>Description</Label>
-            <Textarea rows={4} value={desc} onChange={(e) => setDesc(e.target.value)} />
+            <Label className="m-2">Description</Label>
+            <Textarea
+              rows={4}
+              value={desc}
+              onChange={(e) => setDesc(e.target.value)}
+            />
           </div>
           <div>
-            <Label>Category</Label>
-            <Input value={category} onChange={(e) => setCategory(e.target.value)} />
+            <Label className="m-2">Category</Label>
+            <Input
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+            />
           </div>
           <div>
-            <Label>Supplier</Label>
-            <Input value={supplier} onChange={(e) => setSupplier(e.target.value)} />
+            <Label className="m-2">Supplier</Label>
+            <Input
+              value={supplier}
+              onChange={(e) => setSupplier(e.target.value)}
+            />
           </div>
           <div>
-            <Label>Season</Label>
-            <Input value={season} onChange={(e) => setSeason(e.target.value)} />
+            <Label className="m-2">Season</Label>
+            <Input
+              value={season}
+              onChange={(e) => setSeason(e.target.value)}
+            />
           </div>
           <div>
-            <Label>Wholesale (£)</Label>
-            <Input type="number" step="0.01" value={wholesale} onChange={(e) => setWholesale(e.target.value)} />
+            <Label className="m-2">Wholesale (£)</Label>
+            <Input
+              type="number"
+              step="0.01"
+              value={wholesale}
+              onChange={(e) => setWholesale(e.target.value)}
+            />
           </div>
         </section>
 
         {/* ---------- Quick add row ---------- */}
         <section className="space-y-4 border rounded p-4">
-          <h2 className="font-medium">Add Color rows</h2>
+          <h2 className="font-medium">Add Color and Size</h2>
 
           <div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
             <div>
-              <Label>Color name</Label>
-              <Input value={colorName} onChange={(e) => setColorName(e.target.value)} placeholder="Enter Color" />
-            </div>
-            <div>
-              <Label>Color code</Label>
-              <Input value={colorCode} onChange={(e) => setColorCode(e.target.value)} placeholder="#111111 (optional)" />
-            </div>
-            <div>
-              <Label>Size</Label>
-              <Input value={sizeLabel} onChange={(e) => setSizeLabel(e.target.value)} placeholder="OS / S / M / UK 8" />
-            </div>
-            <div>
-              <Label>Quantity (onHand)</Label>
+              <Label className="m-2">Color name</Label>
               <Input
-                type="number"
-                min={0}
-                value={quantity}
-                onChange={(e) => setQuantity(Math.max(0, Number(e.target.value || 0)))}
-                placeholder="0"
+                value={colorName}
+                onChange={(e) => setColorName(e.target.value)}
+                placeholder="Enter Color"
               />
             </div>
+            <div>
+              <Label className="m-2">Color code</Label>
+              <Input
+                value={colorCode}
+                onChange={(e) => setColorCode(e.target.value)}
+                placeholder="#111111 (optional)"
+              />
+            </div>
+            <div>
+              <Label className="m-2">Size</Label>
+              <Input
+                value={sizeLabel}
+                onChange={(e) => setSizeLabel(e.target.value)}
+                placeholder="OS / S,M,L or S:10,M:5,UK 8:0"
+              />
+            </div>
+            
             <div className="flex items-end">
-              <Button className="" type="button" onClick={addLine}>Add</Button>
+              <Button className="" type="button" onClick={addLine}>
+                Add
+              </Button>
             </div>
           </div>
 
           <p className="text-xs text-muted-foreground">
-            SKU will be generated per color: <code>{skuPreview}</code>. Each size gets an auto barcode.
+            SKU will be generated per color: <code>{skuPreview}</code>. 
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Tip: add multiple sizes separated by commas. Use{" "}
+            <code>size:qty</code> to override quantity per size (e.g.,{" "}
+            <code>S:10,M:5</code>).
           </p>
 
           {/* ---------- Editable table ---------- */}
@@ -453,16 +603,19 @@ export default function NewProductPage() {
                 <tr className="bg-gray-100">
                   <th className="text-left p-2">#</th>
                   <th className="text-left p-2">Color</th>
-                  <th className="text-left p-2">Code</th>
                   <th className="text-left p-2">Size</th>
-                  <th className="text-left p-2">Qty</th>
                   <th className="text-right p-2">Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {lines.length === 0 ? (
                   <tr>
-                    <td className="p-3 text-center text-gray-500" colSpan={6}>No variant rows yet. Add one above.</td>
+                    <td
+                      className="p-3 text-center text-gray-500"
+                      colSpan={6}
+                    >
+                      No variant rows yet. Add one above.
+                    </td>
                   </tr>
                 ) : (
                   lines.map((ln, i) => {
@@ -476,29 +629,14 @@ export default function NewProductPage() {
                           {isEdit ? (
                             <Input
                               value={draft?.colorName || ""}
-                              onChange={(e) => setDraft(d => d ? { ...d, colorName: e.target.value } : d)}
+                              onChange={(e) =>
+                                setDraft((d) =>
+                                  d ? { ...d, colorName: e.target.value } : d
+                                )
+                              }
                             />
                           ) : (
                             ln.colorName
-                          )}
-                        </td>
-
-                        {/* Color Code + swatch */}
-                        <td className="p-2 align-middle">
-                          {isEdit ? (
-                            <div className="flex items-center gap-2">
-                              <Input
-                                value={draft?.colorCode || ""}
-                                onChange={(e) => setDraft(d => d ? { ...d, colorCode: e.target.value } : d)}
-                                placeholder="#11111"
-                              />
-                              <span className="inline-block w-5 h-5 rounded border" style={{ backgroundColor: draft?.colorCode || "#fff" }} />
-                            </div>
-                          ) : (
-                            <div className="flex items-center gap-2">
-                              <span className="inline-block w-5 h-5 rounded border" style={{ backgroundColor: ln.colorCode || "#fff" }} />
-                              <span className="font-mono text-xs">{ln.colorCode || "—"}</span>
-                            </div>
                           )}
                         </td>
 
@@ -507,7 +645,11 @@ export default function NewProductPage() {
                           {isEdit ? (
                             <Input
                               value={draft?.sizeLabel || ""}
-                              onChange={(e) => setDraft(d => d ? { ...d, sizeLabel: e.target.value } : d)}
+                              onChange={(e) =>
+                                setDraft((d) =>
+                                  d ? { ...d, sizeLabel: e.target.value } : d
+                                )
+                              }
                             />
                           ) : (
                             ln.sizeLabel
@@ -515,38 +657,40 @@ export default function NewProductPage() {
                         </td>
 
                         {/* Qty */}
-                        <td className="p-2 align-middle">
-                          {isEdit ? (
-                            <Input
-                              type="number"
-                              min={0}
-                              value={draft?.quantity ?? 0}
-                              onChange={(e) =>
-                                setDraft(d => d ? { ...d, quantity: Math.max(0, Number(e.target.value || 0)) } : d)
-                              }
-                            />
-                          ) : (
-                            ln.quantity
-                          )}
-                        </td>
+                       
 
                         {/* Actions */}
-                        <td className="p-2 align-middle text-right">
+                        <td className="p-2 flex justify-end align-middle text-right">
                           {isEdit ? (
                             <div className="flex justify-end gap-2">
                               <Button type="button" size="sm" onClick={applyEdit}>
                                 <Check className="h-4 w-4 mr-2" /> Save
                               </Button>
-                              <Button type="button" size="sm" variant="secondary" onClick={cancelEdit}>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="secondary"
+                                onClick={cancelEdit}
+                              >
                                 <XIcon className="h-4 w-4 mr-2" /> Cancel
                               </Button>
                             </div>
                           ) : (
                             <div className="flex justify-end gap-2">
-                              <Button type="button" size="sm" variant="secondary" onClick={() => startEdit(i)}>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="secondary"
+                                onClick={() => startEdit(i)}
+                              >
                                 <Pencil className="h-4 w-4 mr-2" /> Edit
                               </Button>
-                              <Button type="button" size="sm" variant="destructive" onClick={() => removeLine(i)}>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="destructive"
+                                onClick={() => removeLine(i)}
+                              >
                                 <Trash2 className="h-4 w-4 mr-2" /> Remove
                               </Button>
                             </div>
@@ -568,7 +712,11 @@ export default function NewProductPage() {
           <Button className="bg-green-600" type="submit" disabled={saving}>
             {saving ? "Saving…" : "Create product"}
           </Button>
-          <Button type="button" variant="secondary" onClick={() => router.push("/products")}>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => router.push("/products")}
+          >
             Cancel
           </Button>
         </div>

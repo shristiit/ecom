@@ -176,7 +176,7 @@ export default function ProductsPage() {
               <TableHead className="font-semibold">Title</TableHead>
               <TableHead className="font-semibold">Status</TableHead>
               <TableHead className="font-semibold">Price</TableHead>
-              <TableHead className="font-semibold">Variants</TableHead>
+              <TableHead className="font-semibold">Colors & Sizes</TableHead>
               {/* NEW columns */}
               <TableHead className="font-semibold text-right">Total</TableHead>
               <TableHead className="font-semibold text-right">Reserved</TableHead>

@@ -363,16 +363,16 @@ export default function ProductDetailsPage() {
       <form onSubmit={onSaveProduct} className="space-y-8">
         <section className="grid grid-cols-1 md:grid-cols-2 gap-4 border rounded p-4">
           <div>
-            <Label>Style number</Label>
+            <Label className="m-2">Style number</Label>
             <Input value={styleNumber} onChange={(e) => setStyleNumber(e.target.value)} required />
           </div>
           <div>
-            <Label>Title</Label>
+            <Label className="m-2">Title</Label>
             <Input value={title} onChange={(e) => setTitle(e.target.value)} required />
           </div>
 
           <div>
-            <Label>Price (GBP)</Label>
+            <Label className="m-2">Price (GBP)</Label>
             <Input
               type="number"
               step="0.01"
@@ -383,7 +383,7 @@ export default function ProductDetailsPage() {
           </div>
 
           <div>
-            <Label>Status</Label>
+            <Label className="m-2">Status</Label>
             <select
               className="w-full h-10 border rounded px-3"
               value={status}
@@ -398,7 +398,7 @@ export default function ProductDetailsPage() {
           </div>
 
           <div className="md:col-span-2">
-            <Label>Description</Label>
+            <Label className="m-2">Description</Label>
             <Textarea rows={4} value={desc} onChange={(e) => setDesc(e.target.value)} />
           </div>
         </section>
@@ -467,7 +467,7 @@ export default function ProductDetailsPage() {
             <div className="w-full border rounded p-3 space-y-3">
               <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
                 <div>
-                  <Label>SKU</Label>
+                  <Label className="m-2">SKU</Label>
                   <Input
                     value={newVariant.sku}
                     onChange={(e) => setNewVariant({ ...newVariant, sku: e.target.value })}
@@ -475,7 +475,7 @@ export default function ProductDetailsPage() {
                   />
                 </div>
                 <div>
-                  <Label>Color name</Label>
+                  <Label className="m-2">Color name</Label>
                   <Input
                     value={newVariant.colorName}
                     onChange={(e) => setNewVariant({ ...newVariant, colorName: e.target.value })}
@@ -483,7 +483,7 @@ export default function ProductDetailsPage() {
                   />
                 </div>
                 <div>
-                  <Label>Color code</Label>
+                  <Label className="m-2">Color code</Label>
                   <Input
                     value={newVariant.colorCode}
                     onChange={(e) => setNewVariant({ ...newVariant, colorCode: e.target.value })}
@@ -491,7 +491,7 @@ export default function ProductDetailsPage() {
                   />
                 </div>
                 <div>
-                  <Label>Status</Label>
+                  <Label className="m-2">Status</Label>
                   <select
                     className="w-full h-10 border rounded px-3"
                     value={newVariant.status}
@@ -510,7 +510,7 @@ export default function ProductDetailsPage() {
 
               <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                 <div>
-                  <Label>Size label</Label>
+                  <Label className="m-2">Size label</Label>
                   <Input
                     value={newVariant.sizeLabel}
                     onChange={(e) => setNewVariant({ ...newVariant, sizeLabel: e.target.value })}
@@ -518,7 +518,7 @@ export default function ProductDetailsPage() {
                   />
                 </div>
                 <div>
-                  <Label>Quantity (on hand)</Label>
+                  <Label className="m-2">Quantity (on hand)</Label>
                   <Input
                     type="number"
                     min={0}
@@ -530,7 +530,7 @@ export default function ProductDetailsPage() {
                   />
                 </div>
                 <div>
-                  <Label>Location</Label>
+                  <Label className="m-2">Location</Label>
                   <Input
                     value={newVariant.location}
                     onChange={(e) => setNewVariant({ ...newVariant, location: e.target.value })}
@@ -538,7 +538,7 @@ export default function ProductDetailsPage() {
                   />
                 </div>
                 <div>
-                  <Label>Barcode (optional)</Label>
+                  <Label className="m-2">Barcode (optional)</Label>
                   <Input
                     value={newVariant.barcode}
                     onChange={(e) => setNewVariant({ ...newVariant, barcode: e.target.value })}

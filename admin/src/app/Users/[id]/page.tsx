@@ -194,7 +194,7 @@ export default function UserDetailsPage() {
     <div className="p-4 space-y-6 max-w-3xl">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">Edit User</h1>
-        <Link href="/users" className="underline">
+        <Link href="/users" className="underline m-2">
           Back to Users
         </Link>
       </div>
@@ -203,7 +203,7 @@ export default function UserDetailsPage() {
         {/* Top-level fields */}
         <section className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <Label htmlFor="username">Username</Label>
+            <Label htmlFor="username" className="m-2">Username</Label>
             <Input
               id="username"
               value={form.username}
@@ -211,7 +211,7 @@ export default function UserDetailsPage() {
             />
           </div>
           <div>
-            <Label htmlFor="email">Email</Label>
+            <Label htmlFor="email" className="m-2">Email</Label>
             <Input
               id="email"
               type="email"
@@ -220,7 +220,7 @@ export default function UserDetailsPage() {
             />
           </div>
           <div>
-            <Label htmlFor="role">Role</Label>
+            <Label htmlFor="role" className="m-2">Role</Label>
             <select
               id="role"
               className="border rounded h-10 px-3 w-full"
@@ -238,7 +238,7 @@ export default function UserDetailsPage() {
           <h2 className="font-medium">Password</h2>
         
             <div>
-              <Label htmlFor="newPassword">New password</Label>
+              <Label htmlFor="newPassword" className="m-2">New password</Label>
               <Input
                 id="newPassword"
                 type="text" 
@@ -257,7 +257,7 @@ export default function UserDetailsPage() {
           <h2 className="font-medium">Store</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <Label htmlFor="storenumber">Store #</Label>
+              <Label htmlFor="storenumber" className="m-2">Store #</Label>
               <Input
                 id="storenumber"
                 value={form.storenumber ?? ""}
@@ -265,7 +265,7 @@ export default function UserDetailsPage() {
               />
             </div>
             <div>
-              <Label htmlFor="storename">Store Name</Label>
+              <Label htmlFor="storename" className="m-2">Store Name</Label>
               <Input
                 id="storename"
                 value={form.storename ?? ""}
@@ -273,7 +273,7 @@ export default function UserDetailsPage() {
               />
             </div>
             <div>
-              <Label htmlFor="manager">Manager</Label>
+              <Label htmlFor="manager" className="m-2">Manager</Label>
               <Input
                 id="manager"
                 value={form.manager ?? ""}
@@ -281,7 +281,7 @@ export default function UserDetailsPage() {
               />
             </div>
             <div>
-              <Label htmlFor="location">Location</Label>
+              <Label htmlFor="location" className="m-2">Location</Label>
               <Input
                 id="location"
                 value={form.location ?? ""}
@@ -289,7 +289,7 @@ export default function UserDetailsPage() {
               />
             </div>
             <div className="md:col-span-2">
-              <Label htmlFor="address">Address</Label>
+              <Label htmlFor="address" className="m-2">Address</Label>
               <Input
                 id="address"
                 value={form.address ?? ""}
@@ -297,7 +297,7 @@ export default function UserDetailsPage() {
               />
             </div>
             <div className="md:col-span-2">
-              <Label htmlFor="deliveryaddress">Delivery Address</Label>
+              <Label htmlFor="deliveryaddress" className="m-2">Delivery Address</Label>
               <Input
                 id="deliveryaddress"
                 value={form.deliveryaddress ?? ""}
@@ -305,7 +305,7 @@ export default function UserDetailsPage() {
               />
             </div>
             <div>
-              <Label htmlFor="contact">Contact</Label>
+              <Label htmlFor="contact" className="m-2">Contact</Label>
               <Input
                 id="contact"
                 value={form.contact ?? ""}
@@ -313,7 +313,7 @@ export default function UserDetailsPage() {
               />
             </div>
             <div>
-              <Label htmlFor="companycontact">Company Contact</Label>
+              <Label htmlFor="companycontact" className="m-2">Company Contact</Label>
               <Input
                 id="companycontact"
                 value={form.companycontact ?? ""}
@@ -321,7 +321,7 @@ export default function UserDetailsPage() {
               />
             </div>
             <div>
-              <Label htmlFor="vat">VAT</Label>
+              <Label htmlFor="vat"className="m-2">VAT</Label>
               <Input
                 id="vat"
                 value={form.vat ?? ""}

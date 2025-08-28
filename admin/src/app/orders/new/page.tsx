@@ -181,7 +181,7 @@ export default function NewOrderPage() {
       }
 
       // Build simple products[] (name/price/quantity) and totalAmount (floats in GBP)
-      const productsPayload: Array<{ name: string; price: number; quantity: number }> = [];
+      const productsPayload: Array<{ name: string; price: number; quantity: number, product_id: string }> = [];
 
       for (const ln of lines) {
         const deep = deepCache[ln.productId];
@@ -205,6 +205,7 @@ export default function NewOrderPage() {
           name: displayName || deep.title || deep.styleNumber || "Item",
           price: Number(priceGBP.toFixed(2)),
           quantity: ln.quantity,
+          product_id: deep._id,
         });
       }
 
@@ -272,15 +273,15 @@ export default function NewOrderPage() {
             <h2 className="font-medium mb-2">Customer</h2>
           </div>
           <div>
-            <Label>Name</Label>
+            <Label className="m-2">Name</Label>
             <Input value={customerName} onChange={(e) => setCustomerName(e.target.value)} required />
           </div>
           <div>
-            <Label>Phone</Label>
+            <Label className="m-2">Phone</Label>
             <Input value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} required />
           </div>
           <div>
-            <Label>Email (optional)</Label>
+            <Label className="m-2">Email (optional)</Label>
             <Input type="email" value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} />
           </div>
         </section>
@@ -291,31 +292,31 @@ export default function NewOrderPage() {
             <h2 className="font-medium mb-2">Shipping Address</h2>
           </div>
           <div>
-            <Label>Name</Label>
+            <Label className="m-2">Name</Label>
             <Input value={shipName} onChange={(e) => setShipName(e.target.value)} />
           </div>
           <div>
-            <Label>Phone</Label>
+            <Label className="m-2">Phone</Label>
             <Input value={shipPhone} onChange={(e) => setShipPhone(e.target.value)} />
           </div>
           <div className="md:col-span-3">
-            <Label>Address line 1</Label>
+            <Label className="m-2">Address line 1</Label>
             <Input value={shipLine1} onChange={(e) => setShipLine1(e.target.value)} />
           </div>
           <div className="md:col-span-3">
-            <Label>Address line 2</Label>
+            <Label className="m-2">Address line 2</Label>
             <Input value={shipLine2} onChange={(e) => setShipLine2(e.target.value)} />
           </div>
           <div>
-            <Label>City</Label>
+            <Label className="m-2">City</Label>
             <Input value={shipCity} onChange={(e) => setShipCity(e.target.value)} />
           </div>
           <div>
-            <Label>Postal code</Label>
+            <Label className="m-2">Postal code</Label>
             <Input value={shipPostcode} onChange={(e) => setShipPostcode(e.target.value)} />
           </div>
           <div>
-            <Label>Country</Label>
+            <Label className="m-2">Country</Label>
             <Input value={shipCountry} onChange={(e) => setShipCountry(e.target.value)} />
           </div>
         </section>
@@ -332,11 +333,11 @@ export default function NewOrderPage() {
           {!billSame && (
             <>
               <div>
-                <Label>Name</Label>
+                <Label className="m-2">Name</Label>
                 <Input value={billName} onChange={(e) => setBillName(e.target.value)} />
               </div>
               <div>
-                <Label>Phone</Label>
+                <Label className="m-2">Phone</Label>
                 <Input value={billPhone} onChange={(e) => setBillPhone(e.target.value)} />
               </div>
               <div className="md:col-span-3">
@@ -344,19 +345,19 @@ export default function NewOrderPage() {
                 <Input value={billLine1} onChange={(e) => setBillLine1(e.target.value)} />
               </div>
               <div className="md:col-span-3">
-                <Label>Address line 2</Label>
+                <Label className="m-2">Address line 2</Label>
                 <Input value={billLine2} onChange={(e) => setBillLine2(e.target.value)} />
               </div>
               <div>
-                <Label>City</Label>
+                <Label className="m-2">City</Label>
                 <Input value={billCity} onChange={(e) => setBillCity(e.target.value)} />
               </div>
               <div>
-                <Label>Postal code</Label>
+                <Label className="m-2">Postal code</Label>
                 <Input value={billPostcode} onChange={(e) => setBillPostcode(e.target.value)} />
               </div>
               <div>
-                <Label>Country</Label>
+                <Label className="m-2">Country</Label>
                 <Input value={billCountry} onChange={(e) => setBillCountry(e.target.value)} />
               </div>
             </>
@@ -388,7 +389,7 @@ export default function NewOrderPage() {
             return (
               <div key={i} className="grid grid-cols-1 md:grid-cols-6 gap-2 border rounded p-3">
                 <div className="md:col-span-2">
-                  <Label>Product</Label>
+                  <Label className="m-2">Product</Label>
                   <select
                     className="w-full h-10 border rounded px-3"
                     value={ln.productId}
@@ -404,14 +405,14 @@ export default function NewOrderPage() {
                 </div>
 
                 <div>
-                  <Label>Variant</Label>
+                  <Label className="m-2">Color & Size</Label>
                   <select
                     className="w-full h-10 border rounded px-3"
                     value={ln.variantId}
                     onChange={(e) => onChangeVariant(i, e.target.value)}
                     disabled={!variants.length}
                   >
-                    <option value="">{variants.length ? "— select variant —" : "— no variants —"}</option>
+                    <option value="">{variants.length ? "— select Color & Size —" : "— no Color & Size —"}</option>
                     {variants.map((v) => (
                       <option key={v._id} value={v._id}>
                         {v.sku}
@@ -422,7 +423,7 @@ export default function NewOrderPage() {
                 </div>
 
                 <div>
-                  <Label>Size</Label>
+                  <Label className="m-2">Size</Label>
                   <select
                     className="w-full h-10 border rounded px-3"
                     value={ln.sizeId}
@@ -439,7 +440,7 @@ export default function NewOrderPage() {
                 </div>
 
                 <div>
-                  <Label>Qty</Label>
+                  <Label className="m-2">Qty</Label>
                   <Input
                     type="number"
                     min={1}
@@ -451,7 +452,7 @@ export default function NewOrderPage() {
                 </div>
 
                 <div>
-                  <Label>Location</Label>
+                  <Label className="m-2">Location</Label>
                   <Input
                     value={ln.location}
                     onChange={(e) => updateLine(i, { location: e.target.value })}
@@ -471,7 +472,7 @@ export default function NewOrderPage() {
 
         {/* Notes (kept for future; not used by current backend) */}
         <section className="border rounded p-4">
-          <Label>Notes</Label>
+          <Label className="m-2">Notes</Label>
           <Textarea rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} />
         </section>
 

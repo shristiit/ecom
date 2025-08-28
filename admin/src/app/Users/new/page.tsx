@@ -86,15 +86,15 @@ export default function NewUserPage() {
       <form onSubmit={onSave} className="space-y-6">
         <section className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <Label htmlFor="username">Username</Label>
+            <Label htmlFor="username" className="m-2">Username</Label>
             <Input id="username" required value={form.username} onChange={(e) => update("username", e.target.value)} />
           </div>
           <div>
-            <Label htmlFor="email">Email</Label>
+            <Label htmlFor="email" className="m-2">Email</Label>
             <Input id="email" type="email" required value={form.email} onChange={(e) => update("email", e.target.value)} />
           </div>
           <div>
-            <Label htmlFor="role">Role</Label>
+            <Label htmlFor="role" className="m-2">Role</Label>
             <select
               id="role"
               className="border rounded h-10 px-3 w-full"
@@ -106,7 +106,7 @@ export default function NewUserPage() {
             </select>
           </div>
           <div>
-            <Label htmlFor="password">Password</Label>
+            <Label htmlFor="password" className="m-2">Password</Label>
             <Input
               id="password"
               type="text" 
@@ -125,7 +125,7 @@ export default function NewUserPage() {
           <h2 className="font-medium">Store</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <Label htmlFor="storenumber">Store #</Label>
+              <Label htmlFor="storenumber" className="m-2">Store #</Label>
               <Input
                 id="storenumber"
                 type="number"
@@ -135,35 +135,35 @@ export default function NewUserPage() {
               />
             </div>
             <div>
-              <Label htmlFor="storename">Store Name</Label>
+              <Label htmlFor="storename" className="m-2">Store Name</Label>
               <Input id="storename" value={form.storename} onChange={(e) => update("storename", e.target.value)} />
             </div>
             <div>
-              <Label htmlFor="manager">Manager</Label>
+              <Label htmlFor="manager" className="m-2">Manager</Label>
               <Input id="manager" value={form.manager} onChange={(e) => update("manager", e.target.value)} />
             </div>
             <div>
-              <Label htmlFor="location">Location</Label>
+              <Label htmlFor="location" className="m-2">Location</Label>
               <Input id="location" value={form.location} onChange={(e) => update("location", e.target.value)} />
             </div>
             <div className="md:col-span-2">
-              <Label htmlFor="address">Address</Label>
+              <Label htmlFor="address" className="m-2">Address</Label>
               <Input id="address" value={form.address} onChange={(e) => update("address", e.target.value)} />
             </div>
             <div className="md:col-span-2">
-              <Label htmlFor="deliveryaddress">Delivery Address</Label>
+              <Label htmlFor="deliveryaddress" className="m-2">Delivery Address</Label>
               <Input id="deliveryaddress" value={form.deliveryaddress} onChange={(e) => update("deliveryaddress", e.target.value)} />
             </div>
             <div>
-              <Label htmlFor="contact">Contact</Label>
+              <Label htmlFor="contact" className="m-2">Contact</Label>
               <Input id="contact" value={form.contact} onChange={(e) => update("contact", e.target.value)} />
             </div>
             <div>
-              <Label htmlFor="companycontact">Company Contact</Label>
+              <Label htmlFor="companycontact" className="m-2">Company Contact</Label>
               <Input id="companycontact" value={form.companycontact} onChange={(e) => update("companycontact", e.target.value)} />
             </div>
             <div>
-              <Label htmlFor="vat">VAT</Label>
+              <Label htmlFor="vat" className="m-2">VAT</Label>
               <Input id="vat" value={form.vat} onChange={(e) => update("vat", e.target.value)} />
             </div>
           </div>

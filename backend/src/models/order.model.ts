@@ -12,6 +12,7 @@ export interface IOrder extends Document {
   customer: string;
   products: IOrderProduct[];
   totalAmount: number;
+  status?: "In Hand" | "Processing" | "Delivered";
   shippingAddress?: string;
   orderNumber: string; // auto-generated unique order number
   createdAt: Date;
@@ -26,10 +27,12 @@ const orderSchema = new Schema<IOrder>(
         name: { type: String, required: true },
         price: { type: Number, required: true, min: 0 },
         quantity: { type: Number, required: true, min: 1 },
+        product_id: { type: String, required: true },
       },
     ],
     totalAmount: { type: Number, required: true, min: 0 },
     shippingAddress: { type: String },
+    status: { type: String, enum: ["In Hand", "Processing", "Delivered"], default: "In Hand" },
     orderNumber: {
       type: String,
       unique: true,

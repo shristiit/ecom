@@ -7,6 +7,7 @@ import {
   listOrders,
   getOrderById,
   deleteOrderById,
+  updateOrder
 } from "../controllers/order.controller";
 
 const router = Router();
@@ -25,7 +26,15 @@ router.post(
   ],
   createOrder
 );
-
+// update Order 
+router.post(
+  "/update",
+  [
+    body("orderNumber").isString().notEmpty(),
+    body("status").isString().notEmpty(),
+  ],
+  updateOrder
+);
 // List Orders
 router.get("/list", listOrders);
 
