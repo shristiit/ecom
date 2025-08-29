@@ -72,7 +72,7 @@ export default function UsersPage() {
       <div className="flex justify-end mb-4">
         <Button
           className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-md transition-all"
-          onClick={() => route.push("/users/new")}
+          onClick={() => route.push("/Users/new")}
         >
           <Plus className="mr-2 h-4 w-4" />
           Create User
@@ -120,7 +120,7 @@ export default function UsersPage() {
                   </TableCell>
                   <TableCell>
                     <Link
-                      href={`/users/${u._id}`}
+                      href={`/Users/${u._id}`}
                       className="text-indigo-600 hover:underline"
                     >
                       {u.username}
@@ -128,7 +128,7 @@ export default function UsersPage() {
                   </TableCell>
                   <TableCell>
                     <Link
-                      href={`/users/${u._id}`}
+                      href={`/Users/${u._id}`}
                       className="text-indigo-600 hover:underline"
                     >
                       {u.email}

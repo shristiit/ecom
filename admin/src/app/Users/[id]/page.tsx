@@ -194,7 +194,7 @@ export default function UserDetailsPage() {
     <div className="p-4 space-y-6 max-w-3xl">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">Edit User</h1>
-        <Link href="/users" className="underline m-2">
+        <Link href="/Users" className="underline m-2">
           Back to Users
         </Link>
       </div>

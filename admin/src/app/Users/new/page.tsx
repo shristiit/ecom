@@ -60,7 +60,7 @@ export default function NewUserPage() {
     try {
       await api.post("/api/auth/register", payload);
       alert("User created ✅");
-      router.push("/users");
+      router.push("/Users");
     } catch (err: any) {
       if (err.response?.status === 409) {
         setError("Username or email already exists.");

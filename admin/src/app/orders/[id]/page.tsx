@@ -14,6 +14,7 @@ import {
   TableCell,
 } from "@/components/ui/table";
 
+/* ------------ Types ------------ */
 type OrderProduct = { name: string; price: number; quantity: number };
 type OrderStatus = "In Hand" | "Processing" | "Delivered";
 
@@ -51,7 +52,7 @@ type Customer = string | { name?: string; phone?: string; email?: string };
 type Order = {
   _id: string;
   orderNumber?: string;
-  status?: string;
+  status?: OrderStatus; // use enum directly
   fulfillmentStatus?: string;
   currency?: string;
   customer?: Customer;
@@ -73,23 +74,21 @@ type Order = {
   updatedAt?: string;
 };
 
+/* ------------ Money / utils ------------ */
 function moneyMinorToGBP(n?: number) {
   if (typeof n !== "number") return "—";
   return `£${(n / 100).toFixed(2)}`;
 }
-
 function moneyFloatGBP(n?: number) {
   if (typeof n !== "number") return "—";
   return `£${n.toFixed(2)}`;
 }
-
 function getCustomerText(c?: Customer) {
   if (!c) return "—";
   if (typeof c === "string") return c;
   const bits = [c.name, c.phone, c.email].filter(Boolean);
   return bits.length ? bits.join(" · ") : "—";
 }
-
 function formatAddress(addr?: AddressObj) {
   if (!addr) return "—";
   if (typeof addr === "string") return addr;
@@ -107,7 +106,6 @@ function formatAddress(addr?: AddressObj) {
     .join(", ");
   return bits || "—";
 }
-
 function fmtDate(iso?: string) {
   if (!iso) return "—";
   try {
@@ -117,21 +115,35 @@ function fmtDate(iso?: string) {
   }
 }
 
+/* ------------ Status transitions (state machine) ------------ */
+const NEXT_ACTION: Record<OrderStatus, { to: OrderStatus; label: string } | null> = {
+  "In Hand": { to: "Processing", label: "Processing" },
+  "Processing": { to: "Delivered", label: "Delivered" },
+  "Delivered": null,
+};
+function canTransition(from: OrderStatus, to: OrderStatus) {
+  return (
+    (from === "In Hand" && to === "Processing") ||
+    (from === "Processing" && to === "Delivered")
+  );
+}
+function statusBadgeClasses(status?: OrderStatus) {
+  if (status === "Delivered") return "bg-green-100 text-green-800";
+  if (status === "Processing") return "bg-amber-100 text-amber-800";
+  return "bg-gray-100 text-gray-800"; // In Hand / default
+}
+
+/* ------------ Page ------------ */
 export default function OrderDetailsPage() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
   const id = (params?.id || "") as string;
+
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
-  const STATUS_OPTIONS: Array<{ label: string; value: OrderStatus }> = [
-    { label: "In Hand", value: "In Hand" },
-    { label: "Processing", value: "Processing" },
-    { label: "Delivered", value: "Delivered" },
-  ];
-
-  const [statusSaving, setStatusSaving] = React.useState(false);
+  const [statusSaving, setStatusSaving] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -144,9 +156,7 @@ export default function OrderDetailsPage() {
       } catch (e: any) {
         const msg =
           e?.response?.data?.message ||
-          (e?.response?.status === 404
-            ? "Order not found."
-            : "Failed to load order.");
+          (e?.response?.status === 404 ? "Order not found." : "Failed to load order.");
         setErr(msg);
       } finally {
         setLoading(false);
@@ -154,12 +164,8 @@ export default function OrderDetailsPage() {
     })();
   }, [id]);
 
-  const isERD = useMemo(
-    () => !!order?.items && Array.isArray(order.items),
-    [order]
-  );
+  const isERD = useMemo(() => !!order?.items && Array.isArray(order.items), [order]);
 
-  // Totals (display)
   const totalsView = useMemo(() => {
     if (!order) return { sub: "—", tax: "—", ship: "—", disc: "—", grand: "—" };
     if (isERD) {
@@ -171,13 +177,9 @@ export default function OrderDetailsPage() {
         grand: moneyMinorToGBP(order.grandTotal),
       };
     }
-    // simple model fallback
     let computed = 0;
     if (Array.isArray(order.products)) {
-      computed = order.products.reduce(
-        (s, p) => s + (p.price || 0) * (p.quantity || 0),
-        0
-      );
+      computed = order.products.reduce((s, p) => s + (p.price || 0) * (p.quantity || 0), 0);
     }
     return {
       sub: moneyFloatGBP(computed),
@@ -204,37 +206,41 @@ export default function OrderDetailsPage() {
     }
   }
 
-  if (loading)
-    return <div className="p-6 text-lg font-medium">Loading order…</div>;
+  if (loading) return <div className="p-6 text-lg font-medium">Loading order…</div>;
   if (err) return <div className="p-6 text-red-600">{err}</div>;
   if (!order) return <div className="p-6">Not found.</div>;
 
+  /* ------------ Update status with guard + optimistic UI ------------ */
+  async function updateOrderStatus(next: OrderStatus) {
+    if (!order) return;
+    const current: OrderStatus = order.status ?? "In Hand";
+    if (current === next) return;
+    if (!canTransition(current, next)) return; // block invalid jumps
 
-  async function updateOrderStatus(newStatus: OrderStatus) {
-  if (!order) return;
+    setStatusSaving(true);
+    const prev = current;
 
-  setStatusSaving(true);
-  const prev = order.status as OrderStatus | undefined;
+    // optimistic UI
+    setOrder({ ...order, status: next });
 
-  // optimistic UI
-  setOrder({ ...order, status: newStatus });
-
-  try {
-    await api.post("/api/orders/update", {
-      orderNumber: order._id,        // your controller treats this as _id
-      status: newStatus,             // must match enum exactly
-    });
-    // Optionally refetch if you want fresh updatedAt:
-    // const { data } = await api.get(`/api/orders/${order._id}`);
-    // setOrder(data);
-  } catch (e: any) {
-    setOrder({ ...order, status: prev }); // revert on error
-    alert(e?.response?.data?.message || "Failed to update status.");
-  } finally {
-    setStatusSaving(false);
+    try {
+      await api.post("/api/orders/update", {
+        orderNumber: order._id, // your controller treats this as _id
+        status: next, // must match enum exactly: "In Hand" | "Processing" | "Delivered"
+      });
+      // Optional: refetch for updatedAt, etc.
+       const { data } = await api.get<Order>(`/api/orders/${order._id}`);
+      setOrder(data);
+    } catch (e: any) {
+      setOrder({ ...order, status: prev }); // revert on error
+      alert(e?.response?.data?.message || "Failed to update status.");
+    } finally {
+      setStatusSaving(false);
+    }
   }
-}
 
+  const currentStatus: OrderStatus = order.status ?? "In Hand";
+  const nextAction = NEXT_ACTION[currentStatus];
 
   return (
     <div className="max-w-6xl mx-auto px-6 py-8 bg-white shadow-lg rounded-xl border border-gray-200 space-y-6">
@@ -245,8 +251,7 @@ export default function OrderDetailsPage() {
             Order {order.orderNumber || order._id.slice(-6).toUpperCase()}
           </h1>
           <p className="text-sm text-gray-600">
-            Created: {fmtDate(order.createdAt)} • Updated:{" "}
-            {fmtDate(order.updatedAt)}
+            Created: {fmtDate(order.createdAt)} • Updated: {fmtDate(order.updatedAt)}
           </p>
         </div>
         <div className="flex gap-2">
@@ -263,26 +268,31 @@ export default function OrderDetailsPage() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="border rounded-lg p-4">
           <div className="text-sm text-gray-500">Customer</div>
-          <div className="mt-1 font-medium">
-            {getCustomerText(order.customer)}
+          <div className="mt-1 font-medium">{getCustomerText(order.customer)}</div>
+        </div>
+
+        {/* STATUS CARD with action buttons */}
+        <div className="border rounded-lg p-4">
+          <div className="text-sm text-gray-500 mb-1">Status</div>
+          <div className="flex items-center gap-3">
+            <span className={`px-2 py-1 text-xs rounded-full ${statusBadgeClasses(currentStatus)}`}>
+              {currentStatus}
+            </span>
+
+            {nextAction ? (
+              <Button
+                type="button"
+                onClick={() => updateOrderStatus(nextAction.to)}
+                disabled={statusSaving}
+              >
+                {statusSaving ? "Updating…" : nextAction.label}
+              </Button>
+            ) : (
+              <span className="text-xs text-gray-500">No further actions</span>
+            )}
           </div>
         </div>
-        <div className="border rounded-lg p-4">
-          <h1>status</h1>
-          <select
-      className="w-full h-10 border rounded px-3 disabled:opacity-60"
-      value={(order.status as OrderStatus) ?? "In Hand"}
-      onChange={(e) => updateOrderStatus(e.target.value as OrderStatus)}
-      disabled={statusSaving}
-    >
-      {STATUS_OPTIONS.map((opt) => (
-        <option key={opt.value} value={opt.value}>
-          {opt.label}
-        </option>
-      ))}
-    </select>
-    {statusSaving && <div className="text-xs text-gray-500 mt-1">Updating…</div>}
-        </div>
+
         <div className="border rounded-lg p-4">
           <div className="text-sm text-gray-500">Total</div>
           <div className="mt-1 text-xl font-semibold">{totalsView.grand}</div>
@@ -293,16 +303,12 @@ export default function OrderDetailsPage() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="border rounded-lg p-4">
           <div className="font-medium mb-1">Shipping Address</div>
-          <div className="text-gray-700">
-            {formatAddress(order.shippingAddress)}
-          </div>
+          <div className="text-gray-700">{formatAddress(order.shippingAddress)}</div>
         </div>
         {isERD && (
           <div className="border rounded-lg p-4">
             <div className="font-medium mb-1">Billing Address</div>
-            <div className="text-gray-700">
-              {formatAddress(order.billingAddress)}
-            </div>
+            <div className="text-gray-700">{formatAddress(order.billingAddress)}</div>
           </div>
         )}
       </div>
@@ -339,9 +345,7 @@ export default function OrderDetailsPage() {
                   <TableCell>{it.sku}</TableCell>
                   <TableCell>
                     <div className="font-medium">{it.title}</div>
-                    <div className="text-xs text-gray-500">
-                      {it.styleNumber}
-                    </div>
+                    <div className="text-xs text-gray-500">{it.styleNumber}</div>
                   </TableCell>
                   <TableCell>{it.sizeLabel}</TableCell>
                   <TableCell>{it.quantity}</TableCell>
@@ -363,10 +367,7 @@ export default function OrderDetailsPage() {
               ))
             ) : (
               <TableRow>
-                <TableCell
-                  colSpan={isERD ? 7 : 4}
-                  className="text-center py-6 text-gray-500"
-                >
+                <TableCell colSpan={isERD ? 7 : 4} className="text-center py-6 text-gray-500">
                   No items.
                 </TableCell>
               </TableRow>

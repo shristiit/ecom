@@ -145,6 +145,7 @@ export default function ProductsPage() {
       });
     }
   }, [visible, qtyMap, qtyLoading]);
+  console.log(visible)
 
   useEffect(() => { fetchQuantitiesForVisible(); }, [fetchQuantitiesForVisible]);
 
@@ -209,7 +210,7 @@ export default function ProductsPage() {
                     </TableCell>
                     <TableCell className="capitalize">{p.status}</TableCell>
                     <TableCell>{formatMinorGBP(p.price)}</TableCell>
-                    <TableCell>{p.variantCount ?? "—"}</TableCell>
+                    <TableCell>{``}</TableCell>
 
                     {/* NEW qty cells */}
                     <TableCell className="text-right tabular-nums">
