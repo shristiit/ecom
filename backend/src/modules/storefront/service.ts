@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { z } from 'zod';
 import { pool } from '../../db/pool.js';
+import { RESERVATION_TTL_MIN } from '../../config/env.js';
 
 const cartItemSchema = z.object({
   sizeId: z.string().uuid(),
@@ -311,10 +312,17 @@ async function createOrderInternal(tenantId: string, customerId: string, placedB
     let subtotal = 0;
     for (const it of cartItems.rows) subtotal += Number(it.unit_price) * Number(it.qty);
 
+    let discountTotal = 0;
+    if (body.applyPromotionCode) {
+      discountTotal = await computePromotionDiscount(client, tenantId, cartItems.rows, body.applyPromotionCode);
+      if (discountTotal > subtotal) discountTotal = subtotal;
+    }
+    const grandTotal = subtotal - discountTotal;
+
     const orderRes = await client.query(
-      `INSERT INTO orders (tenant_id, customer_id, placed_by_user_id, status, currency, subtotal, grand_total, delivery_type, pickup_location_id, shipping_address_id)
-       VALUES ($1,$2,$3,'pending',$4,$5,$6,$7,$8,$9) RETURNING id`,
-      [tenantId, customerId, placedByUserId, cartItems.rows[0].currency, subtotal, subtotal, body.deliveryType, body.pickupLocationId ?? null, body.shippingAddressId ?? null]
+      `INSERT INTO orders (tenant_id, customer_id, placed_by_user_id, status, currency, subtotal, discount_total, grand_total, delivery_type, pickup_location_id, shipping_address_id)
+       VALUES ($1,$2,$3,'pending',$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
+      [tenantId, customerId, placedByUserId, cartItems.rows[0].currency, subtotal, discountTotal, grandTotal, body.deliveryType, body.pickupLocationId ?? null, body.shippingAddressId ?? null]
     );
     const orderId = orderRes.rows[0].id;
 
@@ -325,7 +333,7 @@ async function createOrderInternal(tenantId: string, customerId: string, placedB
         [tenantId, orderId, it.size_id, it.qty, it.unit_price, it.currency, Number(it.unit_price) * Number(it.qty)]
       );
 
-      await reserveStock(client, tenantId, it.size_id, body.locationId, it.qty, body.deliveryType);
+      await reserveStock(client, tenantId, customerId, orderId, it.size_id, body.locationId, it.qty, body.deliveryType);
     }
 
     await client.query(`DELETE FROM cart_items WHERE cart_id = $1 AND tenant_id = $2`, [body.cartId, tenantId]);
@@ -343,6 +351,8 @@ async function createOrderInternal(tenantId: string, customerId: string, placedB
 async function reserveStock(
   client: any,
   tenantId: string,
+  customerId: string,
+  orderId: string,
   sizeId: string,
   locationId: string,
   qty: number,
@@ -418,4 +428,67 @@ async function reserveStock(
                    updated_at = NOW()`,
     [tenantId, sizeId, locationId, reserveQty, backorderQty]
   );
+
+  const expiresAt = new Date(Date.now() + RESERVATION_TTL_MIN * 60 * 1000);
+  await client.query(
+    `INSERT INTO reservations (tenant_id, customer_id, order_id, size_id, location_id, qty, backorder_qty, expires_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+    [tenantId, customerId, orderId, sizeId, locationId, reserveQty, backorderQty, expiresAt]
+  );
+}
+
+async function computePromotionDiscount(client: any, tenantId: string, cartItems: any[], code: string) {
+  const promoRes = await client.query(
+    `SELECT type, value, applies_to FROM promotions
+     WHERE tenant_id = $1 AND active = true AND code = $2
+     AND (starts_at IS NULL OR starts_at <= NOW())
+     AND (ends_at IS NULL OR ends_at >= NOW())`,
+    [tenantId, code]
+  );
+  if (promoRes.rowCount === 0) return 0;
+  const promo = promoRes.rows[0];
+  const applies = promo.applies_to ?? {};
+
+  const sizeIds = cartItems.map((c) => c.size_id);
+  const meta = await client.query(
+    `SELECT s.id as size_id, k.product_id, p.category_id
+     FROM sku_sizes s
+     JOIN skus k ON s.sku_id = k.id
+     JOIN products p ON k.product_id = p.id
+     WHERE s.id = ANY($1::uuid[]) AND p.tenant_id = $2`,
+    [sizeIds, tenantId]
+  );
+
+  const eligibleSizeIds = new Set<string>();
+  const productIds: string[] = applies.product_ids ?? [];
+  const categoryIds: string[] = applies.category_ids ?? [];
+
+  for (const row of meta.rows) {
+    const productMatch = productIds.length === 0 || productIds.includes(row.product_id);
+    const categoryMatch = categoryIds.length === 0 || (row.category_id && categoryIds.includes(row.category_id));
+    if (productMatch && categoryMatch) eligibleSizeIds.add(row.size_id);
+  }
+
+  let discount = 0;
+  if (promo.type === 'percent') {
+    for (const it of cartItems) {
+      if (!eligibleSizeIds.has(it.size_id)) continue;
+      discount += Math.round((Number(it.unit_price) * Number(it.qty) * promo.value) / 100);
+    }
+  } else if (promo.type === 'fixed') {
+    discount = Number(promo.value);
+  } else if (promo.type === 'bxgy') {
+    const buy = Number(applies.buy ?? 0);
+    const get = Number(applies.get ?? 0);
+    if (buy > 0 && get > 0) {
+      for (const it of cartItems) {
+        if (!eligibleSizeIds.has(it.size_id)) continue;
+        const qty = Number(it.qty);
+        const freeQty = Math.floor(qty / (buy + get)) * get;
+        discount += freeQty * Number(it.unit_price);
+      }
+    }
+  }
+
+  return Math.max(0, discount);
 }

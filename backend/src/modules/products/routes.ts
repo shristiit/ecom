@@ -1,28 +1,30 @@
 import { Router } from 'express';
 import { authGuard, requireTenant, requirePermission } from '../../middlewares/auth.js';
+import { idempotencyGuard } from '../../middlewares/idempotency.js';
 import * as ctrl from './service.js';
 
 const r = Router();
 
 r.use(authGuard, requireTenant);
+const idem = idempotencyGuard((req) => req.user?.tenantId ?? null);
 
 r.get('/', requirePermission('products.read'), ctrl.listProducts);
-r.post('/', requirePermission('products.write'), ctrl.createProduct);
+r.post('/', requirePermission('products.write'), idem, ctrl.createProduct);
 r.get('/:id', requirePermission('products.read'), ctrl.getProduct);
-r.patch('/:id', requirePermission('products.write'), ctrl.updateProduct);
-r.delete('/:id', requirePermission('products.write'), ctrl.deleteProduct);
+r.patch('/:id', requirePermission('products.write'), idem, ctrl.updateProduct);
+r.delete('/:id', requirePermission('products.write'), idem, ctrl.deleteProduct);
 
-r.post('/:id/skus', requirePermission('products.write'), ctrl.createSku);
+r.post('/:id/skus', requirePermission('products.write'), idem, ctrl.createSku);
 r.get('/skus/search', requirePermission('products.read'), ctrl.searchSkus);
-r.patch('/skus/:skuId', requirePermission('products.write'), ctrl.updateSku);
-r.delete('/skus/:skuId', requirePermission('products.write'), ctrl.deleteSku);
+r.patch('/skus/:skuId', requirePermission('products.write'), idem, ctrl.updateSku);
+r.delete('/skus/:skuId', requirePermission('products.write'), idem, ctrl.deleteSku);
 
-r.post('/skus/:skuId/sizes', requirePermission('products.write'), ctrl.createSkuSize);
-r.patch('/sizes/:sizeId', requirePermission('products.write'), ctrl.updateSkuSize);
-r.delete('/sizes/:sizeId', requirePermission('products.write'), ctrl.deleteSkuSize);
+r.post('/skus/:skuId/sizes', requirePermission('products.write'), idem, ctrl.createSkuSize);
+r.patch('/sizes/:sizeId', requirePermission('products.write'), idem, ctrl.updateSkuSize);
+r.delete('/sizes/:sizeId', requirePermission('products.write'), idem, ctrl.deleteSkuSize);
 
 r.get('/:id/locations', requirePermission('products.read'), ctrl.listProductLocations);
-r.post('/:id/locations', requirePermission('products.write'), ctrl.upsertProductLocation);
-r.delete('/:id/locations/:locationId', requirePermission('products.write'), ctrl.deleteProductLocation);
+r.post('/:id/locations', requirePermission('products.write'), idem, ctrl.upsertProductLocation);
+r.delete('/:id/locations/:locationId', requirePermission('products.write'), idem, ctrl.deleteProductLocation);
 
 export default r;

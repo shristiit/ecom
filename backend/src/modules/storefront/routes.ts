@@ -2,6 +2,7 @@ import { Router } from 'express';
 import * as ctrl from './service.js';
 import * as auth from './auth.js';
 import { customerAuthGuard, requireCustomerRole } from '../../middlewares/customerAuth.js';
+import { idempotencyGuard } from '../../middlewares/idempotency.js';
 
 const r = Router();
 
@@ -17,26 +18,27 @@ r.get('/search', ctrl.search);
  r.post('/promotions/apply', ctrl.applyPromotion);
 
 r.use(customerAuthGuard);
+const idem = idempotencyGuard((req) => req.customer?.tenantId ?? null);
 
-r.post('/carts', ctrl.createCart);
+r.post('/carts', idem, ctrl.createCart);
 r.get('/carts', ctrl.listCarts);
-r.post('/carts/:id/items', ctrl.addCartItem);
-r.patch('/carts/:id/items/:itemId', ctrl.updateCartItem);
-r.delete('/carts/:id/items/:itemId', ctrl.deleteCartItem);
-r.post('/carts/:id/save-for-later', ctrl.saveForLater);
+r.post('/carts/:id/items', idem, ctrl.addCartItem);
+r.patch('/carts/:id/items/:itemId', idem, ctrl.updateCartItem);
+r.delete('/carts/:id/items/:itemId', idem, ctrl.deleteCartItem);
+r.post('/carts/:id/save-for-later', idem, ctrl.saveForLater);
 
 r.get('/saved', ctrl.savedItems);
-r.post('/saved', ctrl.addSaved);
-r.delete('/saved/:id', ctrl.deleteSaved);
+r.post('/saved', idem, ctrl.addSaved);
+r.delete('/saved/:id', idem, ctrl.deleteSaved);
 
 r.get('/addresses', ctrl.listAddresses);
-r.post('/addresses', ctrl.createAddress);
-r.delete('/addresses/:id', ctrl.deleteAddress);
+r.post('/addresses', idem, ctrl.createAddress);
+r.delete('/addresses/:id', idem, ctrl.deleteAddress);
 
-r.post('/orders', ctrl.createOrder);
+r.post('/orders', idem, ctrl.createOrder);
 r.get('/orders', ctrl.listOrders);
 r.get('/orders/:id', ctrl.getOrder);
 
-r.post('/orders/staff', requireCustomerRole(['staff','owner']), ctrl.createOrderAsStaff);
+r.post('/orders/staff', requireCustomerRole(['staff','owner']), idem, ctrl.createOrderAsStaff);
 
 export default r;

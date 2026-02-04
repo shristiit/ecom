@@ -1,14 +1,17 @@
 import { Router } from 'express';
 import { authGuard, requireTenant, requirePermission } from '../../middlewares/auth.js';
+import { idempotencyGuard } from '../../middlewares/idempotency.js';
 import * as ctrl from './service.js';
 
 const r = Router();
 
 r.use(authGuard, requireTenant);
+const idem = idempotencyGuard((req) => req.user?.tenantId ?? null);
 
-r.post('/interpret', requirePermission('chat.use'), ctrl.interpret);
-r.post('/confirm', requirePermission('chat.use'), ctrl.confirm);
-r.post('/approve', requirePermission('chat.approve'), ctrl.approve);
+r.post('/interpret', requirePermission('chat.use'), idem, ctrl.interpret);
+r.post('/confirm', requirePermission('chat.use'), idem, ctrl.confirm);
+r.post('/approve', requirePermission('chat.approve'), idem, ctrl.approve);
+r.post('/execute', requirePermission('chat.use'), idem, ctrl.execute);
 r.get('/thread/:id', requirePermission('chat.use'), ctrl.thread);
 
 export default r;
