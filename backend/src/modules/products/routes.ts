@@ -21,4 +21,8 @@ r.post('/skus/:skuId/sizes', requirePermission('products.write'), ctrl.createSku
 r.patch('/sizes/:sizeId', requirePermission('products.write'), ctrl.updateSkuSize);
 r.delete('/sizes/:sizeId', requirePermission('products.write'), ctrl.deleteSkuSize);
 
+r.get('/:id/locations', requirePermission('products.read'), ctrl.listProductLocations);
+r.post('/:id/locations', requirePermission('products.write'), ctrl.upsertProductLocation);
+r.delete('/:id/locations/:locationId', requirePermission('products.write'), ctrl.deleteProductLocation);
+
 export default r;

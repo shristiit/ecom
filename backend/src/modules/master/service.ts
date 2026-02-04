@@ -18,6 +18,11 @@ const partySchema = z.object({
   status: z.enum(['active', 'inactive']).default('active'),
 });
 
+const categorySchema = z.object({
+  name: z.string().min(2),
+  slug: z.string().min(2),
+});
+
 export async function listLocations(req: Request, res: Response) {
   const rows = await query(`SELECT * FROM locations WHERE tenant_id = $1 ORDER BY name`, [req.user!.tenantId]);
   res.json(rows.rows);
@@ -126,5 +131,39 @@ export async function updateCustomer(req: Request, res: Response) {
 
 export async function deleteCustomer(req: Request, res: Response) {
   await query(`DELETE FROM customers WHERE id = $1 AND tenant_id = $2`, [req.params.id, req.user!.tenantId]);
+  res.status(204).send();
+}
+
+export async function listCategories(req: Request, res: Response) {
+  const rows = await query(`SELECT * FROM categories WHERE tenant_id = $1 ORDER BY name`, [req.user!.tenantId]);
+  res.json(rows.rows);
+}
+
+export async function createCategory(req: Request, res: Response) {
+  const parsed = categorySchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ message: 'Invalid payload' });
+  const c = parsed.data;
+  const rows = await query(
+    `INSERT INTO categories (tenant_id, name, slug) VALUES ($1,$2,$3) RETURNING *`,
+    [req.user!.tenantId, c.name, c.slug]
+  );
+  res.status(201).json(rows.rows[0]);
+}
+
+export async function updateCategory(req: Request, res: Response) {
+  const parsed = categorySchema.partial().safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ message: 'Invalid payload' });
+  const c = parsed.data;
+  const rows = await query(
+    `UPDATE categories SET name = COALESCE($1,name), slug = COALESCE($2,slug), updated_at = NOW()
+     WHERE id = $3 AND tenant_id = $4 RETURNING *`,
+    [c.name ?? null, c.slug ?? null, req.params.id, req.user!.tenantId]
+  );
+  if (rows.rowCount === 0) return res.status(404).json({ message: 'Not found' });
+  res.json(rows.rows[0]);
+}
+
+export async function deleteCategory(req: Request, res: Response) {
+  await query(`DELETE FROM categories WHERE id = $1 AND tenant_id = $2`, [req.params.id, req.user!.tenantId]);
   res.status(204).send();
 }
