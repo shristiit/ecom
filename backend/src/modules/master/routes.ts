@@ -21,4 +21,9 @@ r.post('/customers', requirePermission('master.write'), ctrl.createCustomer);
 r.patch('/customers/:id', requirePermission('master.write'), ctrl.updateCustomer);
 r.delete('/customers/:id', requirePermission('master.write'), ctrl.deleteCustomer);
 
+r.get('/categories', requirePermission('master.read'), ctrl.listCategories);
+r.post('/categories', requirePermission('master.write'), ctrl.createCategory);
+r.patch('/categories/:id', requirePermission('master.write'), ctrl.updateCategory);
+r.delete('/categories/:id', requirePermission('master.write'), ctrl.deleteCategory);
+
 export default r;

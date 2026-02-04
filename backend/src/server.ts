@@ -15,6 +15,7 @@ import chatRoutes from './modules/chat/routes.js';
 import auditRoutes from './modules/audit/routes.js';
 import tenantRoutes from './modules/tenants/routes.js';
 import masterRoutes from './modules/master/routes.js';
+import storefrontRoutes from './modules/storefront/routes.js';
 
 const app = express();
 
@@ -35,6 +36,7 @@ app.use('/api/sales', salesRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/audit', auditRoutes);
 app.use('/api/master', masterRoutes);
+app.use('/api/storefront', storefrontRoutes);
 
 app.use(errorHandler);
 

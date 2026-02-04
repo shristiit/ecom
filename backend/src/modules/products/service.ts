@@ -8,6 +8,11 @@ const productSchema = z.object({
   category: z.string().optional().default(''),
   brand: z.string().optional().default(''),
   basePrice: z.number().int().nonnegative(),
+  priceVisible: z.boolean().optional().default(true),
+  inventoryMode: z.enum(['local', 'global']).optional().default('local'),
+  maxBackorderQty: z.number().int().nonnegative().optional().nullable(),
+  pickupEnabled: z.boolean().optional().default(false),
+  categoryId: z.string().uuid().optional().nullable(),
   status: z.enum(['active', 'inactive']).default('active'),
 });
 
@@ -42,10 +47,23 @@ export async function createProduct(req: Request, res: Response) {
   if (!parsed.success) return res.status(400).json({ message: 'Invalid payload' });
   const p = parsed.data;
   const result = await query(
-    `INSERT INTO products (tenant_id, style_code, name, category, brand, base_price, status)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
+    `INSERT INTO products (tenant_id, style_code, name, category, brand, base_price, price_visible, inventory_mode, max_backorder_qty, pickup_enabled, category_id, status)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
      RETURNING *`,
-    [req.user!.tenantId, p.styleCode, p.name, p.category, p.brand, p.basePrice, p.status]
+    [
+      req.user!.tenantId,
+      p.styleCode,
+      p.name,
+      p.category,
+      p.brand,
+      p.basePrice,
+      p.priceVisible,
+      p.inventoryMode,
+      p.maxBackorderQty ?? null,
+      p.pickupEnabled,
+      p.categoryId ?? null,
+      p.status,
+    ]
   );
   res.status(201).json(result.rows[0]);
 }
@@ -80,11 +98,30 @@ export async function updateProduct(req: Request, res: Response) {
        category = COALESCE($3, category),
        brand = COALESCE($4, brand),
        base_price = COALESCE($5, base_price),
-       status = COALESCE($6, status),
+       price_visible = COALESCE($6, price_visible),
+       inventory_mode = COALESCE($7, inventory_mode),
+       max_backorder_qty = COALESCE($8, max_backorder_qty),
+       pickup_enabled = COALESCE($9, pickup_enabled),
+       category_id = COALESCE($10, category_id),
+       status = COALESCE($11, status),
        updated_at = NOW()
-     WHERE id = $7 AND tenant_id = $8
+     WHERE id = $12 AND tenant_id = $13
      RETURNING *`,
-    [p.styleCode ?? null, p.name ?? null, p.category ?? null, p.brand ?? null, p.basePrice ?? null, p.status ?? null, req.params.id, req.user!.tenantId]
+    [
+      p.styleCode ?? null,
+      p.name ?? null,
+      p.category ?? null,
+      p.brand ?? null,
+      p.basePrice ?? null,
+      p.priceVisible ?? null,
+      p.inventoryMode ?? null,
+      p.maxBackorderQty ?? null,
+      p.pickupEnabled ?? null,
+      p.categoryId ?? null,
+      p.status ?? null,
+      req.params.id,
+      req.user!.tenantId,
+    ]
   );
   if (result.rowCount === 0) return res.status(404).json({ message: 'Not found' });
   res.json(result.rows[0]);
@@ -180,5 +217,39 @@ export async function updateSkuSize(req: Request, res: Response) {
 
 export async function deleteSkuSize(req: Request, res: Response) {
   await query(`DELETE FROM sku_sizes WHERE id = $1 AND tenant_id = $2`, [req.params.sizeId, req.user!.tenantId]);
+  res.status(204).send();
+}
+
+export async function listProductLocations(req: Request, res: Response) {
+  const rows = await query(
+    `SELECT pl.location_id, l.name, pl.is_enabled, pl.pickup_enabled
+     FROM product_locations pl
+     JOIN locations l ON pl.location_id = l.id
+     WHERE pl.product_id = $1 AND pl.tenant_id = $2
+     ORDER BY l.name`,
+    [req.params.id, req.user!.tenantId]
+  );
+  res.json(rows.rows);
+}
+
+export async function upsertProductLocation(req: Request, res: Response) {
+  const { locationId, isEnabled, pickupEnabled } = req.body ?? {};
+  if (!locationId) return res.status(400).json({ message: 'locationId required' });
+  const result = await query(
+    `INSERT INTO product_locations (tenant_id, product_id, location_id, is_enabled, pickup_enabled)
+     VALUES ($1,$2,$3,$4,$5)
+     ON CONFLICT (tenant_id, product_id, location_id)
+     DO UPDATE SET is_enabled = EXCLUDED.is_enabled, pickup_enabled = EXCLUDED.pickup_enabled, updated_at = NOW()
+     RETURNING *`,
+    [req.user!.tenantId, req.params.id, locationId, Boolean(isEnabled), Boolean(pickupEnabled)]
+  );
+  res.status(201).json(result.rows[0]);
+}
+
+export async function deleteProductLocation(req: Request, res: Response) {
+  await query(
+    `DELETE FROM product_locations WHERE tenant_id = $1 AND product_id = $2 AND location_id = $3`,
+    [req.user!.tenantId, req.params.id, req.params.locationId]
+  );
   res.status(204).send();
 }
