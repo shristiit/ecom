@@ -1,52 +1,43 @@
 import express from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
 import morgan from 'morgan';
-import path from 'path';
-import { connectDB } from './config/db';
-import { PORT } from './config/env';
+import { PORT, CORS_ORIGIN } from './config/env.js';
+import { errorHandler } from './middlewares/error.js';
 
-import authRoutes from './routes/auth.routes';
-import productRoutes from './routes/product.routes';
-import orderRoutes from './routes/order.route';
-import { errorHandler } from './middlewares/errorHandler';
+import authRoutes from './modules/auth/routes.js';
+import adminRoutes from './modules/admin/routes.js';
+import productRoutes from './modules/products/routes.js';
+import inventoryRoutes from './modules/inventory/routes.js';
+import purchasingRoutes from './modules/purchasing/routes.js';
+import salesRoutes from './modules/sales/routes.js';
+import chatRoutes from './modules/chat/routes.js';
+import auditRoutes from './modules/audit/routes.js';
+import tenantRoutes from './modules/tenants/routes.js';
+import masterRoutes from './modules/master/routes.js';
 
 const app = express();
 
-// Middleware
-app.use(cors({ origin: 'http://localhost:3000', credentials: true }));
-app.use(express.json());
+app.use(helmet());
+app.use(cors({ origin: CORS_ORIGIN, credentials: true }));
+app.use(express.json({ limit: '2mb' }));
 app.use(morgan('dev'));
 
-app.use(
-  '/static/uploads',
-  express.static(path.join(process.cwd(), 'uploads'), { maxAge: '30d' })
-);
-
-// (DEV ONLY) Stub a guest user so any leftover req.user._id access won't crash.
-// Remove this once all controllers use: const actorId = req.user?._id ?? null;
-app.use((req, _res, next) => {
-  if (typeof (req as any).user === 'undefined') {
-    (req as any).user = { _id: null, role: 'guest' };
-  }
-  next();
-});
-
-// Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/products', productRoutes);  // public products router (no guards)
-app.use('/api/orders',orderRoutes)
-
-// Healthcheck
 app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
 
-// Error handler (keep last)
+app.use('/api/auth', authRoutes);
+app.use('/api/tenants', tenantRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/api/products', productRoutes);
+app.use('/api/inventory', inventoryRoutes);
+app.use('/api/purchasing', purchasingRoutes);
+app.use('/api/sales', salesRoutes);
+app.use('/api/chat', chatRoutes);
+app.use('/api/audit', auditRoutes);
+app.use('/api/master', masterRoutes);
+
 app.use(errorHandler);
 
-const start = async () => {
-  await connectDB();
-  app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-  });
-};
-
-start();
+app.listen(PORT, () => {
+  console.log(`API running on http://localhost:${PORT}`);
+});
