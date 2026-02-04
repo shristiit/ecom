@@ -52,30 +52,75 @@ export async function movements(req: Request, res: Response) {
 }
 
 export async function receive(req: Request, res: Response) {
-  await handleSimpleMove(req, res, 'receive');
+  try {
+    const result = await executeReceive(req.user!.id, req.user!.tenantId, req.body);
+    res.status(201).json(result);
+  } catch (err: any) {
+    res.status(400).json({ message: err.message ?? 'Failed' });
+  }
 }
 
 export async function adjust(req: Request, res: Response) {
-  await handleSimpleMove(req, res, 'adjust');
+  try {
+    const result = await executeAdjust(req.user!.id, req.user!.tenantId, req.body);
+    res.status(201).json(result);
+  } catch (err: any) {
+    res.status(400).json({ message: err.message ?? 'Failed' });
+  }
 }
 
 export async function writeOff(req: Request, res: Response) {
-  await handleSimpleMove(req, res, 'write_off');
+  try {
+    const result = await executeWriteOff(req.user!.id, req.user!.tenantId, req.body);
+    res.status(201).json(result);
+  } catch (err: any) {
+    res.status(400).json({ message: err.message ?? 'Failed' });
+  }
 }
 
 export async function cycleCount(req: Request, res: Response) {
-  await handleSimpleMove(req, res, 'cycle_count');
+  try {
+    const result = await executeCycleCount(req.user!.id, req.user!.tenantId, req.body);
+    res.status(201).json(result);
+  } catch (err: any) {
+    res.status(400).json({ message: err.message ?? 'Failed' });
+  }
 }
 
 export async function transfer(req: Request, res: Response) {
-  const parsed = transferSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ message: 'Invalid payload' });
-  const body = parsed.data;
-  if (!body.confirm) return res.status(400).json({ message: 'Confirmation required' });
+  try {
+    const result = await executeTransfer(req.user!.id, req.user!.tenantId, req.body);
+    res.status(201).json(result);
+  } catch (err: any) {
+    res.status(400).json({ message: err.message ?? 'Failed' });
+  }
+}
 
-  const governance = await evaluateGovernance(req.user!.tenantId, 'transfer', body.quantity);
-  if (governance.requiresApproval && !body.approvalId) {
-    return res.status(403).json({ message: 'Approval required', reason: governance.reason });
+export async function executeReceive(actorId: string, tenantId: string, body: any) {
+  return handleSimpleMove(actorId, tenantId, body, 'receive');
+}
+
+export async function executeAdjust(actorId: string, tenantId: string, body: any) {
+  return handleSimpleMove(actorId, tenantId, body, 'adjust');
+}
+
+export async function executeWriteOff(actorId: string, tenantId: string, body: any) {
+  return handleSimpleMove(actorId, tenantId, body, 'write_off');
+}
+
+export async function executeCycleCount(actorId: string, tenantId: string, body: any) {
+  return handleSimpleMove(actorId, tenantId, body, 'cycle_count');
+}
+
+export async function executeTransfer(actorId: string, tenantId: string, body: any) {
+  const parsed = transferSchema.safeParse(body);
+  if (!parsed.success) throw new Error('Invalid payload');
+  const data = parsed.data;
+  if (!data.confirm) throw new Error('Confirmation required');
+
+  const governance = await evaluateGovernance(tenantId, 'transfer', data.quantity);
+  if (governance.requiresApproval && !data.approvalId) {
+    throw new Error('Approval required');
   }
 
   const client = await pool.connect();
@@ -86,22 +131,22 @@ export async function transfer(req: Request, res: Response) {
       `SELECT s.id as size_id, s.sku_id, k.product_id
        FROM sku_sizes s JOIN skus k ON s.sku_id = k.id
        WHERE s.id = $1 AND s.tenant_id = $2`,
-      [body.sizeId, req.user!.tenantId]
+      [data.sizeId, tenantId]
     );
     if (sizeRes.rowCount === 0) throw new Error('Invalid size');
 
     const now = new Date();
-    const eventTime = body.eventTime ? new Date(body.eventTime) : now;
+    const eventTime = data.eventTime ? new Date(data.eventTime) : now;
 
     const fromBal = await client.query(
       `SELECT on_hand FROM stock_balances WHERE tenant_id = $1 AND size_id = $2 AND location_id = $3 FOR UPDATE`,
-      [req.user!.tenantId, body.sizeId, body.fromLocationId]
+      [tenantId, data.sizeId, data.fromLocationId]
     );
     const fromOnHand = fromBal.rowCount ? Number(fromBal.rows[0].on_hand) : 0;
-    if (fromOnHand < body.quantity) throw new Error('Insufficient stock');
+    if (fromOnHand < data.quantity) throw new Error('Insufficient stock');
 
-    await upsertBalance(client, req.user!.tenantId, body.sizeId, body.fromLocationId, -body.quantity);
-    await upsertBalance(client, req.user!.tenantId, body.sizeId, body.toLocationId, body.quantity);
+    await upsertBalance(client, tenantId, data.sizeId, data.fromLocationId, -data.quantity);
+    await upsertBalance(client, tenantId, data.sizeId, data.toLocationId, data.quantity);
 
     const txRes = await client.query(
       `INSERT INTO inventory_transactions
@@ -109,48 +154,42 @@ export async function transfer(req: Request, res: Response) {
        VALUES ($1,'transfer',$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$12,$13,$14)
        RETURNING id`,
       [
-        req.user!.tenantId,
-        body.sizeId,
+        tenantId,
+        data.sizeId,
         sizeRes.rows[0].sku_id,
         sizeRes.rows[0].product_id,
-        body.fromLocationId,
-        body.toLocationId,
-        body.quantity,
-        body.unit,
-        body.reason,
+        data.fromLocationId,
+        data.toLocationId,
+        data.quantity,
+        data.unit,
+        data.reason,
         eventTime,
         now,
-        req.user!.id,
-        body.approvalId ?? null,
-        { before: fromOnHand, after: fromOnHand - body.quantity },
+        actorId,
+        data.approvalId ?? null,
+        { before: fromOnHand, after: fromOnHand - data.quantity },
       ]
     );
 
-    await client.query(
-      `INSERT INTO audit_records (tenant_id, transaction_id, request_text, who, approver, before_after, why)
-       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-      [req.user!.tenantId, txRes.rows[0].id, '', req.user!.id, body.approvalId ?? null, { before: fromOnHand, after: fromOnHand - body.quantity }, body.reason]
-    );
-
     await client.query('COMMIT');
-    res.status(201).json({ transactionId: txRes.rows[0].id });
-  } catch (err: any) {
+    return { transactionId: txRes.rows[0].id };
+  } catch (err) {
     await client.query('ROLLBACK');
-    res.status(400).json({ message: err.message ?? 'Transfer failed' });
+    throw err;
   } finally {
     client.release();
   }
 }
 
-async function handleSimpleMove(req: Request, res: Response, type: 'receive' | 'adjust' | 'write_off' | 'cycle_count') {
-  const parsed = baseWriteSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ message: 'Invalid payload' });
-  const body = parsed.data;
-  if (!body.confirm) return res.status(400).json({ message: 'Confirmation required' });
+async function handleSimpleMove(actorId: string, tenantId: string, body: any, type: 'receive' | 'adjust' | 'write_off' | 'cycle_count') {
+  const parsed = baseWriteSchema.safeParse(body);
+  if (!parsed.success) throw new Error('Invalid payload');
+  const data = parsed.data;
+  if (!data.confirm) throw new Error('Confirmation required');
 
-  const governance = await evaluateGovernance(req.user!.tenantId, type, body.quantity);
-  if (governance.requiresApproval && !body.approvalId) {
-    return res.status(403).json({ message: 'Approval required', reason: governance.reason });
+  const governance = await evaluateGovernance(tenantId, type, data.quantity);
+  if (governance.requiresApproval && !data.approvalId) {
+    throw new Error('Approval required');
   }
 
   const client = await pool.connect();
@@ -161,23 +200,23 @@ async function handleSimpleMove(req: Request, res: Response, type: 'receive' | '
       `SELECT s.id as size_id, s.sku_id, k.product_id
        FROM sku_sizes s JOIN skus k ON s.sku_id = k.id
        WHERE s.id = $1 AND s.tenant_id = $2`,
-      [body.sizeId, req.user!.tenantId]
+      [data.sizeId, tenantId]
     );
     if (sizeRes.rowCount === 0) throw new Error('Invalid size');
 
     const now = new Date();
-    const eventTime = body.eventTime ? new Date(body.eventTime) : now;
+    const eventTime = data.eventTime ? new Date(data.eventTime) : now;
 
     const balRes = await client.query(
       `SELECT on_hand FROM stock_balances WHERE tenant_id = $1 AND size_id = $2 AND location_id = $3 FOR UPDATE`,
-      [req.user!.tenantId, body.sizeId, body.locationId]
+      [tenantId, data.sizeId, data.locationId]
     );
     const before = balRes.rowCount ? Number(balRes.rows[0].on_hand) : 0;
-    const delta = type === 'write_off' ? -body.quantity : body.quantity;
+    const delta = type === 'write_off' ? -data.quantity : data.quantity;
     const after = before + delta;
     if (after < 0) throw new Error('Stock cannot go below zero');
 
-    await upsertBalance(client, req.user!.tenantId, body.sizeId, body.locationId, delta);
+    await upsertBalance(client, tenantId, data.sizeId, data.locationId, delta);
 
     const txRes = await client.query(
       `INSERT INTO inventory_transactions
@@ -185,34 +224,28 @@ async function handleSimpleMove(req: Request, res: Response, type: 'receive' | '
        VALUES ($1,$2,$3,$4,$5,NULL,$6,$7,$8,$9,$10,$11,$12,$12,$13,$14)
        RETURNING id`,
       [
-        req.user!.tenantId,
+        tenantId,
         type,
-        body.sizeId,
+        data.sizeId,
         sizeRes.rows[0].sku_id,
         sizeRes.rows[0].product_id,
-        body.locationId,
-        body.quantity,
-        body.unit,
-        body.reason,
+        data.locationId,
+        data.quantity,
+        data.unit,
+        data.reason,
         eventTime,
         now,
-        req.user!.id,
-        body.approvalId ?? null,
+        actorId,
+        data.approvalId ?? null,
         { before, after },
       ]
     );
 
-    await client.query(
-      `INSERT INTO audit_records (tenant_id, transaction_id, request_text, who, approver, before_after, why)
-       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-      [req.user!.tenantId, txRes.rows[0].id, '', req.user!.id, body.approvalId ?? null, { before, after }, body.reason]
-    );
-
     await client.query('COMMIT');
-    res.status(201).json({ transactionId: txRes.rows[0].id });
-  } catch (err: any) {
+    return { transactionId: txRes.rows[0].id };
+  } catch (err) {
     await client.query('ROLLBACK');
-    res.status(400).json({ message: err.message ?? 'Failed' });
+    throw err;
   } finally {
     client.release();
   }

@@ -17,6 +17,14 @@ export const ACCESS_TOKEN_TTL = required('ACCESS_TOKEN_TTL', '15m');
 export const REFRESH_TOKEN_TTL = required('REFRESH_TOKEN_TTL', '7d');
 export const CORS_ORIGIN = required('CORS_ORIGIN', 'http://localhost:3000');
 export const CONVERSATIONAL_ENGINE_URL = required('CONVERSATIONAL_ENGINE_URL', 'http://localhost:8000');
+export const RESERVATION_TTL_MIN = parseInt(required('RESERVATION_TTL_MIN', '30'), 10);
+
+export const AUTH0_DOMAIN = process.env.AUTH0_DOMAIN ?? '';
+export const AUTH0_CLIENT_ID = process.env.AUTH0_CLIENT_ID ?? '';
+export const AUTH0_CLIENT_SECRET = process.env.AUTH0_CLIENT_SECRET ?? '';
+export const AUTH0_AUDIENCE = process.env.AUTH0_AUDIENCE ?? '';
+export const AUTH0_REDIRECT_URI = process.env.AUTH0_REDIRECT_URI ?? '';
+export const DEFAULT_SSO_ROLE_NAME = process.env.DEFAULT_SSO_ROLE_NAME ?? 'staff';
 
 export const SSO_PROVIDERS = (process.env.SSO_PROVIDERS ?? '')
   .split(',')

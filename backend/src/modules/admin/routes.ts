@@ -1,19 +1,21 @@
 import { Router } from 'express';
 import { authGuard, requireTenant, requirePermission } from '../../middlewares/auth.js';
+import { idempotencyGuard } from '../../middlewares/idempotency.js';
 import * as ctrl from './service.js';
 
 const r = Router();
 
 r.use(authGuard, requireTenant);
+const idem = idempotencyGuard((req) => req.user?.tenantId ?? null);
 
 r.get('/roles', requirePermission('admin.roles.read'), ctrl.listRoles);
-r.post('/roles', requirePermission('admin.roles.write'), ctrl.createRole);
-r.patch('/roles/:id', requirePermission('admin.roles.write'), ctrl.updateRole);
-r.delete('/roles/:id', requirePermission('admin.roles.write'), ctrl.deleteRole);
+r.post('/roles', requirePermission('admin.roles.write'), idem, ctrl.createRole);
+r.patch('/roles/:id', requirePermission('admin.roles.write'), idem, ctrl.updateRole);
+r.delete('/roles/:id', requirePermission('admin.roles.write'), idem, ctrl.deleteRole);
 
 r.get('/policies', requirePermission('admin.policies.read'), ctrl.listPolicies);
-r.post('/policies', requirePermission('admin.policies.write'), ctrl.createPolicy);
-r.patch('/policies/:id', requirePermission('admin.policies.write'), ctrl.updatePolicy);
-r.delete('/policies/:id', requirePermission('admin.policies.write'), ctrl.deletePolicy);
+r.post('/policies', requirePermission('admin.policies.write'), idem, ctrl.createPolicy);
+r.patch('/policies/:id', requirePermission('admin.policies.write'), idem, ctrl.updatePolicy);
+r.delete('/policies/:id', requirePermission('admin.policies.write'), idem, ctrl.deletePolicy);
 
 export default r;

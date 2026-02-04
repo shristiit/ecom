@@ -1,0 +1,298 @@
+openapi: 3.0.3
+info:
+  title: StockAisle GCTE API
+  version: 1.0.0
+  description: Governed Conversational Transaction Engine endpoints
+servers:
+  - url: http://localhost:4000
+security:
+  - BearerAuth: []
+paths:
+  /api/chat/interpret:
+    post:
+      summary: Interpret natural language into a TransactionSpec
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InterpretRequest'
+      responses:
+        '200':
+          description: Spec created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InterpretResponse'
+        '400':
+          description: Invalid payload
+        '502':
+          description: Conversational engine error
+  /api/chat/confirm:
+    post:
+      summary: Confirm or reject a TransactionSpec
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfirmRequest'
+      responses:
+        '200':
+          description: Confirmation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfirmResponse'
+        '400':
+          description: Invalid payload
+  /api/chat/approve:
+    post:
+      summary: Approve or reject a pending approval
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApproveRequest'
+      responses:
+        '200':
+          description: Approval result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApproveResponse'
+        '400':
+          description: Invalid payload
+  /api/chat/execute:
+    post:
+      summary: Execute a confirmed/approved TransactionSpec
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExecuteRequest'
+      responses:
+        '200':
+          description: Execution result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExecuteResponse'
+        '403':
+          description: Approval required
+        '409':
+          description: Spec not confirmed
+        '400':
+          description: Invalid payload
+  /api/chat/thread/{id}:
+    get:
+      summary: Get conversation thread and turns
+      security:
+        - BearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Conversation thread
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ThreadResponse'
+        '404':
+          description: Not found
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    InterpretRequest:
+      type: object
+      required: [text]
+      properties:
+        text:
+          type: string
+        conversationId:
+          type: string
+          format: uuid
+    InterpretResponse:
+      type: object
+      required: [conversationId, transactionSpecId, spec]
+      properties:
+        conversationId:
+          type: string
+          format: uuid
+        transactionSpecId:
+          type: string
+          format: uuid
+        spec:
+          $ref: '#/components/schemas/TransactionSpec'
+    ConfirmRequest:
+      type: object
+      required: [transactionSpecId, confirm]
+      properties:
+        transactionSpecId:
+          type: string
+          format: uuid
+        confirm:
+          type: boolean
+    ConfirmResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [confirmed, rejected]
+    ApproveRequest:
+      type: object
+      required: [approvalId, approve]
+      properties:
+        approvalId:
+          type: string
+          format: uuid
+        approve:
+          type: boolean
+    ApproveResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [approved, rejected]
+    ExecuteRequest:
+      type: object
+      required: [transactionSpecId]
+      properties:
+        transactionSpecId:
+          type: string
+          format: uuid
+    ExecuteResponse:
+      type: object
+      properties:
+        executed:
+          type: boolean
+        result:
+          oneOf:
+            - $ref: '#/components/schemas/ExecutionResult'
+            - $ref: '#/components/schemas/AnalyticsResult'
+    ThreadResponse:
+      type: object
+      properties:
+        conversation:
+          type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+            created_by:
+              type: string
+              format: uuid
+            created_at:
+              type: string
+              format: date-time
+        turns:
+          type: array
+          items:
+            type: object
+            properties:
+              role:
+                type: string
+              content:
+                type: string
+              metadata:
+                type: object
+              created_at:
+                type: string
+                format: date-time
+    TransactionSpec:
+      type: object
+      properties:
+        intent:
+          type: string
+          enum:
+            - RECEIVE_STOCK
+            - TRANSFER_STOCK
+            - ADJUST_STOCK
+            - WRITE_OFF
+            - CREATE_PO
+            - CREATE_SO
+            - INVENTORY_LEVELS
+            - LOW_STOCK_ALERTS
+            - MOVEMENT_HISTORY
+            - SALES_SUMMARY
+            - PO_STATUS
+        entities:
+          type: object
+          additionalProperties: true
+        quantities:
+          type: object
+          additionalProperties: true
+        constraints:
+          type: object
+          additionalProperties: true
+        confidence:
+          type: number
+          format: float
+        governanceDecision:
+          type: object
+          properties:
+            requiresConfirmation:
+              type: boolean
+            requiresApproval:
+              type: boolean
+        summary:
+          type: string
+    ExecutionResult:
+      type: object
+      properties:
+        transactionId:
+          type: string
+          format: uuid
+    AnalyticsResult:
+      type: object
+      properties:
+        analytics:
+          type: string
+        rows:
+          type: array
+          items:
+            type: object
+        summary:
+          type: object

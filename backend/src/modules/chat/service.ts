@@ -3,6 +3,7 @@ import { z } from 'zod';
 import fetch from 'node-fetch';
 import { CONVERSATIONAL_ENGINE_URL } from '../../config/env.js';
 import { query } from '../../db/pool.js';
+import { executeSpec } from './execute.js';
 
 const interpretSchema = z.object({
   text: z.string().min(1),
@@ -17,6 +18,10 @@ const confirmSchema = z.object({
 const approveSchema = z.object({
   approvalId: z.string().uuid(),
   approve: z.boolean(),
+});
+
+const executeSchema = z.object({
+  transactionSpecId: z.string().uuid(),
 });
 
 export async function interpret(req: Request, res: Response) {
@@ -63,6 +68,22 @@ export async function interpret(req: Request, res: Response) {
     [req.user!.tenantId, convoId, spec.summary ?? 'Proposed action', spec]
   );
 
+  // Create approval if required (single-level approval)
+  if (spec.governanceDecision?.requiresApproval) {
+    const roleRes = await query(
+      `SELECT id FROM roles WHERE tenant_id = $1 AND name = 'admin'`,
+      [req.user!.tenantId]
+    );
+    const requiredRoleId = roleRes.rowCount ? roleRes.rows[0].id : null;
+    if (requiredRoleId) {
+      await query(
+        `INSERT INTO approvals (tenant_id, status, required_role_id, requested_by, transaction_spec_id)
+         VALUES ($1,'pending',$2,$3,$4)`,
+        [req.user!.tenantId, requiredRoleId, req.user!.id, specRes.rows[0].id]
+      );
+    }
+  }
+
   res.json({ conversationId: convoId, transactionSpecId: specRes.rows[0].id, spec });
 }
 
@@ -90,6 +111,13 @@ export async function approve(req: Request, res: Response) {
      WHERE id = $3 AND tenant_id = $4`,
     [status, req.user!.id, approvalId, req.user!.tenantId]
   );
+  if (approve) {
+    await query(
+      `UPDATE transaction_specs SET status = 'approved', updated_at = NOW()
+       WHERE id = (SELECT transaction_spec_id FROM approvals WHERE id = $1)`,
+      [approvalId]
+    );
+  }
   res.json({ status });
 }
 
@@ -105,6 +133,59 @@ export async function thread(req: Request, res: Response) {
     [req.params.id, req.user!.tenantId]
   );
   res.json({ conversation: convo.rows[0], turns: turns.rows });
+}
+
+export async function execute(req: Request, res: Response) {
+  const parsed = executeSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ message: 'Invalid payload' });
+  const { transactionSpecId } = parsed.data;
+
+  const specRes = await query(
+    `SELECT id, intent, entities, quantities, constraints, governance_decision, status, conversation_id
+     FROM transaction_specs WHERE id = $1 AND tenant_id = $2`,
+    [transactionSpecId, req.user!.tenantId]
+  );
+  if (specRes.rowCount === 0) return res.status(404).json({ message: 'Spec not found' });
+
+  const spec = specRes.rows[0];
+  if (spec.status !== 'confirmed' && spec.status !== 'approved') {
+    return res.status(409).json({ message: 'Spec not confirmed' });
+  }
+
+  if (spec.governance_decision?.requiresApproval && spec.status !== 'approved') {
+    return res.status(403).json({ message: 'Approval required' });
+  }
+
+  if (spec.governance_decision?.requiresApproval) {
+    const approval = await query(
+      `SELECT id, status FROM approvals WHERE transaction_spec_id = $1 AND tenant_id = $2`,
+      [spec.id, req.user!.tenantId]
+    );
+    if (approval.rowCount === 0 || approval.rows[0].status !== 'approved') {
+      return res.status(403).json({ message: 'Approval required' });
+    }
+    spec.approvalId = approval.rows[0].id;
+  }
+
+  const result = await executeSpec(req.user!.tenantId, req.user!.id, spec);
+
+  // audit binding: store request text if available
+  const textRes = await query(
+    `SELECT content FROM conversation_turns
+     WHERE conversation_id = $1 AND role = 'user'
+     ORDER BY created_at ASC LIMIT 1`,
+    [spec.conversation_id]
+  );
+
+  if (result?.transactionId) {
+    await query(
+      `INSERT INTO audit_records (tenant_id, transaction_id, request_text, who, approver, before_after, why)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      [req.user!.tenantId, result.transactionId, textRes.rows[0]?.content ?? '', req.user!.id, null, {}, spec.intent]
+    );
+  }
+
+  res.json({ executed: true, result });
 }
 
 async function createConversation(tenantId: string, userId: string) {
