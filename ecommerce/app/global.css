@@ -1,0 +1,245 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Typography */
+  --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Arial, 'Noto Sans', 'Apple Color Emoji', 'Segoe UI Emoji';
+  --font-display: Fraunces, ui-serif, Georgia, 'Times New Roman', Times, serif;
+
+  --fs-display-1: 44px;
+  --lh-display-1: 52px;
+  --fs-display-2: 34px;
+  --lh-display-2: 44px;
+  --fs-display-3: 28px;
+  --lh-display-3: 36px;
+  --fs-title: 24px;
+  --lh-title: 32px;
+  --fs-section: 18px;
+  --lh-section: 28px;
+  --fs-body: 16px;
+  --lh-body: 24px;
+  --fs-small: 14px;
+  --lh-small: 20px;
+  --fs-caption: 12px;
+  --lh-caption: 16px;
+
+  --ls-tight: -0.02em;
+  --ls-tight-2: -0.01em;
+
+  /* Shared neutrals */
+  --bg: 250 248 244;
+  --surface: 255 255 255;
+  --surface-2: 243 241 236;
+  --surface-3: 238 234 226;
+
+  --border: 231 225 214;
+  --border-strong: 216 208 195;
+
+  --text: 17 24 39;
+  --text-muted: 71 85 105;
+  --text-subtle: 100 116 139;
+
+  /* Ecommerce accent (default for ecommerce app) */
+  --primary: 201 179 126;
+  --primary-hover: 184 159 99;
+  --primary-active: 159 132 72;
+  --primary-tint: 245 240 226;
+  --primary-tint-strong: 239 230 204;
+  --on-primary: 11 15 20;
+  --ring: 201 179 126;
+
+  /* Status */
+  --success: 21 128 61;
+  --success-tint: 234 246 238;
+  --warning: 180 83 9;
+  --warning-tint: 251 241 230;
+  --error: 180 35 24;
+  --error-tint: 251 234 234;
+  --info: 29 78 216;
+  --info-tint: 234 240 255;
+
+  /* Charts */
+  --chart-1: 31 58 95;
+  --chart-2: 46 94 170;
+  --chart-3: 15 118 110;
+  --chart-4: 109 40 217;
+  --chart-5: 180 83 9;
+  --chart-6: 166 27 77;
+  --chart-7: 22 101 52;
+  --chart-8: 21 94 117;
+  --chart-9: 75 85 99;
+  --chart-10: 124 58 237;
+
+  /* Spacing */
+  --space-0: 0px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 40px;
+  --space-9: 48px;
+  --space-10: 56px;
+  --space-11: 64px;
+  --space-12: 80px;
+  --space-13: 96px;
+
+  /* Radius */
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 18px;
+
+  /* Shadows */
+  --shadow-soft: 0 10px 30px rgba(0, 0, 0, 0.08);
+  --shadow-lift: 0 14px 40px rgba(0, 0, 0, 0.12);
+
+  /* Motion */
+  --dur-fast: 150ms;
+  --dur-base: 200ms;
+  --dur-slow: 320ms;
+  --ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-emphasized: cubic-bezier(0.2, 0, 0, 1);
+  --ease-linear: linear;
+
+  /* Layering */
+  --z-sticky: 40;
+  --z-dropdown: 50;
+  --z-overlay: 60;
+  --z-modal: 70;
+  --z-toast: 80;
+  --z-tooltip: 90;
+}
+
+.dark {
+  --bg: 11 15 20;
+  --surface: 16 24 38;
+  --surface-2: 19 28 42;
+  --surface-3: 24 35 56;
+
+  --border: 34 48 68;
+  --border-strong: 44 62 90;
+
+  --text: 244 241 234;
+  --text-muted: 185 192 204;
+  --text-subtle: 141 151 168;
+
+  /* Ecommerce accent (dark) */
+  --primary: 201 179 126;
+  --primary-hover: 184 159 99;
+  --primary-active: 159 132 72;
+  --primary-tint: 29 25 16;
+  --primary-tint-strong: 42 35 22;
+  --on-primary: 11 15 20;
+  --ring: 201 179 126;
+
+  --success: 34 197 94;
+  --success-tint: 15 37 27;
+  --warning: 245 158 11;
+  --warning-tint: 42 27 10;
+  --error: 239 68 68;
+  --error-tint: 42 20 20;
+  --info: 96 165 250;
+  --info-tint: 15 30 51;
+
+  --chart-1: 109 127 151;
+  --chart-2: 119 150 200;
+  --chart-3: 99 166 161;
+  --chart-4: 160 115 230;
+  --chart-5: 206 143 95;
+  --chart-6: 197 107 139;
+  --chart-7: 104 155 123;
+  --chart-8: 103 150 165;
+  --chart-9: 138 144 154;
+  --chart-10: 170 127 243;
+
+  --shadow-soft: 0 10px 30px rgba(0, 0, 0, 0.25);
+  --shadow-lift: 0 14px 40px rgba(0, 0, 0, 0.35);
+}
+
+/* Optional app accent swap */
+.theme-inventory {
+  --primary: 31 58 95;
+  --primary-hover: 22 44 73;
+  --primary-active: 15 33 55;
+  --primary-tint: 232 238 246;
+  --primary-tint-strong: 215 226 240;
+  --on-primary: 255 255 255;
+  --ring: 31 58 95;
+}
+
+.dark.theme-inventory {
+  --primary: 59 106 166;
+  --primary-hover: 52 94 147;
+  --primary-active: 46 82 127;
+  --primary-tint: 14 26 43;
+  --primary-tint-strong: 18 36 58;
+  --on-primary: 255 255 255;
+  --ring: 59 106 166;
+}
+
+.h-display-1 {
+  font-family: var(--font-display);
+  font-size: var(--fs-display-1);
+  line-height: var(--lh-display-1);
+  letter-spacing: var(--ls-tight);
+  font-weight: 700;
+}
+
+.h-display-2 {
+  font-family: var(--font-display);
+  font-size: var(--fs-display-2);
+  line-height: var(--lh-display-2);
+  letter-spacing: var(--ls-tight);
+  font-weight: 700;
+}
+
+.h-display-3 {
+  font-family: var(--font-display);
+  font-size: var(--fs-display-3);
+  line-height: var(--lh-display-3);
+  letter-spacing: var(--ls-tight);
+  font-weight: 600;
+}
+
+.h-title {
+  font-family: var(--font-display);
+  font-size: var(--fs-title);
+  line-height: var(--lh-title);
+  letter-spacing: var(--ls-tight-2);
+  font-weight: 600;
+}
+
+.ui-section {
+  font-family: var(--font-sans);
+  font-size: var(--fs-section);
+  line-height: var(--lh-section);
+  font-weight: 600;
+}
+
+.ui-body {
+  font-family: var(--font-sans);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  font-weight: 400;
+}
+
+.ui-small {
+  font-family: var(--font-sans);
+  font-size: var(--fs-small);
+  line-height: var(--lh-small);
+  font-weight: 400;
+}
+
+.ui-caption {
+  font-family: var(--font-sans);
+  font-size: var(--fs-caption);
+  line-height: var(--lh-caption);
+  font-weight: 400;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}

@@ -49,7 +49,7 @@ export function requireTenant(req: Request, res: Response, next: NextFunction) {
   next();
 }
 
-export async function requirePermission(permission: string) {
+export function requirePermission(permission: string) {
   return async (req: Request, res: Response, next: NextFunction) => {
     if (!req.user) return res.status(401).json({ message: 'Unauthenticated' });
     const roleRes = await query(
