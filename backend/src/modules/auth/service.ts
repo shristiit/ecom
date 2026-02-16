@@ -22,6 +22,16 @@ const loginSchema = z.object({
   password: z.string().min(1),
 });
 
+const forgotPasswordSchema = z.object({
+  email: z.string().email(),
+});
+
+const resetPasswordSchema = z.object({
+  email: z.string().email(),
+  token: z.string().min(1),
+  newPassword: z.string().min(8),
+});
+
 export async function register(req: Request, res: Response) {
   const parsed = registerSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ message: 'Invalid payload' });
@@ -72,6 +82,30 @@ export async function refresh(req: Request, res: Response) {
   } catch {
     res.status(401).json({ message: 'Invalid or expired refresh token' });
   }
+}
+
+export async function forgotPassword(req: Request, res: Response) {
+  const parsed = forgotPasswordSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ message: 'Invalid payload' });
+
+  // Intentionally return success regardless of account existence to avoid user enumeration.
+  res.json({ ok: true, message: 'If the account exists, reset instructions were sent.' });
+}
+
+export async function resetPassword(req: Request, res: Response) {
+  const parsed = resetPasswordSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ message: 'Invalid payload' });
+
+  const { email, newPassword } = parsed.data;
+  const passwordHash = await bcrypt.hash(newPassword, 12);
+
+  await query(
+    `UPDATE users SET password_hash = $1, updated_at = NOW()
+     WHERE email = $2`,
+    [passwordHash, email.toLowerCase()]
+  );
+
+  res.json({ ok: true });
 }
 
 export async function me(_req: Request, res: Response) {

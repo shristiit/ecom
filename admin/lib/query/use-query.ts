@@ -7,9 +7,18 @@ type UseQueryOptions<TData> = {
   queryFn: () => Promise<TData>;
   enabled?: boolean;
   initialData?: TData | null;
+  retry?: number;
+  retryDelayMs?: number;
 };
 
-export function useQuery<TData>({ key, queryFn, enabled = true, initialData = null }: UseQueryOptions<TData>) {
+export function useQuery<TData>({
+  key,
+  queryFn,
+  enabled = true,
+  initialData = null,
+  retry = 1,
+  retryDelayMs = 250,
+}: UseQueryOptions<TData>) {
   const [state, setState] = useState<QueryState<TData>>({
     data: initialData,
     error: null,
@@ -33,14 +42,27 @@ export function useQuery<TData>({ key, queryFn, enabled = true, initialData = nu
       status: prev.data === null ? 'loading' : prev.status,
     }));
 
-    try {
-      const data = await queryFn();
-      setState({ data, error: null, status: 'success', isLoading: false, isFetching: false });
-    } catch (error) {
-      const apiError = error instanceof ApiError ? error : new ApiError('Unknown query error', 0, 'QUERY_ERROR', error);
-      setState((prev) => ({ ...prev, error: apiError, status: 'error', isLoading: false, isFetching: false }));
+    let lastError: ApiError | null = null;
+    for (let attempt = 0; attempt <= retry; attempt += 1) {
+      try {
+        const data = await queryFn();
+        setState({ data, error: null, status: 'success', isLoading: false, isFetching: false });
+        return;
+      } catch (error) {
+        lastError = error instanceof ApiError ? error : new ApiError('Unknown query error', 0, 'QUERY_ERROR', error);
+        if (attempt < retry) {
+          await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+        }
+      }
     }
-  }, [enabled, queryFn]);
+    setState((prev) => ({
+      ...prev,
+      error: lastError ?? new ApiError('Unknown query error', 0, 'QUERY_ERROR'),
+      status: 'error',
+      isLoading: false,
+      isFetching: false,
+    }));
+  }, [enabled, queryFn, retry, retryDelayMs]);
 
   useEffect(() => {
     void runQuery();

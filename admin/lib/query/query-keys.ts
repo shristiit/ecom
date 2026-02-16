@@ -12,6 +12,7 @@ export const queryKeys = {
   inventory: {
     stockOnHand: () => ['inventory', 'stock-on-hand'] as const,
     movements: (scope = 'all') => ['inventory', 'movements', scope] as const,
+    receipts: () => ['inventory', 'receipts'] as const,
   },
   orders: {
     sales: () => ['orders', 'sales'] as const,
@@ -31,5 +32,7 @@ export const queryKeys = {
   ai: {
     threads: () => ['ai', 'threads'] as const,
     thread: (id: string) => ['ai', 'thread', id] as const,
+    approvals: () => ['ai', 'approvals'] as const,
+    history: () => ['ai', 'history'] as const,
   },
 };

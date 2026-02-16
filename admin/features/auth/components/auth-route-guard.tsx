@@ -3,7 +3,7 @@ import { useEffect } from 'react';
 import { View } from 'react-native';
 import { useAuthSession } from '../hooks/use-auth-session';
 
-const AUTH_PUBLIC_PATHS = new Set(['/login', '/forgot-password', '/mfa', '/tenant-select']);
+const AUTH_PUBLIC_PATHS = new Set(['/login', '/forgot-password', '/reset-password', '/mfa', '/tenant-select', '/select-tenant']);
 
 export function AuthRouteGuard() {
   const navigationState = useRootNavigationState();
@@ -20,7 +20,7 @@ export function AuthRouteGuard() {
     const inAuthGroup = segments[0] === '(auth)';
     const isPublicAuthPath = AUTH_PUBLIC_PATHS.has(pathname);
     const isMfaPath = pathname === '/mfa';
-    const isTenantPath = pathname === '/tenant-select';
+    const isTenantPath = pathname === '/tenant-select' || pathname === '/select-tenant';
 
     if (!isAuthenticated && !requiresMfa) {
       if (!inAuthGroup && !isPublicAuthPath) {
