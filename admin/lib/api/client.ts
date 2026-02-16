@@ -8,6 +8,18 @@ export function configureApiClient(context: ApiClientContext) {
   apiContext = context;
 }
 
+function createIdempotencyKey() {
+  const runtimeCrypto = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
+  if (runtimeCrypto?.randomUUID) {
+    return runtimeCrypto.randomUUID();
+  }
+
+  const now = Date.now().toString(36);
+  const randA = Math.random().toString(36).slice(2, 10);
+  const randB = Math.random().toString(36).slice(2, 10);
+  return `${now}-${randA}-${randB}`;
+}
+
 function buildUrl(path: string, query?: QueryParams) {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
   const url = new URL(`${API_BASE_URL}${normalizedPath}`);
@@ -82,8 +94,11 @@ export async function request<TResponse, TBody = unknown>({
     ...headers,
   };
 
-  if (idempotencyKey) {
-    requestHeaders['Idempotency-Key'] = idempotencyKey;
+  const isWriteMethod = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method.toUpperCase());
+  const resolvedIdempotencyKey = idempotencyKey ?? (isWriteMethod ? createIdempotencyKey() : undefined);
+
+  if (resolvedIdempotencyKey) {
+    requestHeaders['Idempotency-Key'] = resolvedIdempotencyKey;
   }
 
   const hasBody = body !== undefined && body !== null;

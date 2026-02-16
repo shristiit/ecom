@@ -3,6 +3,7 @@ import { z } from 'zod';
 import fetch from 'node-fetch';
 import { CONVERSATIONAL_ENGINE_URL } from '../../config/env.js';
 import { query } from '../../db/pool.js';
+import { logger } from '../../utils/logger.js';
 import { executeSpec } from './execute.js';
 
 const interpretSchema = z.object({
@@ -88,66 +89,87 @@ export async function listHistory(req: Request, res: Response) {
 }
 
 export async function interpret(req: Request, res: Response) {
-  const parsed = interpretSchema.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ message: 'Invalid payload' });
-  const { text, conversationId } = parsed.data;
+  try {
+    const parsed = interpretSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: 'Invalid payload' });
+    const { text, conversationId } = parsed.data;
 
-  const convoId = conversationId ?? (await createConversation(req.user!.tenantId, req.user!.id));
+    const convoId = conversationId ?? (await createConversation(req.user!.tenantId, req.user!.id));
 
-  await query(
-    `INSERT INTO conversation_turns (tenant_id, conversation_id, role, content)
-     VALUES ($1,$2,'user',$3)`,
-    [req.user!.tenantId, convoId, text]
-  );
-
-  const response = await fetch(`${CONVERSATIONAL_ENGINE_URL}/interpret`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text, tenantId: req.user!.tenantId }),
-  });
-
-  if (!response.ok) return res.status(502).json({ message: 'Conversational engine error' });
-  const spec = await response.json();
-
-  const specRes = await query(
-    `INSERT INTO transaction_specs (tenant_id, intent, entities, quantities, constraints, confidence, governance_decision, status, created_by, conversation_id)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,'proposed',$8,$9) RETURNING id`,
-    [
-      req.user!.tenantId,
-      spec.intent,
-      spec.entities ?? {},
-      spec.quantities ?? {},
-      spec.constraints ?? {},
-      spec.confidence ?? 0,
-      spec.governanceDecision ?? {},
-      req.user!.id,
-      convoId,
-    ]
-  );
-
-  await query(
-    `INSERT INTO conversation_turns (tenant_id, conversation_id, role, content, metadata)
-     VALUES ($1,$2,'assistant',$3,$4)`,
-    [req.user!.tenantId, convoId, spec.summary ?? 'Proposed action', spec]
-  );
-
-  // Create approval if required (single-level approval)
-  if (spec.governanceDecision?.requiresApproval) {
-    const roleRes = await query(
-      `SELECT id FROM roles WHERE tenant_id = $1 AND name = 'admin'`,
-      [req.user!.tenantId]
+    await query(
+      `INSERT INTO conversation_turns (tenant_id, conversation_id, role, content)
+       VALUES ($1,$2,'user',$3)`,
+      [req.user!.tenantId, convoId, text]
     );
-    const requiredRoleId = roleRes.rowCount ? roleRes.rows[0].id : null;
-    if (requiredRoleId) {
-      await query(
-        `INSERT INTO approvals (tenant_id, status, required_role_id, requested_by, transaction_spec_id)
-         VALUES ($1,'pending',$2,$3,$4)`,
-        [req.user!.tenantId, requiredRoleId, req.user!.id, specRes.rows[0].id]
-      );
-    }
-  }
 
-  res.json({ conversationId: convoId, transactionSpecId: specRes.rows[0].id, spec });
+    let response;
+    try {
+      response = await fetch(`${CONVERSATIONAL_ENGINE_URL}/interpret`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, tenantId: req.user!.tenantId }),
+      });
+    } catch (error) {
+      logger.warn({ error }, 'conversational engine request failed');
+      return res.status(502).json({
+        message: 'Conversational engine unavailable. Please try again later.',
+      });
+    }
+
+    if (!response.ok) {
+      return res.status(502).json({ message: 'Conversational engine error' });
+    }
+
+    let spec: any;
+    try {
+      spec = await response.json();
+    } catch {
+      return res.status(502).json({ message: 'Conversational engine returned invalid payload' });
+    }
+
+    const specRes = await query(
+      `INSERT INTO transaction_specs (tenant_id, intent, entities, quantities, constraints, confidence, governance_decision, status, created_by, conversation_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,'proposed',$8,$9) RETURNING id`,
+      [
+        req.user!.tenantId,
+        spec.intent,
+        spec.entities ?? {},
+        spec.quantities ?? {},
+        spec.constraints ?? {},
+        spec.confidence ?? 0,
+        spec.governanceDecision ?? {},
+        req.user!.id,
+        convoId,
+      ]
+    );
+
+    await query(
+      `INSERT INTO conversation_turns (tenant_id, conversation_id, role, content, metadata)
+       VALUES ($1,$2,'assistant',$3,$4)`,
+      [req.user!.tenantId, convoId, spec.summary ?? 'Proposed action', spec]
+    );
+
+    // Create approval if required (single-level approval)
+    if (spec.governanceDecision?.requiresApproval) {
+      const roleRes = await query(
+        `SELECT id FROM roles WHERE tenant_id = $1 AND name = 'admin'`,
+        [req.user!.tenantId]
+      );
+      const requiredRoleId = roleRes.rowCount ? roleRes.rows[0].id : null;
+      if (requiredRoleId) {
+        await query(
+          `INSERT INTO approvals (tenant_id, status, required_role_id, requested_by, transaction_spec_id)
+           VALUES ($1,'pending',$2,$3,$4)`,
+          [req.user!.tenantId, requiredRoleId, req.user!.id, specRes.rows[0].id]
+        );
+      }
+    }
+
+    res.json({ conversationId: convoId, transactionSpecId: specRes.rows[0].id, spec });
+  } catch (error) {
+    logger.error({ error }, 'chat interpret failed');
+    return res.status(500).json({ message: 'Failed to interpret prompt' });
+  }
 }
 
 export async function confirm(req: Request, res: Response) {
