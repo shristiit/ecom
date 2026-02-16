@@ -7,6 +7,8 @@ const r = Router();
 r.post('/register', ctrl.register);
 r.post('/login', ctrl.login);
 r.post('/refresh', ctrl.refresh);
+r.post('/forgot-password', ctrl.forgotPassword);
+r.post('/reset-password', ctrl.resetPassword);
 
 // SSO stubs (provider-specific in service)
 r.get('/sso/:provider/start', ctrl.ssoStart);

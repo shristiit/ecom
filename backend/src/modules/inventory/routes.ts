@@ -10,6 +10,7 @@ const idem = idempotencyGuard((req) => req.user?.tenantId ?? null);
 
 r.get('/stock-on-hand', requirePermission('inventory.read'), ctrl.stockOnHand);
 r.get('/movements', requirePermission('inventory.read'), ctrl.movements);
+r.get('/receipts', requirePermission('inventory.read'), ctrl.listReceipts);
 
 r.post('/receive', requirePermission('inventory.write'), idem, ctrl.receive);
 r.post('/transfer', requirePermission('inventory.write'), idem, ctrl.transfer);

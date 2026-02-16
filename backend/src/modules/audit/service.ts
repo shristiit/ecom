@@ -15,6 +15,15 @@ export async function queryAudit(req: Request, res: Response) {
   res.json(rows.rows);
 }
 
+export async function getAuditEvent(req: Request, res: Response) {
+  const row = await query(
+    `SELECT * FROM audit_records WHERE tenant_id = $1 AND id = $2`,
+    [req.user!.tenantId, req.params.id]
+  );
+  if (row.rowCount === 0) return res.status(404).json({ message: 'Not found' });
+  res.json(row.rows[0]);
+}
+
 export async function exportCsv(req: Request, res: Response) {
   const rows = await query(
     `SELECT ar.id, ar.transaction_id, ar.request_text, ar.who, ar.approver, ar.before_after, ar.why, ar.created_at

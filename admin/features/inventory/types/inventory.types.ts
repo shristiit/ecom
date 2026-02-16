@@ -14,6 +14,9 @@ export type InventoryMovementsFilter = {
 export type StockOnHandItem = {
   skuId: string;
   sku: string;
+  productId?: string;
+  productName?: string;
+  sizeId?: string;
   locationId: string;
   locationCode: string;
   onHand: number;
@@ -27,4 +30,29 @@ export type InventoryAdjustmentInput = {
   quantityDelta: number;
   reasonCode: string;
   note?: string;
+};
+
+export type InventorySimpleTransactionInput = {
+  sizeId: string;
+  locationId: string;
+  quantity: number;
+  reason?: string;
+};
+
+export type InventoryTransferInput = {
+  sizeId: string;
+  fromLocationId: string;
+  toLocationId: string;
+  quantity: number;
+  reason?: string;
+};
+
+export type InventoryReceipt = {
+  id: string;
+  poId?: string | null;
+  supplierName?: string | null;
+  locationCode?: string | null;
+  status: 'partial' | 'complete' | string;
+  lineCount: number;
+  createdAt: string;
 };

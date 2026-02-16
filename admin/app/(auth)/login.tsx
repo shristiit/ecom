@@ -5,11 +5,12 @@ import { AppButton, AppInput } from '@/components/ui';
 import { AuthScreenShell, useAuthSession } from '@/features/auth';
 
 export default function LoginScreen() {
-  const { signIn } = useAuthSession();
+  const { signIn, signInWithSso } = useAuthSession();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [ssoSubmitting, setSsoSubmitting] = useState(false);
 
   const handleLogin = async () => {
     setError(null);
@@ -26,6 +27,18 @@ export default function LoginScreen() {
       setError(err instanceof Error ? err.message : 'Failed to sign in.');
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleSsoLogin = async () => {
+    setError(null);
+    try {
+      setSsoSubmitting(true);
+      await signInWithSso();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to start SSO.');
+    } finally {
+      setSsoSubmitting(false);
     }
   };
 
@@ -54,6 +67,7 @@ export default function LoginScreen() {
           {error ? <Text className="text-caption text-error">{error}</Text> : null}
 
           <AppButton label="Sign in" onPress={handleLogin} loading={submitting} fullWidth />
+          <AppButton label="Continue with SSO" variant="secondary" onPress={handleSsoLogin} loading={ssoSubmitting} fullWidth />
 
           <Link href="/forgot-password" asChild>
             <Pressable>

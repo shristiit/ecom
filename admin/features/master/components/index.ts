@@ -1,1 +1,1 @@
-export {};
+export * from './master-form-modal';

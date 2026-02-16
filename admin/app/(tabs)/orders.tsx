@@ -1,28 +1,35 @@
-import { ScrollView, View, Text, Pressable } from 'react-native';
 import { Link } from 'expo-router';
+import { Pressable, ScrollView, Text, View } from 'react-native';
+import { AppCard, PageHeader } from '@/components/ui';
 
-export default function OrdersHub() {
+const orderModules = [
+  {
+    href: '/orders/sales',
+    title: 'Sales orders',
+    description: 'Invoice lifecycle from draft to dispatch and completion.',
+  },
+  {
+    href: '/orders/purchase',
+    title: 'Purchase orders',
+    description: 'Supplier order flow from creation through receiving.',
+  },
+] as const;
+
+export default function OrdersHubScreen() {
   return (
-    <ScrollView className="bg-bgPrimary px-6 py-6">
+    <ScrollView className="bg-bg px-6 py-6">
+      <PageHeader title="Orders" subtitle="Operational order flows for sales and procurement." />
+
       <View className="gap-4">
-        <View className="rounded-lg border border-borderSubtle bg-bgElevated p-6 shadow-sm">
-          <Text className="text-2xl font-semibold text-textPrimary">Orders</Text>
-          <Text className="mt-2 text-textSecondary">Sales orders and purchase orders.</Text>
-        </View>
-
-        <Link href="/orders/sales" asChild>
-          <Pressable className="rounded-lg border border-borderSubtle bg-bgElevated p-6 shadow-sm">
-            <Text className="text-lg font-medium text-textPrimary">Sales Orders</Text>
-            <Text className="mt-2 text-textMuted">View customer invoices and status.</Text>
-          </Pressable>
-        </Link>
-
-        <Link href="/orders/purchase" asChild>
-          <Pressable className="rounded-lg border border-borderSubtle bg-bgElevated p-6 shadow-sm">
-            <Text className="text-lg font-medium text-textPrimary">Purchase Orders</Text>
-            <Text className="mt-2 text-textMuted">Track supplier POs and receipts.</Text>
-          </Pressable>
-        </Link>
+        {orderModules.map((item) => (
+          <Link key={item.href} href={item.href} asChild>
+            <Pressable>
+              <AppCard title={item.title} className="active:bg-primary-tint">
+                <Text className="text-small text-muted">{item.description}</Text>
+              </AppCard>
+            </Pressable>
+          </Link>
+        ))}
       </View>
     </ScrollView>
   );

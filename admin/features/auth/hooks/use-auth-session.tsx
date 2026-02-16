@@ -14,8 +14,10 @@ type AuthSessionContextValue = {
   tenants: SessionTenant[];
   selectedTenantId: string | null;
   signIn: (input: LoginInput) => Promise<void>;
+  signInWithSso: () => Promise<void>;
   verifyMfa: (code: string) => Promise<void>;
   requestPasswordReset: (email: string) => Promise<void>;
+  resetPassword: (input: { email: string; token: string; newPassword: string }) => Promise<void>;
   selectTenant: (tenantId: string) => void;
   signOut: () => void;
   hasPermission: (permission: string) => boolean;
@@ -23,6 +25,7 @@ type AuthSessionContextValue = {
 };
 
 const MFA_ENABLED = process.env.EXPO_PUBLIC_ENABLE_MFA === 'true';
+const SSO_URL = process.env.EXPO_PUBLIC_SSO_URL ?? '';
 
 const initialState: SessionState = {
   status: 'bootstrapping',
@@ -156,6 +159,19 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
     [commitSignedInSession],
   );
 
+  const signInWithSso = useCallback(async () => {
+    if (!SSO_URL) {
+      throw new Error('SSO is not configured for this tenant.');
+    }
+
+    if (typeof window !== 'undefined') {
+      window.location.assign(SSO_URL);
+      return;
+    }
+
+    throw new Error('SSO redirect is available in web runtime.');
+  }, []);
+
   const verifyMfa = useCallback(
     async (code: string) => {
       if (!/^\d{6}$/.test(code)) {
@@ -174,6 +190,10 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
 
   const requestPasswordReset = useCallback(async (email: string) => {
     await authService.requestPasswordReset(email);
+  }, []);
+
+  const resetPassword = useCallback(async (input: { email: string; token: string; newPassword: string }) => {
+    await authService.resetPassword(input);
   }, []);
 
   const selectTenant = useCallback((tenantId: string) => {
@@ -211,14 +231,16 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
       tenants: state.tenants,
       selectedTenantId: state.selectedTenantId,
       signIn,
+      signInWithSso,
       verifyMfa,
       requestPasswordReset,
+      resetPassword,
       selectTenant,
       signOut,
       hasPermission,
       hasAnyPermission,
     }),
-    [state, signIn, verifyMfa, requestPasswordReset, selectTenant, signOut, hasPermission, hasAnyPermission],
+    [state, signIn, signInWithSso, verifyMfa, requestPasswordReset, resetPassword, selectTenant, signOut, hasPermission, hasAnyPermission],
   );
 
   return <AuthSessionContext.Provider value={value}>{children}</AuthSessionContext.Provider>;

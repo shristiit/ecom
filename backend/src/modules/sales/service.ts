@@ -18,6 +18,135 @@ const dispatchSchema = z.object({
   confirm: z.boolean().default(false),
 });
 
+function parsePagination(input: Request['query']) {
+  const page = Math.max(1, Number(input.page ?? 1) || 1);
+  const pageSize = Math.min(100, Math.max(1, Number(input.pageSize ?? 20) || 20));
+  return { page, pageSize };
+}
+
+export async function listInvoices(req: Request, res: Response) {
+  const { page, pageSize } = parsePagination(req.query);
+  const offset = (page - 1) * pageSize;
+  const { status, customerId } = req.query as { status?: string; customerId?: string };
+
+  const totalRes = await pool.query(
+    `SELECT COUNT(*)::int AS total
+     FROM invoices i
+     WHERE i.tenant_id = $1
+       AND ($2::text IS NULL OR i.status::text = $2::text)
+       AND ($3::text IS NULL OR i.customer_id::text = $3::text)`,
+    [req.user!.tenantId, status ?? null, customerId ?? null],
+  );
+
+  const rowsRes = await pool.query(
+    `SELECT
+       i.id,
+       i.customer_id,
+       c.name AS customer_name,
+       i.status,
+       i.total,
+       i.created_at,
+       i.updated_at,
+       COUNT(il.id)::int AS line_count
+     FROM invoices i
+     JOIN customers c ON c.id = i.customer_id
+     LEFT JOIN invoice_lines il ON il.invoice_id = i.id AND il.tenant_id = i.tenant_id
+     WHERE i.tenant_id = $1
+       AND ($2::text IS NULL OR i.status::text = $2::text)
+       AND ($3::text IS NULL OR i.customer_id::text = $3::text)
+     GROUP BY i.id, i.customer_id, c.name, i.status, i.total, i.created_at, i.updated_at
+     ORDER BY i.updated_at DESC
+     LIMIT $4 OFFSET $5`,
+    [req.user!.tenantId, status ?? null, customerId ?? null, pageSize, offset],
+  );
+
+  const items = rowsRes.rows.map((row) => ({
+    id: row.id,
+    number: `SO-${String(row.id).slice(0, 8).toUpperCase()}`,
+    customerId: row.customer_id,
+    customerName: row.customer_name,
+    status: row.status,
+    currency: 'USD',
+    lineCount: Number(row.line_count ?? 0),
+    lines: [],
+    subtotal: Number(row.total ?? 0),
+    tax: 0,
+    total: Number(row.total ?? 0),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  }));
+
+  res.json({
+    items,
+    pagination: {
+      page,
+      pageSize,
+      total: Number(totalRes.rows[0]?.total ?? items.length),
+    },
+  });
+}
+
+export async function getInvoice(req: Request, res: Response) {
+  const invoiceRes = await pool.query(
+    `SELECT
+       i.id,
+       i.customer_id,
+       c.name AS customer_name,
+       i.status,
+       i.total,
+       i.created_at,
+       i.updated_at
+     FROM invoices i
+     JOIN customers c ON c.id = i.customer_id
+     WHERE i.id = $1 AND i.tenant_id = $2`,
+    [req.params.id, req.user!.tenantId],
+  );
+  if (invoiceRes.rowCount === 0) {
+    return res.status(404).json({ message: 'Invoice not found' });
+  }
+
+  const linesRes = await pool.query(
+    `SELECT
+       il.id,
+       il.size_id,
+       il.qty,
+       il.unit_price,
+       s.sku_code,
+       sz.size_label
+     FROM invoice_lines il
+     JOIN sku_sizes sz ON sz.id = il.size_id
+     JOIN skus s ON s.id = sz.sku_id
+     WHERE il.invoice_id = $1 AND il.tenant_id = $2
+     ORDER BY il.id`,
+    [req.params.id, req.user!.tenantId],
+  );
+
+  const lines = linesRes.rows.map((line) => ({
+    id: line.id,
+    skuId: line.size_id,
+    sku: `${line.sku_code}-${line.size_label}`,
+    qty: Number(line.qty ?? 0),
+    unitPrice: Number(line.unit_price ?? 0),
+  }));
+
+  const base = invoiceRes.rows[0];
+  const subtotal = lines.reduce((sum, line) => sum + line.qty * line.unitPrice, 0);
+  return res.json({
+    id: base.id,
+    number: `SO-${String(base.id).slice(0, 8).toUpperCase()}`,
+    customerId: base.customer_id,
+    customerName: base.customer_name,
+    status: base.status,
+    currency: 'USD',
+    lines,
+    subtotal,
+    tax: 0,
+    total: Number(base.total ?? subtotal),
+    createdAt: base.created_at,
+    updatedAt: base.updated_at,
+  });
+}
+
 export async function createInvoice(req: Request, res: Response) {
   try {
     const result = await executeCreateInvoice(req.user!.id, req.user!.tenantId, req.body);

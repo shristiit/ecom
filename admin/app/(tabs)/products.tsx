@@ -1,43 +1,82 @@
-import { ScrollView, View, Text, Pressable } from 'react-native';
 import { Link } from 'expo-router';
+import { ScrollView, Text, View } from 'react-native';
+import {
+  AppBadge,
+  AppButton,
+  AppCard,
+  AppTable,
+  AppTableCell,
+  AppTableHeaderCell,
+  AppTableRow,
+  PageHeader,
+} from '@/components/ui';
+import { useProductsQuery } from '@/features/products';
 
-const mockProducts = [
-  { id: 'P-1001', name: 'Silk Blend Tee', sku: 'SBT-001', status: 'active' },
-  { id: 'P-1002', name: 'Linen Overshirt', sku: 'LOS-014', status: 'active' },
-  { id: 'P-1003', name: 'Wool Tailored Trouser', sku: 'WTT-207', status: 'inactive' },
-];
+const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
 
-export default function AdminProducts() {
+export default function ProductsListScreen() {
+  const { data, error, isLoading, refetch } = useProductsQuery({ page: 1, pageSize: 100 });
+  const products = data?.items ?? [];
+
   return (
-    <ScrollView className="bg-bgPrimary px-6 py-6">
-      <View className="gap-4">
-        <View className="rounded-lg border border-borderSubtle bg-bgElevated p-6 shadow-sm">
-          <Text className="text-2xl font-semibold text-textPrimary">Products</Text>
-          <Text className="mt-2 text-textSecondary">
-            Styles, SKUs, sizes, and price visibility.
-          </Text>
-        </View>
+    <ScrollView className="bg-bg px-6 py-6">
+      <PageHeader
+        title="Products"
+        subtitle="Manage catalog records, variants, and sellable statuses."
+        actions={
+          <Link href="/products/new" asChild>
+            <AppButton label="Create product" size="sm" />
+          </Link>
+        }
+      />
 
-        <View className="rounded-lg border border-borderSubtle bg-bgElevated shadow-sm">
-          <View className="flex-row items-center justify-between border-b border-borderSubtle px-4 py-3">
-            <Text className="text-sm uppercase tracking-wide text-textMuted">Product</Text>
-            <Text className="text-sm uppercase tracking-wide text-textMuted">Status</Text>
+      <AppCard title="Catalog" subtitle="Open a product to manage SKUs and location assignments.">
+        {isLoading ? <Text className="text-small text-muted">Loading products...</Text> : null}
+        {error ? (
+          <View className="gap-3">
+            <Text className="text-small text-error">{error.message}</Text>
+            <AppButton label="Retry" size="sm" variant="secondary" onPress={() => void refetch()} />
           </View>
-          {mockProducts.map((p) => (
-            <Link key={p.id} href={`/products/${p.id}`} asChild>
-              <Pressable className="flex-row items-center justify-between px-4 py-4">
-                <View>
-                  <Text className="text-base font-medium text-textPrimary">{p.name}</Text>
-                  <Text className="text-sm text-textMuted">{p.sku}</Text>
-                </View>
-                <Text className={p.status === 'active' ? 'text-success' : 'text-textMuted'}>
-                  {p.status}
-                </Text>
-              </Pressable>
-            </Link>
-          ))}
-        </View>
-      </View>
+        ) : null}
+
+        {!isLoading && !error ? (
+          <AppTable>
+            <AppTableRow header>
+              <AppTableHeaderCell>Product</AppTableHeaderCell>
+              <AppTableHeaderCell>Style code</AppTableHeaderCell>
+              <AppTableHeaderCell>Category</AppTableHeaderCell>
+              <AppTableHeaderCell align="right">Base price</AppTableHeaderCell>
+              <AppTableHeaderCell align="right">Status</AppTableHeaderCell>
+            </AppTableRow>
+
+            {products.map((product) => (
+              <AppTableRow key={product.id}>
+                <AppTableCell>
+                  <Link href={`/products/${product.id}`} asChild>
+                    <Text className="text-small font-medium text-primary">{product.name}</Text>
+                  </Link>
+                </AppTableCell>
+                <AppTableCell>{product.styleCode}</AppTableCell>
+                <AppTableCell>{product.category || '-'}</AppTableCell>
+                <AppTableCell align="right" className="tabular-nums">
+                  {currency.format(Number(product.basePrice ?? 0))}
+                </AppTableCell>
+                <AppTableCell align="right">
+                  <AppBadge label={product.status} tone={product.status === 'active' ? 'success' : 'default'} />
+                </AppTableCell>
+              </AppTableRow>
+            ))}
+
+            {products.length === 0 ? (
+              <AppTableRow>
+                <AppTableCell className="min-w-full">
+                  <Text className="text-small text-muted">No products found.</Text>
+                </AppTableCell>
+              </AppTableRow>
+            ) : null}
+          </AppTable>
+        ) : null}
+      </AppCard>
     </ScrollView>
   );
 }

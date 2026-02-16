@@ -68,6 +68,8 @@ export type PurchaseOrder = {
   status: PurchaseOrderStatus;
   currency: string;
   lines: PurchaseOrderLine[];
+  lineCount?: number;
+  totalCost?: number;
   orderedAt: ISODateString;
   expectedAt?: ISODateString;
   createdAt: ISODateString;
@@ -93,6 +95,7 @@ export type SalesOrder = {
   status: SalesOrderStatus;
   currency: string;
   lines: SalesOrderLine[];
+  lineCount?: number;
   subtotal: number;
   tax: number;
   total: number;
@@ -110,7 +113,7 @@ export type User = {
   tenantId: EntityId;
   email: string;
   fullName: string;
-  status: 'active' | 'invited' | 'suspended';
+  status: 'active' | 'invited' | 'suspended' | 'disabled';
   roles: UserRole[];
   permissions: string[];
   lastActiveAt?: ISODateString;

@@ -24,6 +24,69 @@ const executeSchema = z.object({
   transactionSpecId: z.string().uuid(),
 });
 
+export async function listThreads(req: Request, res: Response) {
+  const rows = await query(
+    `SELECT
+       c.id,
+       c.created_by,
+       c.created_at,
+       MAX(t.created_at) AS last_message_at,
+       MAX(CASE WHEN t.role = 'assistant' THEN t.content ELSE '' END) AS last_assistant_message,
+       COUNT(t.id)::int AS turn_count
+     FROM conversations c
+     LEFT JOIN conversation_turns t ON t.conversation_id = c.id AND t.tenant_id = c.tenant_id
+     WHERE c.tenant_id = $1
+     GROUP BY c.id, c.created_by, c.created_at
+     ORDER BY MAX(t.created_at) DESC NULLS LAST
+     LIMIT 200`,
+    [req.user!.tenantId]
+  );
+  res.json(rows.rows);
+}
+
+export async function listApprovals(req: Request, res: Response) {
+  const rows = await query(
+    `SELECT
+       a.id,
+       a.status,
+       a.transaction_spec_id,
+       a.requested_by,
+       a.approved_by,
+       a.created_at,
+       ts.intent,
+       ts.confidence,
+       ts.conversation_id
+     FROM approvals a
+     JOIN transaction_specs ts ON ts.id = a.transaction_spec_id
+     WHERE a.tenant_id = $1
+     ORDER BY a.created_at DESC
+     LIMIT 300`,
+    [req.user!.tenantId]
+  );
+  res.json(rows.rows);
+}
+
+export async function listHistory(req: Request, res: Response) {
+  const rows = await query(
+    `SELECT
+       ar.id,
+       ar.transaction_id,
+       ar.request_text,
+       ar.why,
+       ar.created_at,
+       it.type AS movement_type,
+       it.quantity,
+       it.recorded_time
+     FROM audit_records ar
+     LEFT JOIN inventory_transactions it ON it.id = ar.transaction_id
+     WHERE ar.tenant_id = $1
+     ORDER BY ar.created_at DESC
+     LIMIT 500`,
+    [req.user!.tenantId]
+  );
+  res.json(rows.rows);
+}
+
 export async function interpret(req: Request, res: Response) {
   const parsed = interpretSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ message: 'Invalid payload' });

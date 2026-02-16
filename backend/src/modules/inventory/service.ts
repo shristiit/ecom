@@ -27,27 +27,94 @@ const transferSchema = z.object({
 });
 
 export async function stockOnHand(req: Request, res: Response) {
-  const { sizeId, locationId } = req.query as any;
-  if (!sizeId || !locationId) return res.status(400).json({ message: 'sizeId and locationId required' });
+  const { sizeId, locationId, sku } = req.query as { sizeId?: string; locationId?: string; sku?: string };
+
+  if (sizeId && locationId) {
+    const result = await pool.query(
+      `SELECT * FROM stock_balances WHERE tenant_id = $1 AND size_id = $2 AND location_id = $3`,
+      [req.user!.tenantId, sizeId, locationId]
+    );
+    return res.json(result.rows[0] ?? { on_hand: 0, reserved: 0 });
+  }
+
   const result = await pool.query(
-    `SELECT * FROM stock_balances WHERE tenant_id = $1 AND size_id = $2 AND location_id = $3`,
-    [req.user!.tenantId, sizeId, locationId]
+    `SELECT
+       sb.size_id,
+       sb.location_id,
+       sb.on_hand,
+       sb.reserved,
+       (sb.on_hand - sb.reserved) AS available,
+       sz.sku_id,
+       sk.sku_code,
+       p.id AS product_id,
+       p.name AS product_name,
+       l.code AS location_code
+     FROM stock_balances sb
+     JOIN sku_sizes sz ON sz.id = sb.size_id
+     JOIN skus sk ON sk.id = sz.sku_id
+     JOIN products p ON p.id = sk.product_id
+     JOIN locations l ON l.id = sb.location_id
+     WHERE sb.tenant_id = $1
+       AND ($2::text IS NULL OR sb.location_id::text = $2::text)
+       AND ($3::text IS NULL OR sk.sku_code ILIKE '%' || $3::text || '%')
+     ORDER BY sb.updated_at DESC
+     LIMIT 500`,
+    [req.user!.tenantId, locationId ?? null, sku ?? null]
   );
-  res.json(result.rows[0] ?? { on_hand: 0, reserved: 0 });
+
+  return res.json(result.rows);
 }
 
 export async function movements(req: Request, res: Response) {
-  const { sizeId, from, to } = req.query as any;
+  const { sizeId, from, to, movementType } = req.query as { sizeId?: string; from?: string; to?: string; movementType?: string };
   const result = await pool.query(
-    `SELECT * FROM inventory_transactions
-     WHERE tenant_id = $1
-     AND ($2::uuid IS NULL OR size_id = $2)
-     AND ($3::timestamptz IS NULL OR recorded_time >= $3)
-     AND ($4::timestamptz IS NULL OR recorded_time <= $4)
-     ORDER BY recorded_time DESC
+    `SELECT
+       it.*,
+       sk.sku_code,
+       u.email AS actor_email,
+       lf.code AS from_location_code,
+       lt.code AS to_location_code
+     FROM inventory_transactions it
+     JOIN skus sk ON sk.id = it.sku_id
+     LEFT JOIN users u ON u.id = it.created_by
+     LEFT JOIN locations lf ON lf.id = it.from_location_id
+     LEFT JOIN locations lt ON lt.id = it.to_location_id
+     WHERE it.tenant_id = $1
+     AND ($2::text IS NULL OR it.size_id::text = $2::text)
+     AND ($3::timestamptz IS NULL OR it.recorded_time >= $3)
+     AND ($4::timestamptz IS NULL OR it.recorded_time <= $4)
+     AND ($5::text IS NULL OR it.type::text = $5::text)
+     ORDER BY it.recorded_time DESC
      LIMIT 200`,
-    [req.user!.tenantId, sizeId ?? null, from ?? null, to ?? null]
+    [req.user!.tenantId, sizeId ?? null, from ?? null, to ?? null, movementType ?? null]
   );
+  res.json(result.rows);
+}
+
+export async function listReceipts(req: Request, res: Response) {
+  const result = await pool.query(
+    `SELECT
+       r.id,
+       r.po_id,
+       r.location_id,
+       l.code AS location_code,
+       r.status,
+       r.created_at,
+       po.supplier_id,
+       s.name AS supplier_name,
+       COUNT(rl.id)::int AS line_count
+     FROM receipts r
+     LEFT JOIN purchase_orders po ON po.id = r.po_id
+     LEFT JOIN suppliers s ON s.id = po.supplier_id
+     LEFT JOIN locations l ON l.id = r.location_id
+     LEFT JOIN receipt_lines rl ON rl.receipt_id = r.id AND rl.tenant_id = r.tenant_id
+     WHERE r.tenant_id = $1
+     GROUP BY r.id, r.po_id, r.location_id, l.code, r.status, r.created_at, po.supplier_id, s.name
+     ORDER BY r.created_at DESC
+     LIMIT 300`,
+    [req.user!.tenantId]
+  );
+
   res.json(result.rows);
 }
 

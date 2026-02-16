@@ -15,9 +15,13 @@ export const authService = {
 
   me: () => get<AuthMeResponse>('/auth/me'),
 
-  // Backend endpoint not available yet. This keeps UX flow ready.
-  requestPasswordReset: async (_email: string) => {
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    return { ok: true };
-  },
+  requestPasswordReset: (email: string) =>
+    post<{ ok: boolean; message?: string }, { email: string }>('/auth/forgot-password', { email }, { auth: false }),
+
+  resetPassword: (input: { email: string; token: string; newPassword: string }) =>
+    post<{ ok: boolean }, { email: string; token: string; newPassword: string }>(
+      '/auth/reset-password',
+      input,
+      { auth: false },
+    ),
 };
