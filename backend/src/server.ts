@@ -25,8 +25,11 @@ import storefrontRoutes from './modules/storefront/routes.js';
 const app = express();
 
 if (process.env.SENTRY_DSN) {
-  Sentry.init({ dsn: process.env.SENTRY_DSN, tracesSampleRate: 0.1 });
-  app.use(Sentry.Handlers.requestHandler());
+  Sentry.init({
+    dsn: process.env.SENTRY_DSN,
+    tracesSampleRate: 0.1,
+    integrations: [Sentry.expressIntegration()],
+  });
 }
 
 app.use(helmet());
@@ -51,7 +54,7 @@ app.use('/api/master', masterRoutes);
 app.use('/api/storefront', storefrontRoutes);
 
 if (process.env.SENTRY_DSN) {
-  app.use(Sentry.Handlers.errorHandler());
+  Sentry.setupExpressErrorHandler(app);
 }
 app.use(errorHandler);
 
