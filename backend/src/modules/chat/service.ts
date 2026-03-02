@@ -262,11 +262,16 @@ export async function execute(req: Request, res: Response) {
     [spec.conversation_id]
   );
 
-  if (result?.transactionId) {
+  const transactionId =
+    result && typeof result === 'object' && 'transactionId' in result
+      ? String((result as { transactionId?: string }).transactionId ?? '')
+      : '';
+
+  if (transactionId) {
     await query(
       `INSERT INTO audit_records (tenant_id, transaction_id, request_text, who, approver, before_after, why)
        VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-      [req.user!.tenantId, result.transactionId, textRes.rows[0]?.content ?? '', req.user!.id, null, {}, spec.intent]
+      [req.user!.tenantId, transactionId, textRes.rows[0]?.content ?? '', req.user!.id, null, {}, spec.intent]
     );
   }
 
