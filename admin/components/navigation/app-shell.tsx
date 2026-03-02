@@ -14,6 +14,7 @@ import {
   ArrowLeftRight,
   Package,
   LogOut,
+  User,
 } from 'lucide-react-native';
 import { type LucideIcon } from 'lucide-react-native';
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
@@ -115,9 +116,20 @@ function TopNav({
   onOpenQuickView: () => void;
 }) {
   const { user, signOut, tenants, selectedTenantId, selectTenant } = useAuthSession();
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+
+  const tenantLabel = selectedTenantId ? `Tenant ${selectedTenantId.slice(0, 6)}` : 'Tenant';
+  const userEmail = user?.email ?? 'Admin';
+
+  const cycleTenant = () => {
+    if (tenants.length <= 1) return;
+    const index = Math.max(0, tenants.findIndex((tenant) => tenant.id === selectedTenantId));
+    const next = tenants[(index + 1) % tenants.length];
+    selectTenant(next.id);
+  };
 
   return (
-    <View className="border-b border-border bg-surface px-4 py-3">
+    <View className="relative z-50 border-b border-border bg-surface px-4 py-3">
       <View className="flex-row items-center justify-between gap-3">
         <View className="flex-row items-center gap-3">
           {compact ? <Menu size={20} color="#334155" /> : null}
@@ -132,37 +144,68 @@ function TopNav({
         </Pressable>
 
         <View className="flex-row items-center gap-2">
-          <Pressable className="h-9 w-9 items-center justify-center rounded-md border border-border bg-surface-2">
-            <CircleHelp size={16} color="#334155" />
-          </Pressable>
           <Pressable className="h-9 w-9 items-center justify-center rounded-md border border-border bg-surface-2" onPress={onOpenNotifications}>
             <Bell size={16} color="#334155" />
           </Pressable>
           <Pressable className="rounded-md border border-border bg-surface-2 px-3 py-2" onPress={onOpenQuickView}>
             <Text className="text-small font-medium text-text">Quick view</Text>
           </Pressable>
-          <Pressable
-            className="rounded-md border border-border bg-surface-2 px-3 py-2"
-            onPress={() => {
-              if (tenants.length <= 1) return;
-              const index = Math.max(0, tenants.findIndex((tenant) => tenant.id === selectedTenantId));
-              const next = tenants[(index + 1) % tenants.length];
-              selectTenant(next.id);
-            }}
-          >
-            <Text className="text-small font-medium text-text">
-              {selectedTenantId ? `Tenant ${selectedTenantId.slice(0, 6)}` : 'Tenant'}
-            </Text>
-          </Pressable>
-          <View className="rounded-md border border-border bg-surface-2 px-3 py-2">
-            <Text className="text-small font-medium text-text">{user?.email ?? 'Admin'}</Text>
+          <View className="relative z-50">
+            <Pressable
+              onPress={() => setProfileMenuOpen((current) => !current)}
+              className="h-9 w-9 items-center justify-center rounded-md border border-border bg-surface-2"
+            >
+              <User size={16} color="#334155" />
+            </Pressable>
+
+            {profileMenuOpen ? (
+              <View
+                className="absolute right-0 top-11 z-50 w-64 rounded-md border border-border bg-surface shadow-sm"
+                style={{ elevation: 24 }}
+              >
+                <View className="border-b border-border px-3 py-2">
+                  <Text className="text-caption text-muted">{userEmail}</Text>
+                </View>
+
+                <Pressable
+                  className="flex-row items-center gap-2 px-3 py-2"
+                  onPress={() => {
+                    setProfileMenuOpen(false);
+                    onOpenQuickView();
+                  }}
+                >
+                  <Text className="text-small text-text">Quick view</Text>
+                </Pressable>
+                <Pressable className="flex-row items-center gap-2 px-3 py-2" onPress={() => setProfileMenuOpen(false)}>
+                  <CircleHelp size={16} color="#334155" />
+                  <Text className="text-small text-text">Help</Text>
+                </Pressable>
+                <Pressable
+                  className="flex-row items-center justify-between gap-2 px-3 py-2"
+                  onPress={() => {
+                    cycleTenant();
+                    setProfileMenuOpen(false);
+                  }}
+                >
+                  <Text className="text-small text-text">Switch tenant</Text>
+                  <Text className="text-caption text-muted">{tenantLabel}</Text>
+                </Pressable>
+
+                <View className="border-t border-border">
+                  <Pressable
+                    className="flex-row items-center gap-2 px-3 py-2"
+                    onPress={() => {
+                      setProfileMenuOpen(false);
+                      signOut();
+                    }}
+                  >
+                    <LogOut size={16} color="#334155" />
+                    <Text className="text-small text-text">Logout</Text>
+                  </Pressable>
+                </View>
+              </View>
+            ) : null}
           </View>
-          <Pressable
-            onPress={signOut}
-            className="h-9 w-9 items-center justify-center rounded-md border border-border bg-surface-2"
-          >
-            <LogOut size={16} color="#334155" />
-          </Pressable>
         </View>
       </View>
     </View>
@@ -232,7 +275,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             onOpenQuickView={() => setQuickViewOpen(true)}
           />
 
-          <View className="flex-1">{children}</View>
+          <View className="z-0 flex-1">{children}</View>
 
           {!isDesktop ? (
             <View className="border-t border-border bg-surface px-1 pb-2 pt-1">
