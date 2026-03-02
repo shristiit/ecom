@@ -89,3 +89,58 @@ export type ProductLocationInput = {
   isEnabled: boolean;
   pickupEnabled: boolean;
 };
+
+export type ProductMediaInput = {
+  url: string;
+  s3Key?: string;
+  altText?: string;
+  sortOrder?: number;
+  isPrimary?: boolean;
+};
+
+export type ProductVariantSizeInput = {
+  sizeLabel: string;
+  barcode?: string;
+  unitOfMeasure?: string;
+  packSize?: number;
+  priceOverride?: number | null;
+  stockByLocation: {
+    locationId: string;
+    quantity: number;
+  }[];
+};
+
+export type ProductVariantInput = {
+  colorName: string;
+  colorCode?: string | null;
+  skuCode?: string;
+  priceOverride?: number | null;
+  media?: ProductMediaInput[];
+  sizes: ProductVariantSizeInput[];
+};
+
+export type ComposedProductInput = {
+  product: ProductInput;
+  styleMedia?: ProductMediaInput[];
+  variants: ProductVariantInput[];
+};
+
+export type ComposedProductResult = {
+  productId: string;
+  skuCount: number;
+  sizeCount: number;
+  stockRowCount: number;
+};
+
+export type ProductMediaUploadInput = {
+  uri: string;
+  name: string;
+  type?: string;
+};
+
+export type ProductMediaUploadResult = {
+  key: string;
+  url: string;
+  contentType: string;
+  size: number;
+};

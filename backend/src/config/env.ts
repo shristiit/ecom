@@ -43,3 +43,7 @@ export const SSO_AZUREAD = {
   tenantId: process.env.SSO_AZUREAD_TENANT_ID ?? '',
   redirectUri: process.env.SSO_AZUREAD_REDIRECT_URI ?? '',
 };
+
+export const S3_REGION = process.env.S3_REGION ?? '';
+export const S3_BUCKET = process.env.S3_BUCKET ?? '';
+export const S3_PUBLIC_BASE_URL = process.env.S3_PUBLIC_BASE_URL ?? '';
