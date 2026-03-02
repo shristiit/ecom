@@ -27,8 +27,12 @@ const alignClass = {
 export function AppTable({ children, className }: TableProps) {
   return (
     <View className={`overflow-hidden rounded-lg border border-border bg-surface ${className ?? ''}`.trim()}>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-        <View className="min-w-full">{children}</View>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={{ minWidth: '100%' }}
+      >
+        <View className="w-full">{children}</View>
       </ScrollView>
     </View>
   );

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiError } from '@/lib/api';
 import type { QueryKey, QueryState } from './types';
 
@@ -19,6 +19,7 @@ export function useQuery<TData>({
   retry = 1,
   retryDelayMs = 250,
 }: UseQueryOptions<TData>) {
+  const queryFnRef = useRef(queryFn);
   const [state, setState] = useState<QueryState<TData>>({
     data: initialData,
     error: null,
@@ -28,6 +29,10 @@ export function useQuery<TData>({
   });
 
   const stableKey = useMemo(() => JSON.stringify(key), [key]);
+
+  useEffect(() => {
+    queryFnRef.current = queryFn;
+  }, [queryFn]);
 
   const runQuery = useCallback(async () => {
     if (!enabled) {
@@ -45,7 +50,7 @@ export function useQuery<TData>({
     let lastError: ApiError | null = null;
     for (let attempt = 0; attempt <= retry; attempt += 1) {
       try {
-        const data = await queryFn();
+        const data = await queryFnRef.current();
         setState({ data, error: null, status: 'success', isLoading: false, isFetching: false });
         return;
       } catch (error) {
@@ -62,7 +67,7 @@ export function useQuery<TData>({
       isLoading: false,
       isFetching: false,
     }));
-  }, [enabled, queryFn, retry, retryDelayMs]);
+  }, [enabled, retry, retryDelayMs]);
 
   useEffect(() => {
     void runQuery();

@@ -74,42 +74,40 @@ export function DashboardScreen() {
           </AppCard>
 
           <AppCard title="Recent movements" subtitle="Latest stock-affecting events.">
-            <AppTable>
-              <AppTableRow header>
-                <AppTableHeaderCell>Event</AppTableHeaderCell>
-                <AppTableHeaderCell>Date</AppTableHeaderCell>
-                <AppTableHeaderCell>SKU</AppTableHeaderCell>
-                <AppTableHeaderCell>Type</AppTableHeaderCell>
-                <AppTableHeaderCell align="right">Qty</AppTableHeaderCell>
-                <AppTableHeaderCell align="right">Status</AppTableHeaderCell>
-              </AppTableRow>
-
-              {data.recentMovements.map((movement) => (
-                <AppTableRow key={movement.id}>
-                  <AppTableCell>{movement.id.slice(0, 8).toUpperCase()}</AppTableCell>
-                  <AppTableCell>{formatDate(movement.createdAt)}</AppTableCell>
-                  <AppTableCell>{movement.sku}</AppTableCell>
-                  <AppTableCell>{movement.movementType}</AppTableCell>
-                  <AppTableCell align="right" className="tabular-nums">
-                    {movement.quantity}
-                  </AppTableCell>
-                  <AppTableCell align="right">
-                    <AppBadge
-                      label={movement.approvalStatus ?? 'pending'}
-                      tone={movement.approvalStatus === 'approved' ? 'success' : 'warning'}
-                    />
-                  </AppTableCell>
+            {data.recentMovements.length === 0 ? (
+              <View className="rounded-lg border border-dashed border-border bg-surface-2 px-4 py-5">
+                <Text className="text-small text-muted">No recent movements found.</Text>
+              </View>
+            ) : (
+              <AppTable>
+                <AppTableRow header>
+                  <AppTableHeaderCell>Event</AppTableHeaderCell>
+                  <AppTableHeaderCell>Date</AppTableHeaderCell>
+                  <AppTableHeaderCell>SKU</AppTableHeaderCell>
+                  <AppTableHeaderCell>Type</AppTableHeaderCell>
+                  <AppTableHeaderCell align="right">Qty</AppTableHeaderCell>
+                  <AppTableHeaderCell align="right">Status</AppTableHeaderCell>
                 </AppTableRow>
-              ))}
 
-              {data.recentMovements.length === 0 ? (
-                <AppTableRow>
-                  <AppTableCell className="min-w-full">
-                    <Text className="text-small text-muted">No recent movements found.</Text>
-                  </AppTableCell>
-                </AppTableRow>
-              ) : null}
-            </AppTable>
+                {data.recentMovements.map((movement) => (
+                  <AppTableRow key={movement.id}>
+                    <AppTableCell>{movement.id.slice(0, 8).toUpperCase()}</AppTableCell>
+                    <AppTableCell>{formatDate(movement.createdAt)}</AppTableCell>
+                    <AppTableCell>{movement.sku}</AppTableCell>
+                    <AppTableCell>{movement.movementType}</AppTableCell>
+                    <AppTableCell align="right" className="tabular-nums">
+                      {movement.quantity}
+                    </AppTableCell>
+                    <AppTableCell align="right">
+                      <AppBadge
+                        label={movement.approvalStatus ?? 'pending'}
+                        tone={movement.approvalStatus === 'approved' ? 'success' : 'warning'}
+                      />
+                    </AppTableCell>
+                  </AppTableRow>
+                ))}
+              </AppTable>
+            )}
           </AppCard>
         </View>
       ) : null}
