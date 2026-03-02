@@ -102,15 +102,18 @@ export async function request<TResponse, TBody = unknown>({
   }
 
   const hasBody = body !== undefined && body !== null;
+  const isFormDataBody = hasBody && typeof FormData !== 'undefined' && body instanceof FormData;
   if (hasBody) {
-    requestHeaders['Content-Type'] = 'application/json';
+    if (!isFormDataBody) {
+      requestHeaders['Content-Type'] = 'application/json';
+    }
   }
 
   try {
     const response = await fetch(buildUrl(path, query), {
       method,
       headers: requestHeaders,
-      body: hasBody ? JSON.stringify(body) : undefined,
+      body: hasBody ? (isFormDataBody ? (body as BodyInit) : JSON.stringify(body)) : undefined,
       signal: mergedSignal,
     });
 

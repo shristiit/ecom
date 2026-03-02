@@ -1,15 +1,19 @@
 import { Router } from 'express';
+import multer from 'multer';
 import { authGuard, requireTenant, requirePermission } from '../../middlewares/auth.js';
 import { idempotencyGuard } from '../../middlewares/idempotency.js';
 import * as ctrl from './service.js';
 
 const r = Router();
+const mediaUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 r.use(authGuard, requireTenant);
 const idem = idempotencyGuard((req) => req.user?.tenantId ?? null);
 
 r.get('/', requirePermission('products.read'), ctrl.listProducts);
 r.post('/', requirePermission('products.write'), idem, ctrl.createProduct);
+r.post('/compose', requirePermission('products.write'), idem, ctrl.createComposedProduct);
+r.post('/media/upload', requirePermission('products.write'), mediaUpload.single('file'), ctrl.uploadProductMedia);
 r.get('/:id', requirePermission('products.read'), ctrl.getProduct);
 r.patch('/:id', requirePermission('products.write'), idem, ctrl.updateProduct);
 r.delete('/:id', requirePermission('products.write'), idem, ctrl.deleteProduct);

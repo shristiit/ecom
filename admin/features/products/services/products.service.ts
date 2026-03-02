@@ -1,11 +1,15 @@
 import type { PaginatedResponse } from '@/features/shared';
 import { del, get, patch, post } from '@/lib/api';
 import type {
+  ComposedProductInput,
+  ComposedProductResult,
   ProductDetail,
   ProductInput,
   ProductLocationInput,
   ProductListItem,
   ProductLocation,
+  ProductMediaUploadInput,
+  ProductMediaUploadResult,
   ProductSkuInput,
   ProductsFilter,
 } from '../types/products.types';
@@ -145,6 +149,21 @@ export const productsService = {
   async createProduct(input: ProductInput) {
     const payload = await post<ProductRow, ProductInput>('/products', input);
     return toProductListItem(payload);
+  },
+
+  async createComposedProduct(input: ComposedProductInput) {
+    return post<ComposedProductResult, ComposedProductInput>('/products/compose', input);
+  },
+
+  async uploadProductMedia(input: ProductMediaUploadInput) {
+    const formData = new FormData();
+    formData.append('file', {
+      uri: input.uri,
+      name: input.name,
+      type: input.type ?? 'image/jpeg',
+    } as any);
+
+    return post<ProductMediaUploadResult, FormData>('/products/media/upload', formData);
   },
 
   async updateProduct(id: string, input: Partial<ProductInput>) {
