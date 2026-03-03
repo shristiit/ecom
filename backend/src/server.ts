@@ -5,7 +5,7 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import pinoHttp from 'pino-http';
 import * as Sentry from '@sentry/node';
-import { PORT, CORS_ORIGIN } from './config/env.js';
+import { PORT, CORS_ORIGINS } from './config/env.js';
 import { errorHandler } from './middlewares/error.js';
 import { logger } from './utils/logger.js';
 import { releaseExpiredReservations } from './modules/storefront/reservations.js';
@@ -33,7 +33,19 @@ if (process.env.SENTRY_DSN) {
 }
 
 app.use(helmet());
-app.use(cors({ origin: CORS_ORIGIN, credentials: true }));
+const allowedOrigins = new Set(CORS_ORIGINS);
+app.use(
+  cors({
+    origin(origin, callback) {
+      if (!origin || allowedOrigins.has(origin)) {
+        callback(null, true);
+        return;
+      }
+      callback(new Error(`CORS blocked for origin: ${origin}`));
+    },
+    credentials: true,
+  })
+);
 app.use(express.json({ limit: '2mb' }));
 app.use(pinoHttp({ logger }));
 

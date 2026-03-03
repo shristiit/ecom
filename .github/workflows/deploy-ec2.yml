@@ -1,0 +1,42 @@
+name: Deploy To EC2
+
+on:
+  push:
+    branches:
+      - master
+
+concurrency:
+  group: deploy-ec2-master
+  cancel-in-progress: true
+
+jobs:
+  deploy-backend:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy backend
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.BACKEND_EC2_HOST }}
+          username: ${{ secrets.EC2_SSH_USER }}
+          key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+          script: |
+            cd ~/ecom
+            git config --global --add safe.directory ~/ecom
+            chmod +x scripts/deploy-backend.sh
+            APP_DIR=~/ecom/backend BRANCH=master SERVICE_NAME=stockaisle-backend ./scripts/deploy-backend.sh
+
+  deploy-admin:
+    needs: deploy-backend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy admin
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.FRONTEND_EC2_HOST }}
+          username: ${{ secrets.EC2_SSH_USER }}
+          key: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+          script: |
+            cd ~/ecom
+            git config --global --add safe.directory ~/ecom
+            chmod +x scripts/deploy-admin.sh
+            EXPO_PUBLIC_API_URL="${{ secrets.ADMIN_API_BASE_URL }}" APP_DIR=~/ecom/admin WEB_ROOT=/var/www/stockaisle-admin BRANCH=master ./scripts/deploy-admin.sh
