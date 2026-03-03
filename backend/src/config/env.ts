@@ -16,6 +16,9 @@ export const JWT_SECRET = required('JWT_SECRET');
 export const ACCESS_TOKEN_TTL = required('ACCESS_TOKEN_TTL', '15m');
 export const REFRESH_TOKEN_TTL = required('REFRESH_TOKEN_TTL', '7d');
 export const CORS_ORIGIN = required('CORS_ORIGIN', 'http://localhost:3000');
+export const CORS_ORIGINS = CORS_ORIGIN.split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
 export const CONVERSATIONAL_ENGINE_URL = required('CONVERSATIONAL_ENGINE_URL', 'http://localhost:8000');
 export const RESERVATION_TTL_MIN = parseInt(required('RESERVATION_TTL_MIN', '30'), 10);
 
