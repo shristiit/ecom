@@ -1,5 +1,5 @@
 import { get, post } from '@/lib/api';
-import type { AIApproval, AIHistoryItem, AIInterpretResponse, AIThread, AIThreadSummary } from '../types';
+import type { AIApproval, AIHistoryItem, AIInterpretResponse, AINavigationResponse, AISendResponse, AIThread, AIThreadSummary } from '../types';
 
 type ThreadSummaryRow = {
   id: string;
@@ -117,6 +117,12 @@ export const aiService = {
 
   interpret: (input: { text: string; conversationId?: string }) =>
     post<AIInterpretResponse, { text: string; conversationId?: string }>('/chat/interpret', input),
+
+  navigate: (input: { text: string; conversationId?: string }) =>
+    post<AINavigationResponse, { text: string; conversationId?: string }>('/chat/navigate', input),
+
+  send: (input: { text: string; conversationId?: string }) =>
+    post<AISendResponse, { text: string; conversationId?: string }>('/chat/respond', input),
 
   confirm: (input: { transactionSpecId: string; confirm: boolean }) =>
     post<{ status: string }, { transactionSpecId: string; confirm: boolean }>('/chat/confirm', input),

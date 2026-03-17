@@ -4,5 +4,7 @@ export * from './use-ai-confirm-mutation';
 export * from './use-ai-execute-mutation';
 export * from './use-ai-history-query';
 export * from './use-ai-interpret-mutation';
+export * from './use-ai-navigate-mutation';
+export * from './use-ai-send-mutation';
 export * from './use-ai-thread-query';
 export * from './use-ai-threads-query';

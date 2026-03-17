@@ -2,7 +2,7 @@ import { Link, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
 import { AppButton, AppCard, AppInput, PageHeader } from '@/components/ui';
-import { useAiInterpretMutation, useAiThreadsQuery } from '@/features/ai';
+import { useAiSendMutation, useAiThreadsQuery } from '@/features/ai';
 
 function formatDate(value?: string | null) {
   if (!value) return '-';
@@ -14,7 +14,7 @@ function formatDate(value?: string | null) {
 export default function AiHomeScreen() {
   const router = useRouter();
   const threadsQuery = useAiThreadsQuery();
-  const interpret = useAiInterpretMutation();
+  const send = useAiSendMutation();
 
   const [prompt, setPrompt] = useState('');
   const [message, setMessage] = useState<string | null>(null);
@@ -29,7 +29,14 @@ export default function AiHomeScreen() {
     setError(null);
     setMessage(null);
     try {
-      const result = await interpret.mutateAsync({ text: prompt.trim() });
+      const result = await send.mutateAsync({ text: prompt.trim() });
+      if (result.kind === 'navigation') {
+        setMessage(`Opened ${result.label ?? 'page'}.`);
+        setPrompt('');
+        router.push(result.href as any);
+        return;
+      }
+
       setMessage('Thread created and interpreted.');
       setPrompt('');
       router.push(`/ai/thread/${result.conversationId}`);
@@ -62,11 +69,11 @@ export default function AiHomeScreen() {
           <View className="gap-3">
             <AppInput
               label="Prompt"
-              placeholder="Receive 20 units of SKU X at WH-01"
+              placeholder="Go to products, or create a sales order for customer 88738"
               value={prompt}
               onChangeText={setPrompt}
             />
-            <AppButton label="Interpret prompt" onPress={() => void handleNewThread()} loading={interpret.isPending} />
+            <AppButton label="Send" onPress={() => void handleNewThread()} loading={send.isPending} />
             {error ? <Text className="text-small text-error">{error}</Text> : null}
             {message ? <Text className="text-small text-success">{message}</Text> : null}
           </View>

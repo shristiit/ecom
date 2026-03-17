@@ -1,7 +1,7 @@
 import dotenv from 'dotenv';
 import process from 'node:process';
 
-dotenv.config();
+dotenv.config({ path: '.env' });
 
 function required(key: string, fallback?: string): string {
   const v = process.env[key] ?? fallback;
@@ -20,6 +20,9 @@ export const CORS_ORIGINS = CORS_ORIGIN.split(',')
   .map((origin) => origin.trim())
   .filter(Boolean);
 export const CONVERSATIONAL_ENGINE_URL = required('CONVERSATIONAL_ENGINE_URL', 'http://localhost:8000');
+export const OPENAI_API_KEY = process.env.OPENAI_API_KEY ?? '';
+export const OPENAI_MODEL = process.env.OPENAI_MODEL ?? 'gpt-4o-mini';
+export const OPENAI_BASE_URL = process.env.OPENAI_BASE_URL ?? 'https://api.openai.com/v1';
 export const RESERVATION_TTL_MIN = parseInt(required('RESERVATION_TTL_MIN', '30'), 10);
 
 export const AUTH0_DOMAIN = process.env.AUTH0_DOMAIN ?? '';
