@@ -1,0 +1,15 @@
+services:
+  backend:
+    container_name: ${CONTAINER_NAME:-stockaisle-backend}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: stockaisle-backend:${APP_ENV:-dev}
+    env_file:
+      - .env
+    restart: unless-stopped
+    ports:
+      - "${HOST_PORT:-4000}:4000"
+    profiles:
+      - dev
+      - prod

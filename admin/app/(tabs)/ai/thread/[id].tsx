@@ -1,11 +1,11 @@
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
 import { AppBadge, AppButton, AppCard, AppInput, AppModal, PageHeader } from '@/components/ui';
 import {
   useAiConfirmMutation,
   useAiExecuteMutation,
-  useAiInterpretMutation,
+  useAiSendMutation,
   useAiThreadQuery,
 } from '@/features/ai';
 
@@ -16,12 +16,13 @@ function formatDate(value: string) {
 }
 
 export default function AiThreadScreen() {
+  const router = useRouter();
   const params = useLocalSearchParams<{ id?: string | string[] }>();
   const rawId = params.id;
   const threadId = Array.isArray(rawId) ? rawId[0] : rawId;
 
   const threadQuery = useAiThreadQuery(threadId, Boolean(threadId));
-  const interpret = useAiInterpretMutation();
+  const send = useAiSendMutation();
   const confirm = useAiConfirmMutation();
   const execute = useAiExecuteMutation();
 
@@ -40,7 +41,14 @@ export default function AiThreadScreen() {
     setError(null);
     setMessage(null);
     try {
-      const result = await interpret.mutateAsync({ text: prompt.trim(), conversationId: threadId });
+      const result = await send.mutateAsync({ text: prompt.trim(), conversationId: threadId });
+      if (result.kind === 'navigation') {
+        setMessage(`Opened ${result.label ?? 'page'}.`);
+        setPrompt('');
+        router.push(result.href as any);
+        return;
+      }
+
       setMessage(`Spec created: ${result.transactionSpecId}`);
       setTransactionSpecId(result.transactionSpecId);
       setPrompt('');
@@ -97,11 +105,11 @@ export default function AiThreadScreen() {
           <View className="gap-3">
             <AppInput
               label="Prompt"
-              placeholder="Transfer 5 units from WH-01 to STORE-02"
+              placeholder="Take me to products, or transfer 5 units from WH-01 to STORE-02"
               value={prompt}
               onChangeText={setPrompt}
             />
-            <AppButton label="Interpret" onPress={() => void handleSend()} loading={interpret.isPending} />
+            <AppButton label="Send" onPress={() => void handleSend()} loading={send.isPending} />
 
             <AppInput
               label="Transaction spec ID"

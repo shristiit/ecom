@@ -1,12 +1,18 @@
 import { Request, Response } from 'express';
 import { z } from 'zod';
-import fetch from 'node-fetch';
-import { CONVERSATIONAL_ENGINE_URL } from '../../config/env.js';
 import { query } from '../../db/pool.js';
 import { logger } from '../../utils/logger.js';
 import { executeSpec } from './execute.js';
+import { resolveNavigation } from './navigation.js';
+import { orchestrateChat } from './orchestrator.js';
+import { interpretTransaction } from './transaction-tool.js';
 
 const interpretSchema = z.object({
+  text: z.string().min(1),
+  conversationId: z.string().uuid().optional(),
+});
+
+const navigateSchema = z.object({
   text: z.string().min(1),
   conversationId: z.string().uuid().optional(),
 });
@@ -23,6 +29,11 @@ const approveSchema = z.object({
 
 const executeSchema = z.object({
   transactionSpecId: z.string().uuid(),
+});
+
+const respondSchema = z.object({
+  text: z.string().min(1),
+  conversationId: z.string().uuid().optional(),
 });
 
 export async function listThreads(req: Request, res: Response) {
@@ -88,87 +99,55 @@ export async function listHistory(req: Request, res: Response) {
   res.json(rows.rows);
 }
 
+export async function navigate(req: Request, res: Response) {
+  try {
+    const parsed = navigateSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: 'Invalid payload' });
+    const result = await resolveNavigation({
+      text: parsed.data.text,
+      tenantId: req.user!.tenantId,
+      conversationId: parsed.data.conversationId,
+    });
+    res.json(result);
+  } catch (error) {
+    logger.error({ error }, 'chat navigate failed');
+    return res.status(502).json({ message: 'Failed to resolve navigation request' });
+  }
+}
+
+export async function respond(req: Request, res: Response) {
+  try {
+    const parsed = respondSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: 'Invalid payload' });
+
+    const result = await orchestrateChat({
+      text: parsed.data.text,
+      tenantId: req.user!.tenantId,
+      userId: req.user!.id,
+      conversationId: parsed.data.conversationId,
+    });
+
+    res.json(result);
+  } catch (error) {
+    logger.error({ error }, 'chat respond failed');
+    return res.status(502).json({ message: error instanceof Error ? error.message : 'Failed to process prompt' });
+  }
+}
+
 export async function interpret(req: Request, res: Response) {
   try {
     const parsed = interpretSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: 'Invalid payload' });
-    const { text, conversationId } = parsed.data;
-
-    const convoId = conversationId ?? (await createConversation(req.user!.tenantId, req.user!.id));
-
-    await query(
-      `INSERT INTO conversation_turns (tenant_id, conversation_id, role, content)
-       VALUES ($1,$2,'user',$3)`,
-      [req.user!.tenantId, convoId, text]
-    );
-
-    let response;
-    try {
-      response = await fetch(`${CONVERSATIONAL_ENGINE_URL}/interpret`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, tenantId: req.user!.tenantId }),
-      });
-    } catch (error) {
-      logger.warn({ error }, 'conversational engine request failed');
-      return res.status(502).json({
-        message: 'Conversational engine unavailable. Please try again later.',
-      });
-    }
-
-    if (!response.ok) {
-      return res.status(502).json({ message: 'Conversational engine error' });
-    }
-
-    let spec: any;
-    try {
-      spec = await response.json();
-    } catch {
-      return res.status(502).json({ message: 'Conversational engine returned invalid payload' });
-    }
-
-    const specRes = await query(
-      `INSERT INTO transaction_specs (tenant_id, intent, entities, quantities, constraints, confidence, governance_decision, status, created_by, conversation_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,'proposed',$8,$9) RETURNING id`,
-      [
-        req.user!.tenantId,
-        spec.intent,
-        spec.entities ?? {},
-        spec.quantities ?? {},
-        spec.constraints ?? {},
-        spec.confidence ?? 0,
-        spec.governanceDecision ?? {},
-        req.user!.id,
-        convoId,
-      ]
-    );
-
-    await query(
-      `INSERT INTO conversation_turns (tenant_id, conversation_id, role, content, metadata)
-       VALUES ($1,$2,'assistant',$3,$4)`,
-      [req.user!.tenantId, convoId, spec.summary ?? 'Proposed action', spec]
-    );
-
-    // Create approval if required (single-level approval)
-    if (spec.governanceDecision?.requiresApproval) {
-      const roleRes = await query(
-        `SELECT id FROM roles WHERE tenant_id = $1 AND name = 'admin'`,
-        [req.user!.tenantId]
-      );
-      const requiredRoleId = roleRes.rowCount ? roleRes.rows[0].id : null;
-      if (requiredRoleId) {
-        await query(
-          `INSERT INTO approvals (tenant_id, status, required_role_id, requested_by, transaction_spec_id)
-           VALUES ($1,'pending',$2,$3,$4)`,
-          [req.user!.tenantId, requiredRoleId, req.user!.id, specRes.rows[0].id]
-        );
-      }
-    }
-
-    res.json({ conversationId: convoId, transactionSpecId: specRes.rows[0].id, spec });
+    const result = await interpretTransaction({
+      text: parsed.data.text,
+      tenantId: req.user!.tenantId,
+      userId: req.user!.id,
+      conversationId: parsed.data.conversationId,
+    });
+    res.json(result);
   } catch (error) {
     logger.error({ error }, 'chat interpret failed');
-    return res.status(500).json({ message: 'Failed to interpret prompt' });
+    return res.status(502).json({ message: error instanceof Error ? error.message : 'Failed to interpret prompt' });
   }
 }
 
@@ -276,12 +255,4 @@ export async function execute(req: Request, res: Response) {
   }
 
   res.json({ executed: true, result });
-}
-
-async function createConversation(tenantId: string, userId: string) {
-  const res = await query(
-    `INSERT INTO conversations (tenant_id, created_by) VALUES ($1,$2) RETURNING id`,
-    [tenantId, userId]
-  );
-  return res.rows[0].id;
 }

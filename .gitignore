@@ -40,6 +40,7 @@ build/Release
 # Dependency directories
 node_modules/
 jspm_packages/
+**/node_modules/
 
 # Snowpack dependency directory (https://snowpack.dev/)
 web_modules/
@@ -48,7 +49,14 @@ web_modules/
 *.tsbuildinfo
 
 # local backend env files
-backend/.env*.local
+**/.env
+**/.env.*
+!**/.env.example
+!**/.env.sample
+
+# local OS files and keys
+**/.DS_Store
+*.pem
 
 # Optional npm cache directory
 .npm
@@ -76,6 +84,8 @@ backend/.env*.local
 # Next.js build output
 .next
 out
+**/dist
+**/build
 
 # Nuxt.js build / generate output
 .nuxt

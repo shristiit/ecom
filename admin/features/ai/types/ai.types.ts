@@ -51,3 +51,27 @@ export type AIInterpretResponse = {
   transactionSpecId: string;
   spec: Record<string, unknown>;
 };
+
+export type AINavigationResponse = {
+  matched: boolean;
+  href?: string;
+  label?: string;
+  reasoning: string;
+};
+
+export type AISendResponse =
+  | {
+      kind: 'navigation';
+      tool: 'navigate_to_page';
+      href: string;
+      label?: string;
+      reasoning: string;
+    }
+  | {
+      kind: 'transaction';
+      tool: 'interpret_transaction';
+      conversationId: string;
+      transactionSpecId: string;
+      spec: Record<string, unknown>;
+      reasoning: string;
+    };
