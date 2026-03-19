@@ -1,4 +1,6 @@
 import { type ReactNode, createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { Platform } from 'react-native';
+import { openBrowserAsync, WebBrowserPresentationStyle } from 'expo-web-browser';
 import { get, configureApiClient } from '@/lib/api';
 import { authService } from '../services/auth.service';
 import { sessionStorage } from '../services/session-storage';
@@ -164,12 +166,14 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
       throw new Error('SSO is not configured for this tenant.');
     }
 
-    if (typeof window !== 'undefined') {
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
       window.location.assign(SSO_URL);
       return;
     }
 
-    throw new Error('SSO redirect is available in web runtime.');
+    await openBrowserAsync(SSO_URL, {
+      presentationStyle: WebBrowserPresentationStyle.AUTOMATIC,
+    });
   }, []);
 
   const verifyMfa = useCallback(

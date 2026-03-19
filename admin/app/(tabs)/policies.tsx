@@ -64,7 +64,7 @@ export default function PoliciesScreen() {
 
   return (
     <PermissionGate permission="admin.policies.read">
-      <ScrollView className="bg-bg px-6 py-6">
+      <ScrollView className="bg-bg px-4 py-4">
         <PageHeader
           title="Policies"
           subtitle="Permission policies and rule sets."

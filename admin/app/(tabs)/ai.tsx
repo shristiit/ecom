@@ -48,7 +48,7 @@ export default function AiHomeScreen() {
   const threads = threadsQuery.data ?? [];
 
   return (
-    <ScrollView className="bg-bg px-6 py-6">
+    <ScrollView className="bg-bg px-4 py-4">
       <PageHeader
         title="AI Copilot"
         subtitle="Thread templates, suggested actions, and command execution."

@@ -1,6 +1,8 @@
 import { Link } from 'expo-router';
 import { useState } from 'react';
-import { ScrollView, Text, View } from 'react-native';
+import { Platform, ScrollView, Text, View } from 'react-native';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
 import {
   AppBadge,
   AppButton,
@@ -25,18 +27,37 @@ export default function AuditScreen() {
   const query = useAuditQuery({ page: 1, pageSize: 100 });
   const rows = query.data?.items ?? [];
 
-  const downloadFile = (content: string, filename: string, mimeType: string) => {
-    if (typeof window === 'undefined') {
-      setExportMessage('Export generated. Download is supported in web runtime.');
+  const downloadFile = async (content: string, filename: string, mimeType: string, encoding: 'utf8' | 'base64' = 'utf8') => {
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      const blob = new Blob([content], { type: mimeType });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = filename;
+      anchor.click();
+      URL.revokeObjectURL(url);
       return;
     }
-    const blob = new Blob([content], { type: mimeType });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = filename;
-    anchor.click();
-    URL.revokeObjectURL(url);
+
+    const targetDirectory = FileSystem.cacheDirectory ?? FileSystem.documentDirectory;
+    if (!targetDirectory) {
+      throw new Error('File storage is not available on this device.');
+    }
+
+    if (!(await Sharing.isAvailableAsync())) {
+      throw new Error('File sharing is not available on this device.');
+    }
+
+    const fileUri = `${targetDirectory}${filename}`;
+    await FileSystem.writeAsStringAsync(fileUri, content, {
+      encoding: encoding === 'base64' ? FileSystem.EncodingType.Base64 : FileSystem.EncodingType.UTF8,
+    });
+
+    await Sharing.shareAsync(fileUri, {
+      mimeType,
+      dialogTitle: `Share ${filename}`,
+      UTI: mimeType === 'application/pdf' ? 'com.adobe.pdf' : 'public.comma-separated-values-text',
+    });
   };
 
   const handleExportCsv = async () => {
@@ -44,7 +65,7 @@ export default function AuditScreen() {
       setIsExporting(true);
       setExportMessage(null);
       const csv = await auditService.exportCsv();
-      downloadFile(csv, 'audit-export.csv', 'text/csv');
+      await downloadFile(csv, 'audit-export.csv', 'text/csv');
       setExportMessage('CSV export generated.');
     } catch (error) {
       setExportMessage(error instanceof Error ? error.message : 'Export failed.');
@@ -58,7 +79,7 @@ export default function AuditScreen() {
       setIsExporting(true);
       setExportMessage(null);
       const pdfPayload = await auditService.exportPdf();
-      downloadFile(pdfPayload, 'audit-export.pdf', 'application/pdf');
+      await downloadFile(pdfPayload, 'audit-export.pdf', 'application/pdf', 'base64');
       setExportMessage('PDF export generated.');
     } catch (error) {
       setExportMessage(error instanceof Error ? error.message : 'Export failed.');
@@ -68,7 +89,7 @@ export default function AuditScreen() {
   };
 
   return (
-    <ScrollView className="bg-bg px-6 py-6">
+    <ScrollView className="bg-bg px-4 py-4">
       <PageHeader
         title="Audit"
         subtitle="Event timeline for operational and AI actions."

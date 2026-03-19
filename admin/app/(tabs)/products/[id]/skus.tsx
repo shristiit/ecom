@@ -55,8 +55,8 @@ export default function ProductSkuScreen() {
       return;
     }
 
-    const parsedPrice = price.trim() ? Number(price) : undefined;
-    if (price.trim() && (!Number.isFinite(parsedPrice) || parsedPrice < 0)) {
+    const parsedPrice = price.trim() === '' ? undefined : Number(price);
+    if (parsedPrice !== undefined && (!Number.isFinite(parsedPrice) || parsedPrice < 0)) {
       setFormError('Price must be a non-negative number.');
       return;
     }
@@ -82,7 +82,7 @@ export default function ProductSkuScreen() {
   };
 
   return (
-    <ScrollView className="bg-bg px-6 py-6">
+    <ScrollView className="bg-bg px-4 py-4">
       <PageHeader
         title="Product SKUs"
         subtitle={`Variants for ${product?.name ?? productId ?? 'product'} with barcode and pricing metadata.`}

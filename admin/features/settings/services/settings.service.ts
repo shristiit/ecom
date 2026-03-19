@@ -8,28 +8,28 @@ import type {
 } from '../types/settings.types';
 import { settingsStorage } from './settings-storage';
 
-function nextSnapshot(updater: (snapshot: SettingsSnapshot) => SettingsSnapshot) {
-  const current = settingsStorage.read();
+async function nextSnapshot(updater: (snapshot: SettingsSnapshot) => SettingsSnapshot) {
+  const current = await settingsStorage.read();
   const next = updater(current);
-  settingsStorage.write(next);
+  await settingsStorage.write(next);
   return next;
 }
 
 export const settingsService = {
   async getProfile() {
-    return settingsStorage.read().profile;
+    return (await settingsStorage.read()).profile;
   },
 
   async saveProfile(profile: SettingsProfile) {
-    return nextSnapshot((snapshot) => ({ ...snapshot, profile })).profile;
+    return (await nextSnapshot((snapshot) => ({ ...snapshot, profile }))).profile;
   },
 
   async listIntegrations() {
-    return settingsStorage.read().integrations;
+    return (await settingsStorage.read()).integrations;
   },
 
   async updateIntegration(key: SettingsIntegration['key'], patch: Partial<SettingsIntegration>) {
-    const snapshot = nextSnapshot((state) => ({
+    const snapshot = await nextSnapshot((state) => ({
       ...state,
       integrations: state.integrations.map((item) =>
         item.key === key
@@ -45,11 +45,11 @@ export const settingsService = {
   },
 
   async listAlerts() {
-    return settingsStorage.read().alerts;
+    return (await settingsStorage.read()).alerts;
   },
 
   async upsertAlert(rule: SettingsAlertRule) {
-    const snapshot = nextSnapshot((state) => {
+    const snapshot = await nextSnapshot((state) => {
       const exists = state.alerts.some((item) => item.id === rule.id);
       return {
         ...state,
@@ -62,7 +62,7 @@ export const settingsService = {
   },
 
   async deleteAlert(id: string) {
-    const snapshot = nextSnapshot((state) => ({
+    const snapshot = await nextSnapshot((state) => ({
       ...state,
       alerts: state.alerts.filter((item) => item.id !== id),
     }));
@@ -70,11 +70,11 @@ export const settingsService = {
   },
 
   async listWorkflows() {
-    return settingsStorage.read().workflows;
+    return (await settingsStorage.read()).workflows;
   },
 
   async upsertWorkflow(rule: SettingsWorkflowRule) {
-    const snapshot = nextSnapshot((state) => {
+    const snapshot = await nextSnapshot((state) => {
       const exists = state.workflows.some((item) => item.id === rule.id);
       return {
         ...state,
@@ -87,10 +87,10 @@ export const settingsService = {
   },
 
   async saveNumbering(numbering: SettingsNumbering) {
-    return nextSnapshot((snapshot) => ({ ...snapshot, numbering })).numbering;
+    return (await nextSnapshot((snapshot) => ({ ...snapshot, numbering }))).numbering;
   },
 
   async getNumbering() {
-    return settingsStorage.read().numbering;
+    return (await settingsStorage.read()).numbering;
   },
 };

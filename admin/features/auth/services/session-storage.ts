@@ -1,8 +1,9 @@
+import { Platform } from 'react-native';
+import * as SecureStore from 'expo-secure-store';
+
 const ACCESS_TOKEN_KEY = 'admin.access_token';
 const REFRESH_TOKEN_KEY = 'admin.refresh_token';
 const SELECTED_TENANT_KEY = 'admin.selected_tenant';
-
-const memoryStore = new Map<string, string>();
 
 function hasBrowserStorage() {
   return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
@@ -12,7 +13,12 @@ function getItem(key: string): string | null {
   if (hasBrowserStorage()) {
     return window.localStorage.getItem(key);
   }
-  return memoryStore.get(key) ?? null;
+
+  if (Platform.OS !== 'web') {
+    return SecureStore.getItem(key);
+  }
+
+  return null;
 }
 
 function setItem(key: string, value: string) {
@@ -20,7 +26,10 @@ function setItem(key: string, value: string) {
     window.localStorage.setItem(key, value);
     return;
   }
-  memoryStore.set(key, value);
+
+  if (Platform.OS !== 'web') {
+    SecureStore.setItem(key, value);
+  }
 }
 
 function removeItem(key: string) {
@@ -28,7 +37,10 @@ function removeItem(key: string) {
     window.localStorage.removeItem(key);
     return;
   }
-  memoryStore.delete(key);
+
+  if (Platform.OS !== 'web') {
+    SecureStore.deleteItemAsync(key).catch(() => undefined);
+  }
 }
 
 export const sessionStorage = {

@@ -81,7 +81,7 @@ export default function PurchaseOrdersScreen() {
   };
 
   return (
-    <ScrollView className="bg-bg px-6 py-6">
+    <ScrollView className="bg-bg px-4 py-4">
       <PageHeader
         title="Purchase orders"
         subtitle="Supplier-facing order workflow with receiving controls."

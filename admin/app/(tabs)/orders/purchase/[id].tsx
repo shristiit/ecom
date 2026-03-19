@@ -76,7 +76,7 @@ export default function PurchaseOrderDetailScreen() {
   };
 
   return (
-    <ScrollView className="bg-bg px-6 py-6">
+    <ScrollView className="bg-bg px-4 py-4">
       <PageHeader
         title={order ? `Purchase order ${order.number}` : `Purchase order ${orderId ?? ''}`}
         subtitle="Supplier details, line progress, and receiving actions."

@@ -1,8 +1,8 @@
-import { Link } from 'expo-router';
+import { type Href, Link } from 'expo-router';
 import { Text, View } from 'react-native';
 import { AppBadge, AppButton, AppDrawer } from '@/components/ui';
 
-const notifications = [
+const notifications: Array<{ id: string; title: string; detail: string; tone: 'warning' | 'error'; href: Href }> = [
   { id: 'n1', title: 'Low stock detected', detail: 'SKU-CORE-TEE-BLK-S at WH-01', tone: 'warning' as const, href: '/inventory/stock-on-hand' },
   { id: 'n2', title: 'Approval pending', detail: '2 AI actions are waiting for approval', tone: 'warning' as const, href: '/ai/approvals' },
   { id: 'n3', title: 'PO overdue', detail: '1 purchase order is past expected date', tone: 'error' as const, href: '/orders/purchase' },

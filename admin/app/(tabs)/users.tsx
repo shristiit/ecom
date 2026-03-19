@@ -19,7 +19,7 @@ export default function UsersScreen() {
 
   return (
     <PermissionGate permission="admin.roles.read">
-      <ScrollView className="bg-bg px-6 py-6">
+      <ScrollView className="bg-bg px-4 py-4">
         <PageHeader
           title="Users & Access"
           subtitle="Users, role definitions, and permission policies."

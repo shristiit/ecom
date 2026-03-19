@@ -1,6 +1,6 @@
 import { X } from 'lucide-react-native';
 import { type ReactNode } from 'react';
-import { Modal as NativeModal, Pressable, ScrollView, Text, View } from 'react-native';
+import { Modal as NativeModal, Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
 
 type AppDrawerProps = {
   isOpen: boolean;
@@ -21,12 +21,16 @@ export function AppDrawer({
   footer,
   children,
 }: AppDrawerProps) {
+  const { width } = useWindowDimensions();
+  const isCompact = width < 768;
+  const resolvedWidthClassName = isCompact ? 'w-full' : widthClassName;
+
   return (
     <NativeModal animationType="fade" transparent visible={isOpen} onRequestClose={onClose}>
       <Pressable className="flex-1 bg-black/30" onPress={onClose}>
         <View className="flex-1 flex-row justify-end">
-          <Pressable className={`h-full bg-surface shadow-lift ${widthClassName}`} onPress={(event) => event.stopPropagation()}>
-            <View className="flex-row items-start justify-between gap-3 border-b border-border px-4 py-3">
+          <Pressable className={`h-full bg-surface shadow-lift ${resolvedWidthClassName}`} onPress={(event) => event.stopPropagation()}>
+            <View className={`flex-row items-start justify-between gap-3 border-b border-border ${isCompact ? 'px-4 py-4' : 'px-4 py-3'}`.trim()}>
               <View className="flex-1 gap-1">
                 {title ? <Text className="text-section font-semibold text-text">{title}</Text> : null}
                 {description ? <Text className="text-small text-muted">{description}</Text> : null}
@@ -36,9 +40,9 @@ export function AppDrawer({
               </Pressable>
             </View>
 
-            <ScrollView className="flex-1 px-4 py-4">{children}</ScrollView>
+            <ScrollView className={`flex-1 ${isCompact ? 'px-4 py-5' : 'px-4 py-4'}`.trim()}>{children}</ScrollView>
 
-            {footer ? <View className="border-t border-border px-4 py-3">{footer}</View> : null}
+            {footer ? <View className={`border-t border-border ${isCompact ? 'px-4 py-4' : 'px-4 py-3'}`.trim()}>{footer}</View> : null}
           </Pressable>
         </View>
       </Pressable>

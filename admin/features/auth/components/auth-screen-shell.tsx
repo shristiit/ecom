@@ -12,7 +12,7 @@ type AuthScreenShellProps = {
 
 export function AuthScreenShell({ title, subtitle, children }: AuthScreenShellProps) {
   return (
-    <SafeAreaView className="flex-1 bg-bg px-6">
+    <SafeAreaView className="flex-1 bg-bg px-4">
       <View className="flex-1 justify-center">
         <View style={{ width: '100%', maxWidth: 480, alignSelf: 'center' }}>
           <View className="mb-6 items-center gap-3">

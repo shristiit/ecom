@@ -39,7 +39,7 @@ export default function SettingsProfileScreen() {
   };
 
   return (
-    <ScrollView className="bg-bg px-6 py-6">
+    <ScrollView className="bg-bg px-4 py-4">
       <PageHeader title="Settings · Profile" subtitle="Tenant identity and branding preferences." />
 
       <View className="gap-4">

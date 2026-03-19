@@ -1,7 +1,8 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
 import type { SettingsSnapshot } from '../types/settings.types';
 
 const SETTINGS_STORAGE_KEY = 'admin.settings.snapshot.v1';
-const memoryStore = new Map<string, string>();
 
 const defaultSnapshot: SettingsSnapshot = {
   profile: {
@@ -35,19 +36,27 @@ function hasBrowserStorage() {
   return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
 }
 
-function readRaw(key: string): string | null {
+async function readRaw(key: string): Promise<string | null> {
   if (hasBrowserStorage()) {
     return window.localStorage.getItem(key);
   }
-  return memoryStore.get(key) ?? null;
+
+  if (Platform.OS !== 'web') {
+    return AsyncStorage.getItem(key);
+  }
+
+  return null;
 }
 
-function writeRaw(key: string, value: string) {
+async function writeRaw(key: string, value: string) {
   if (hasBrowserStorage()) {
     window.localStorage.setItem(key, value);
     return;
   }
-  memoryStore.set(key, value);
+
+  if (Platform.OS !== 'web') {
+    await AsyncStorage.setItem(key, value);
+  }
 }
 
 function parseSnapshot(raw: string | null): SettingsSnapshot {
@@ -73,10 +82,10 @@ function parseSnapshot(raw: string | null): SettingsSnapshot {
 }
 
 export const settingsStorage = {
-  read(): SettingsSnapshot {
-    return parseSnapshot(readRaw(SETTINGS_STORAGE_KEY));
+  async read(): Promise<SettingsSnapshot> {
+    return parseSnapshot(await readRaw(SETTINGS_STORAGE_KEY));
   },
-  write(snapshot: SettingsSnapshot) {
-    writeRaw(SETTINGS_STORAGE_KEY, JSON.stringify(snapshot));
+  async write(snapshot: SettingsSnapshot) {
+    await writeRaw(SETTINGS_STORAGE_KEY, JSON.stringify(snapshot));
   },
 };

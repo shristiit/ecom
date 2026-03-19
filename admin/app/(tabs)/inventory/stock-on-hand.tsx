@@ -17,7 +17,7 @@ export default function StockOnHandScreen() {
   const rows = query.data?.items ?? [];
 
   return (
-    <ScrollView className="bg-bg px-6 py-6">
+    <ScrollView className="bg-bg px-4 py-4">
       <PageHeader
         title="Stock on hand"
         subtitle="SKU-level position across active locations."

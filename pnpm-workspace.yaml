@@ -1,7 +1,7 @@
 packages:
   - backend
-  - admin-portal
-  - mobile
+  - admin
+  - ecommerce
   - e2e
 
 nodeLinker: hoisted

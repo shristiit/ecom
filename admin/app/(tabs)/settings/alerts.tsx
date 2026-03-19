@@ -70,7 +70,7 @@ export default function SettingsAlertsScreen() {
   };
 
   return (
-    <ScrollView className="bg-bg px-6 py-6">
+    <ScrollView className="bg-bg px-4 py-4">
       <PageHeader title="Settings · Alerts" subtitle="Thresholds for low stock and anomaly detection." />
 
       <View className="gap-4">

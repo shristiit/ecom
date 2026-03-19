@@ -54,7 +54,7 @@ export default function SalesOrderDetailScreen() {
   };
 
   return (
-    <ScrollView className="bg-bg px-6 py-6">
+    <ScrollView className="bg-bg px-4 py-4">
       <PageHeader
         title={order ? `Sales order ${order.number}` : `Sales order ${orderId ?? ''}`}
         subtitle="Order lines, payment status, and dispatch controls."

@@ -14,7 +14,7 @@ export default function AiHistoryScreen() {
   const rows = query.data ?? [];
 
   return (
-    <ScrollView className="bg-bg px-6 py-6">
+    <ScrollView className="bg-bg px-4 py-4">
       <PageHeader title="AI History" subtitle="Executed AI commands and resulting transactions." />
 
       <AppCard>

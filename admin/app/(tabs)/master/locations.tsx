@@ -56,7 +56,7 @@ export default function MasterLocationsScreen() {
   };
 
   return (
-    <ScrollView className="bg-bg px-6 py-6">
+    <ScrollView className="bg-bg px-4 py-4">
       <PageHeader
         title="Master locations"
         subtitle="Warehouse and store entities used in inventory operations."
