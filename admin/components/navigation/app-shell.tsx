@@ -15,10 +15,11 @@ import {
   Package,
   LogOut,
   User,
+  X,
 } from 'lucide-react-native';
 import { type LucideIcon } from 'lucide-react-native';
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
-import { Pressable, Text, View, useWindowDimensions } from 'react-native';
+import { Modal as NativeModal, Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppLogo } from '@/components/branding';
 import { useAuthSession } from '@/features/auth';
@@ -72,13 +73,14 @@ function getPageTitle(pathname: string) {
   return match?.title ?? 'Inventory Management';
 }
 
-function SidebarItem({ item, pathname }: { item: NavItem; pathname: string }) {
+function SidebarItem({ item, pathname, onPress }: { item: NavItem; pathname: string; onPress?: () => void }) {
   const active = isActivePath(pathname, item.href, item.activePrefixes);
   const Icon = item.icon;
 
   return (
     <Link href={item.href} asChild>
       <Pressable
+        onPress={onPress}
         className={`mb-1 flex-row items-center gap-3 rounded-md px-3 py-2.5 ${active ? 'bg-primary-tint' : 'bg-transparent'}`}
       >
         <Icon size={18} color={active ? '#1F3A5F' : '#64748B'} />
@@ -102,15 +104,52 @@ function MobileTabItem({ item, pathname }: { item: NavItem; pathname: string }) 
   );
 }
 
+function MobileNavigationSheet({
+  isOpen,
+  onClose,
+  pathname,
+  navItems,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  pathname: string;
+  navItems: NavItem[];
+}) {
+  return (
+    <NativeModal animationType="slide" transparent visible={isOpen} onRequestClose={onClose}>
+      <Pressable className="flex-1 bg-black/35" onPress={onClose}>
+        <Pressable className="h-full w-[88%] max-w-[360px] bg-surface shadow-lift" onPress={(event) => event.stopPropagation()}>
+          <SafeAreaView className="flex-1" edges={['top', 'left', 'bottom']}>
+            <View className="flex-row items-center justify-between border-b border-border px-4 py-4">
+              <AppLogo size={30} />
+              <Pressable className="rounded-md border border-border bg-surface-2 p-2" onPress={onClose}>
+                <X size={18} color="#334155" />
+              </Pressable>
+            </View>
+
+            <ScrollView className="flex-1 px-3 py-4">
+              {navItems.map((item) => (
+                <SidebarItem key={item.href} item={item} pathname={pathname} onPress={onClose} />
+              ))}
+            </ScrollView>
+          </SafeAreaView>
+        </Pressable>
+      </Pressable>
+    </NativeModal>
+  );
+}
+
 function TopNav({
   title,
   compact,
+  onOpenMenu,
   onOpenCommandPalette,
   onOpenNotifications,
   onOpenQuickView,
 }: {
   title: string;
   compact: boolean;
+  onOpenMenu: () => void;
   onOpenCommandPalette: () => void;
   onOpenNotifications: () => void;
   onOpenQuickView: () => void;
@@ -128,18 +167,110 @@ function TopNav({
     selectTenant(next.id);
   };
 
+  const profileMenu = profileMenuOpen ? (
+    <View
+      className="absolute right-0 top-11 z-50 w-64 rounded-md border border-border bg-surface shadow-sm"
+      style={{ elevation: 24 }}
+    >
+      <View className="border-b border-border px-3 py-2">
+        <Text className="text-caption text-muted">{userEmail}</Text>
+      </View>
+
+      <Pressable
+        className="flex-row items-center gap-2 px-3 py-2"
+        onPress={() => {
+          setProfileMenuOpen(false);
+          onOpenQuickView();
+        }}
+      >
+        <Text className="text-small text-text">Quick view</Text>
+      </Pressable>
+      <Pressable className="flex-row items-center gap-2 px-3 py-2" onPress={() => setProfileMenuOpen(false)}>
+        <CircleHelp size={16} color="#334155" />
+        <Text className="text-small text-text">Help</Text>
+      </Pressable>
+      <Pressable
+        className="flex-row items-center justify-between gap-2 px-3 py-2"
+        onPress={() => {
+          cycleTenant();
+          setProfileMenuOpen(false);
+        }}
+      >
+        <Text className="text-small text-text">Switch tenant</Text>
+        <Text className="text-caption text-muted">{tenantLabel}</Text>
+      </Pressable>
+
+      <View className="border-t border-border">
+        <Pressable
+          className="flex-row items-center gap-2 px-3 py-2"
+          onPress={() => {
+            setProfileMenuOpen(false);
+            signOut();
+          }}
+        >
+          <LogOut size={16} color="#334155" />
+          <Text className="text-small text-text">Logout</Text>
+        </Pressable>
+      </View>
+    </View>
+  ) : null;
+
+  if (compact) {
+    return (
+      <View className="relative z-50 border-b border-border bg-surface px-4 pb-3 pt-3">
+        <View className="gap-2">
+          <View className="flex-row items-center justify-between gap-3">
+            <View className="min-w-0 flex-1 flex-row items-center gap-3">
+              <Pressable
+                className="h-9 w-9 items-center justify-center rounded-xl border border-border bg-surface-2"
+                onPress={onOpenMenu}
+              >
+                <Menu size={18} color="#334155" />
+              </Pressable>
+              <View className="min-w-0 flex-1">
+                <Text className="text-section font-semibold text-text" numberOfLines={1}>
+                  {title}
+                </Text>
+              </View>
+            </View>
+
+            <View className="relative z-50">
+              <Pressable
+                onPress={() => setProfileMenuOpen((current) => !current)}
+                className="h-9 w-9 items-center justify-center rounded-xl border border-border bg-surface-2"
+              >
+                <User size={16} color="#334155" />
+              </Pressable>
+              {profileMenu}
+            </View>
+          </View>
+
+          <Pressable onPress={onOpenCommandPalette}>
+            <View className="min-h-10 flex-row items-center rounded-xl border border-border bg-surface-2 px-3 py-2">
+              <Search size={15} color="#64748B" />
+              <Text className="ml-2 flex-1 text-small text-muted" numberOfLines={1}>
+                Search
+              </Text>
+            </View>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View className="relative z-50 border-b border-border bg-surface px-4 py-3">
       <View className="flex-row items-center justify-between gap-3">
         <View className="flex-row items-center gap-3">
-          {compact ? <Menu size={20} color="#334155" /> : null}
           <Text className="text-section font-semibold text-text">{title}</Text>
         </View>
 
-        <Pressable className="max-w-[520px] flex-1" onPress={onOpenCommandPalette}>
+        <Pressable className="max-w-[520px] min-w-[280px] flex-1" onPress={onOpenCommandPalette}>
           <View className="flex-row items-center rounded-md border border-border bg-surface-2 px-3 py-2">
             <Search size={16} color="#64748B" />
-            <Text className="ml-2 flex-1 text-small text-muted">Search products, SKU, orders... (⌘/Ctrl + K)</Text>
+            <Text className="ml-2 flex-1 text-small text-muted" numberOfLines={1}>
+              Search products, SKU, orders... (Cmd/Ctrl + K)
+            </Text>
           </View>
         </Pressable>
 
@@ -157,54 +288,7 @@ function TopNav({
             >
               <User size={16} color="#334155" />
             </Pressable>
-
-            {profileMenuOpen ? (
-              <View
-                className="absolute right-0 top-11 z-50 w-64 rounded-md border border-border bg-surface shadow-sm"
-                style={{ elevation: 24 }}
-              >
-                <View className="border-b border-border px-3 py-2">
-                  <Text className="text-caption text-muted">{userEmail}</Text>
-                </View>
-
-                <Pressable
-                  className="flex-row items-center gap-2 px-3 py-2"
-                  onPress={() => {
-                    setProfileMenuOpen(false);
-                    onOpenQuickView();
-                  }}
-                >
-                  <Text className="text-small text-text">Quick view</Text>
-                </Pressable>
-                <Pressable className="flex-row items-center gap-2 px-3 py-2" onPress={() => setProfileMenuOpen(false)}>
-                  <CircleHelp size={16} color="#334155" />
-                  <Text className="text-small text-text">Help</Text>
-                </Pressable>
-                <Pressable
-                  className="flex-row items-center justify-between gap-2 px-3 py-2"
-                  onPress={() => {
-                    cycleTenant();
-                    setProfileMenuOpen(false);
-                  }}
-                >
-                  <Text className="text-small text-text">Switch tenant</Text>
-                  <Text className="text-caption text-muted">{tenantLabel}</Text>
-                </Pressable>
-
-                <View className="border-t border-border">
-                  <Pressable
-                    className="flex-row items-center gap-2 px-3 py-2"
-                    onPress={() => {
-                      setProfileMenuOpen(false);
-                      signOut();
-                    }}
-                  >
-                    <LogOut size={16} color="#334155" />
-                    <Text className="text-small text-text">Logout</Text>
-                  </Pressable>
-                </View>
-              </View>
-            ) : null}
+            {profileMenu}
           </View>
         </View>
       </View>
@@ -220,8 +304,10 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [quickViewOpen, setQuickViewOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const isDesktop = width >= 1024;
+  const isCompact = width < 768;
   const currentTitle = getPageTitle(pathname);
   const navItems = useMemo(
     () =>
@@ -238,7 +324,13 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [navItems]);
 
   useEffect(() => {
-    if (typeof window === 'undefined') return;
+    if (
+      typeof window === 'undefined' ||
+      typeof window.addEventListener !== 'function' ||
+      typeof window.removeEventListener !== 'function'
+    ) {
+      return;
+    }
     const onKeyDown = (event: any) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault();
@@ -269,7 +361,8 @@ export function AppShell({ children }: { children: ReactNode }) {
         <View className="flex-1">
           <TopNav
             title={currentTitle}
-            compact={!isDesktop}
+            compact={isCompact}
+            onOpenMenu={() => setMobileMenuOpen(true)}
             onOpenCommandPalette={() => setCommandPaletteOpen(true)}
             onOpenNotifications={() => setNotificationsOpen(true)}
             onOpenQuickView={() => setQuickViewOpen(true)}
@@ -292,6 +385,12 @@ export function AppShell({ children }: { children: ReactNode }) {
       <GlobalCommandPalette isOpen={commandPaletteOpen} onClose={() => setCommandPaletteOpen(false)} />
       <NotificationCenter isOpen={notificationsOpen} onClose={() => setNotificationsOpen(false)} />
       <EntityQuickViewDrawer isOpen={quickViewOpen} onClose={() => setQuickViewOpen(false)} />
+      <MobileNavigationSheet
+        isOpen={mobileMenuOpen}
+        onClose={() => setMobileMenuOpen(false)}
+        pathname={pathname}
+        navItems={navItems}
+      />
     </SafeAreaView>
   );
 }

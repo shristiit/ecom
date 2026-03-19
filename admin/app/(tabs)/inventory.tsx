@@ -42,7 +42,7 @@ const inventoryModules = [
 
 export default function InventoryHubScreen() {
   return (
-    <ScrollView className="bg-bg px-6 py-6">
+    <ScrollView className="bg-bg px-4 py-4">
       <PageHeader title="Inventory" subtitle="Operations across stock, movement, and control workflows." />
 
       <View className="gap-4">

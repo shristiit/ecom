@@ -12,7 +12,7 @@ export default function AuditEventDetailScreen() {
   const event = query.data;
 
   return (
-    <ScrollView className="bg-bg px-6 py-6">
+    <ScrollView className="bg-bg px-4 py-4">
       <PageHeader
         title={event ? `Audit ${event.id.slice(0, 8).toUpperCase()}` : 'Audit detail'}
         subtitle="Payload, actor trail, and before/after context."

@@ -41,7 +41,7 @@ export default function MasterCategoriesScreen() {
   };
 
   return (
-    <ScrollView className="bg-bg px-6 py-6">
+    <ScrollView className="bg-bg px-4 py-4">
       <PageHeader
         title="Master categories"
         subtitle="Product taxonomy and category slugs."

@@ -17,7 +17,7 @@ const orderModules = [
 
 export default function OrdersHubScreen() {
   return (
-    <ScrollView className="bg-bg px-6 py-6">
+    <ScrollView className="bg-bg px-4 py-4">
       <PageHeader title="Orders" subtitle="Operational order flows for sales and procurement." />
 
       <View className="gap-4">

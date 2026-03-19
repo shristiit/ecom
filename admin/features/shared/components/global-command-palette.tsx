@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useRouter } from 'expo-router';
+import { type Href, useRouter } from 'expo-router';
 import { Pressable, Text, View } from 'react-native';
 import { AppButton, AppInput, AppModal } from '@/components/ui';
 
@@ -7,7 +7,7 @@ type Command = {
   id: string;
   label: string;
   description: string;
-  href: string;
+  href: Href;
 };
 
 const COMMANDS: Command[] = [
@@ -36,7 +36,7 @@ export function GlobalCommandPalette({ isOpen, onClose }: GlobalCommandPalettePr
     return COMMANDS.filter((item) => item.label.toLowerCase().includes(term) || item.description.toLowerCase().includes(term));
   }, [query]);
 
-  const openCommand = (href: string) => {
+  const openCommand = (href: Href) => {
     onClose();
     router.push(href);
   };

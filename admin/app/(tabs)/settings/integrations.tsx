@@ -18,7 +18,7 @@ export default function SettingsIntegrationsScreen() {
   };
 
   return (
-    <ScrollView className="bg-bg px-6 py-6">
+    <ScrollView className="bg-bg px-4 py-4">
       <PageHeader title="Settings · Integrations" subtitle="External systems and connection health." />
 
       {query.isLoading ? <Text className="mb-3 text-small text-muted">Loading integrations...</Text> : null}

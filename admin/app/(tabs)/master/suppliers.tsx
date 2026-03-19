@@ -53,7 +53,7 @@ export default function MasterSuppliersScreen() {
   };
 
   return (
-    <ScrollView className="bg-bg px-6 py-6">
+    <ScrollView className="bg-bg px-4 py-4">
       <PageHeader
         title="Master suppliers"
         subtitle="Supplier catalog used by purchasing and receiving flows."

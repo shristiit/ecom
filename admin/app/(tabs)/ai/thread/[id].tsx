@@ -94,7 +94,7 @@ export default function AiThreadScreen() {
   const thread = threadQuery.data;
 
   return (
-    <ScrollView className="bg-bg px-6 py-6">
+    <ScrollView className="bg-bg px-4 py-4">
       <PageHeader
         title={thread ? `AI Thread ${thread.conversation.id.slice(0, 8).toUpperCase()}` : 'AI Thread'}
         subtitle="Chat, interpreted actions, confidence, and execution controls."

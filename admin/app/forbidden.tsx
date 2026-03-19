@@ -7,7 +7,7 @@ export default function ForbiddenScreen() {
   const { signOut } = useAuthSession();
 
   return (
-    <SafeAreaView className="flex-1 bg-bg px-6">
+    <SafeAreaView className="flex-1 bg-bg px-4">
       <View className="flex-1 items-center justify-center">
         <AppCard className="w-full max-w-[520px]" title="Access denied" subtitle="You do not have permissions required to access this screen.">
           <View className="gap-4">

@@ -33,7 +33,7 @@ export default function AdjustmentsScreen() {
   };
 
   return (
-    <ScrollView className="bg-bg px-6 py-6">
+    <ScrollView className="bg-bg px-4 py-4">
       <PageHeader
         title="Adjustments"
         subtitle="Manual stock changes with reason and approval status."

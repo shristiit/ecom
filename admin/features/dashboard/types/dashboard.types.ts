@@ -1,3 +1,5 @@
+import type { Href } from 'expo-router';
+
 export type DashboardKpi = {
   id: string;
   label: string;
@@ -11,13 +13,13 @@ export type DashboardAlert = {
   title: string;
   subtitle: string;
   tone: 'default' | 'success' | 'warning' | 'error' | 'info';
-  href?: string;
+  href?: Href;
 };
 
 export type DashboardQuickAction = {
   id: string;
   label: string;
-  href: string;
+  href: Href;
 };
 
 export type DashboardMovement = {

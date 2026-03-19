@@ -63,7 +63,7 @@ export default function RolesScreen() {
 
   return (
     <PermissionGate permission="admin.roles.read">
-      <ScrollView className="bg-bg px-6 py-6">
+      <ScrollView className="bg-bg px-4 py-4">
         <PageHeader
           title="Roles"
           subtitle="Role definitions and bound permissions."

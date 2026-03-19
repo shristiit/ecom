@@ -55,7 +55,7 @@ export default function UserDetailScreen() {
   };
 
   return (
-    <ScrollView className="bg-bg px-6 py-6">
+    <ScrollView className="bg-bg px-4 py-4">
       <PageHeader title={user ? user.fullName : 'User detail'} subtitle="Profile, role assignment, and audit activity." />
 
       {query.isLoading ? <Text className="text-small text-muted">Loading user...</Text> : null}

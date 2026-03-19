@@ -61,7 +61,7 @@ export default function ProductLocationsScreen() {
   };
 
   return (
-    <ScrollView className="bg-bg px-6 py-6">
+    <ScrollView className="bg-bg px-4 py-4">
       <PageHeader
         title="Product Locations"
         subtitle={`Location assignments for ${productId ?? 'product'}.`}

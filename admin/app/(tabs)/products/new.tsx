@@ -315,7 +315,7 @@ export default function ProductCreateScreen() {
   };
 
   return (
-    <ScrollView className="bg-bg px-6 py-6">
+    <ScrollView className="bg-bg px-4 py-4">
       <PageHeader
         title="Create Product"
         subtitle="Create one style with colors, sizes, media, and opening stock/location in a single submit."
