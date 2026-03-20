@@ -168,8 +168,8 @@ export const dashboardService = {
         { id: 'product-new', label: 'New Product', href: '/products/new' },
         { id: 'receive', label: 'Receive Stock', href: '/inventory/receipts' },
         { id: 'transfer', label: 'Transfer Stock', href: '/inventory/transfers' },
-        { id: 'create-po', label: 'Create PO', href: '/orders/purchase' },
-        { id: 'create-so', label: 'Create Invoice', href: '/orders/sales' },
+        { id: 'create-po', label: 'Create PO', href: '/orders/purchase/new' },
+        { id: 'create-so', label: 'Create Invoice', href: '/orders/sales/new' },
         { id: 'ai-thread', label: 'AI Thread', href: '/ai' },
       ],
       recentMovements: (movements.items ?? []).slice(0, 8).map((item) => ({

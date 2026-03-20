@@ -1,19 +1,16 @@
 import { Link } from 'expo-router';
-import { useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
 import {
   AppBadge,
   AppButton,
   AppCard,
-  AppInput,
-  AppModal,
   AppTable,
   AppTableCell,
   AppTableHeaderCell,
   AppTableRow,
   PageHeader,
 } from '@/components/ui';
-import { useCreatePurchaseOrderMutation, usePurchaseOrdersQuery } from '@/features/orders';
+import { usePurchaseOrdersQuery } from '@/features/orders';
 
 const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
 
@@ -25,67 +22,19 @@ function formatDate(value?: string) {
 }
 
 export default function PurchaseOrdersScreen() {
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [supplierId, setSupplierId] = useState('');
-  const [sizeId, setSizeId] = useState('');
-  const [qty, setQty] = useState('');
-  const [unitCost, setUnitCost] = useState('');
-  const [expectedDate, setExpectedDate] = useState('');
-  const [formError, setFormError] = useState<string | null>(null);
-
   const query = usePurchaseOrdersQuery({ page: 1, pageSize: 100 });
-  const createPurchaseOrder = useCreatePurchaseOrderMutation();
   const rows = query.data?.items ?? [];
-
-  const resetForm = () => {
-    setSupplierId('');
-    setSizeId('');
-    setQty('');
-    setUnitCost('');
-    setExpectedDate('');
-    setFormError(null);
-  };
-
-  const handleCreate = async () => {
-    setFormError(null);
-    if (!supplierId.trim() || !sizeId.trim()) {
-      setFormError('Supplier ID and Size ID are required.');
-      return;
-    }
-
-    const parsedQty = Number(qty);
-    const parsedUnitCost = Number(unitCost);
-    if (!Number.isFinite(parsedQty) || parsedQty <= 0 || !Number.isFinite(parsedUnitCost) || parsedUnitCost < 0) {
-      setFormError('Quantity and unit cost must be valid numbers.');
-      return;
-    }
-
-    let expectedDateIso: string | undefined;
-    if (expectedDate.trim()) {
-      const parsedDate = new Date(`${expectedDate.trim()}T00:00:00.000Z`);
-      if (Number.isNaN(parsedDate.getTime())) {
-        setFormError('Expected date must be YYYY-MM-DD.');
-        return;
-      }
-      expectedDateIso = parsedDate.toISOString();
-    }
-
-    await createPurchaseOrder.mutateAsync({
-      supplierId: supplierId.trim(),
-      expectedDate: expectedDateIso,
-      lines: [{ sizeId: sizeId.trim(), qty: parsedQty, unitCost: parsedUnitCost }],
-    });
-    await query.refetch();
-    setIsModalOpen(false);
-    resetForm();
-  };
 
   return (
     <ScrollView className="bg-bg px-4 py-4">
       <PageHeader
         title="Purchase orders"
         subtitle="Supplier-facing order workflow with receiving controls."
-        actions={<AppButton label="Create PO" size="sm" onPress={() => setIsModalOpen(true)} />}
+        actions={
+          <Link href="/orders/purchase/new" asChild>
+            <AppButton label="Create PO" size="sm" />
+          </Link>
+        }
       />
 
       <AppCard>
@@ -141,34 +90,6 @@ export default function PurchaseOrdersScreen() {
           </AppTable>
         ) : null}
       </AppCard>
-
-      <AppModal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        title="Create purchase order"
-        description="Create a PO with a starter line item."
-        footer={
-          <View className="flex-row justify-end gap-2">
-            <AppButton label="Cancel" size="sm" variant="secondary" onPress={() => setIsModalOpen(false)} />
-            <AppButton label="Create" size="sm" loading={createPurchaseOrder.isPending} onPress={() => void handleCreate()} />
-          </View>
-        }
-      >
-        <View className="gap-3">
-          <AppInput label="Supplier ID" placeholder="Supplier UUID" value={supplierId} onChangeText={setSupplierId} />
-          <AppInput label="Size ID" placeholder="SKU size UUID" value={sizeId} onChangeText={setSizeId} />
-          <AppInput label="Quantity" placeholder="10" keyboardType="number-pad" value={qty} onChangeText={setQty} />
-          <AppInput label="Unit cost" placeholder="20" keyboardType="number-pad" value={unitCost} onChangeText={setUnitCost} />
-          <AppInput
-            label="Expected date (YYYY-MM-DD)"
-            placeholder="2026-03-01"
-            value={expectedDate}
-            onChangeText={setExpectedDate}
-          />
-          {formError ? <Text className="text-small text-error">{formError}</Text> : null}
-          {createPurchaseOrder.error ? <Text className="text-small text-error">{createPurchaseOrder.error.message}</Text> : null}
-        </View>
-      </AppModal>
     </ScrollView>
   );
 }
