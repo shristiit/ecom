@@ -41,6 +41,8 @@ build/Release
 node_modules/
 jspm_packages/
 **/node_modules/
+.pnpm-store/
+**/.pnpm-store/
 
 # Snowpack dependency directory (https://snowpack.dev/)
 web_modules/
@@ -57,6 +59,15 @@ web_modules/
 # local OS files and keys
 **/.DS_Store
 *.pem
+*.swp
+*.swo
+
+# local editor files
+**/.vscode/settings.json
+**/.vscode/launch.json
+**/.vscode/tasks.json
+**/.idea/
+**/.zed/
 
 # Optional npm cache directory
 .npm
@@ -86,6 +97,8 @@ web_modules/
 out
 **/dist
 **/build
+**/.turbo/
+**/.tmp/
 
 # Nuxt.js build / generate output
 .nuxt
@@ -134,6 +147,11 @@ dist
 # Stores VSCode versions used for testing VSCode extensions
 .vscode-test
 
+# Expo local files
+**/.expo/
+**/.expo-shared/
+**/expo-env.d.ts
+
 # yarn v3
 .pnp.*
 .yarn/*
@@ -146,3 +164,4 @@ dist
 # Vite logs files
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
