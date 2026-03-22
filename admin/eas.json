@@ -1,21 +1,23 @@
 {
   "cli": {
-    "version": ">= 16.16.0",
-    "appVersionSource": "local"
+    "version": ">= 12.0.0"
   },
   "build": {
     "development": {
       "developmentClient": true,
       "distribution": "internal"
     },
-    "preview": {
+    "browserstack": {
+      "distribution": "internal",
+      "ios": {
+        "buildConfiguration": "Release"
+      }
+    },
+    "browserstack-android": {
       "distribution": "internal",
       "android": {
         "buildType": "apk"
       }
-    },
-    "production": {
-      "autoIncrement": true
     }
   }
 }

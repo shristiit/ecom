@@ -7,7 +7,6 @@ import {
   Text,
   type GestureResponderEvent,
   View,
-  useWindowDimensions,
 } from 'react-native';
 
 type ModalSize = 'sm' | 'md' | 'lg';
@@ -39,9 +38,6 @@ export function AppModal({
   footer,
   children,
 }: AppModalProps) {
-  const { width, height } = useWindowDimensions();
-  const isCompact = width < 768;
-
   const handleBackdropPress = () => {
     if (closeOnBackdropPress) {
       onClose();
@@ -55,29 +51,40 @@ export function AppModal({
   return (
     <NativeModal animationType="fade" transparent visible={isOpen} onRequestClose={onClose}>
       <Pressable
-        className={`flex-1 bg-black/40 ${isCompact ? 'justify-end px-0' : 'items-center justify-center px-4'}`.trim()}
+        accessibilityRole="button"
+        accessibilityLabel={closeOnBackdropPress ? 'Close modal' : 'Modal backdrop'}
+        accessibilityHint={closeOnBackdropPress ? 'Dismisses this dialog.' : undefined}
+        className="flex-1 items-center justify-center bg-black/40 px-4"
         onPress={handleBackdropPress}
       >
         <Pressable
-          className={`w-full border border-border bg-surface shadow-lift ${isCompact ? 'rounded-t-3xl border-b-0' : `${sizeClass[size]} rounded-lg`}`}
-          style={{ maxHeight: isCompact ? height * 0.88 : 520 }}
+          accessibilityLabel={title ?? 'Dialog'}
+          accessibilityHint={description}
+          className={`w-full ${sizeClass[size]} rounded-lg border border-border bg-surface shadow-lift`}
           onPress={stopPropagation}
         >
-          <View className={`flex-row items-start justify-between gap-3 border-b border-border ${isCompact ? 'px-4 py-4' : 'px-4 py-3'}`.trim()}>
+          <View className="flex-row items-start justify-between gap-3 border-b border-border px-4 py-3">
             <View className="flex-1 gap-1">
               {title ? <Text className="text-section font-semibold text-text">{title}</Text> : null}
               {description ? <Text className="text-small text-muted">{description}</Text> : null}
             </View>
-            <Pressable className="rounded-sm p-1" onPress={onClose} hitSlop={8}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={title ? `Close ${title}` : 'Close dialog'}
+              accessibilityHint="Dismisses this dialog."
+              className="rounded-sm p-1"
+              onPress={onClose}
+              hitSlop={8}
+            >
               <X size={18} color="#64748B" />
             </Pressable>
           </View>
 
-          <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: isCompact ? 24 : 16 }}>
+          <ScrollView style={{ maxHeight: 520 }} contentContainerStyle={{ padding: 16 }}>
             {children}
           </ScrollView>
 
-          {footer ? <View className={`border-t border-border ${isCompact ? 'px-4 py-4' : 'px-4 py-3'}`.trim()}>{footer}</View> : null}
+          {footer ? <View className="border-t border-border px-4 py-3">{footer}</View> : null}
         </Pressable>
       </Pressable>
     </NativeModal>
