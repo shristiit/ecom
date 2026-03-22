@@ -7,6 +7,7 @@ import {
   usePurchaseOrderQuery,
   useReceivePurchaseOrderMutation,
 } from '@/features/orders';
+import { downloadPurchaseOrderPdf } from '@/features/orders/utils/order-pdf';
 
 const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
 
@@ -22,6 +23,7 @@ export default function PurchaseOrderDetailScreen() {
   const [locationId, setLocationId] = useState('');
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
 
   const order = query.data;
 
@@ -75,6 +77,22 @@ export default function PurchaseOrderDetailScreen() {
     }
   };
 
+  const handleDownloadPdf = async () => {
+    if (!order) return;
+
+    setActionError(null);
+    setActionMessage(null);
+    try {
+      setDownloadingPdf(true);
+      await downloadPurchaseOrderPdf(order);
+      setActionMessage('PDF export started.');
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Failed to export PDF.');
+    } finally {
+      setDownloadingPdf(false);
+    }
+  };
+
   return (
     <ScrollView className="bg-bg px-4 py-4">
       <PageHeader
@@ -82,6 +100,7 @@ export default function PurchaseOrderDetailScreen() {
         subtitle="Supplier details, line progress, and receiving actions."
         actions={
           <View className="flex-row gap-2">
+            <AppButton label="Download PDF" size="sm" variant="secondary" loading={downloadingPdf} onPress={() => void handleDownloadPdf()} />
             <AppButton label="Receive" size="sm" loading={receiveOrder.isPending} onPress={() => void handleReceive()} />
             <AppButton label="Close PO" size="sm" variant="secondary" loading={closeOrder.isPending} onPress={() => void handleClose()} />
           </View>

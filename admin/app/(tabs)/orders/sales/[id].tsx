@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
 import { AppBadge, AppButton, AppCard, AppInput, AppTable, AppTableCell, AppTableHeaderCell, AppTableRow, PageHeader } from '@/components/ui';
 import { useCancelSalesOrderMutation, useDispatchSalesOrderMutation, useSalesOrderQuery } from '@/features/orders';
+import { downloadSalesOrderPdf } from '@/features/orders/utils/order-pdf';
 
 const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
 
@@ -18,6 +19,7 @@ export default function SalesOrderDetailScreen() {
   const [locationId, setLocationId] = useState('');
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
 
   const order = query.data;
 
@@ -53,6 +55,22 @@ export default function SalesOrderDetailScreen() {
     }
   };
 
+  const handleDownloadPdf = async () => {
+    if (!order) return;
+
+    setActionError(null);
+    setActionMessage(null);
+    try {
+      setDownloadingPdf(true);
+      await downloadSalesOrderPdf(order);
+      setActionMessage('PDF export started.');
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Failed to export PDF.');
+    } finally {
+      setDownloadingPdf(false);
+    }
+  };
+
   return (
     <ScrollView className="bg-bg px-4 py-4">
       <PageHeader
@@ -60,6 +78,7 @@ export default function SalesOrderDetailScreen() {
         subtitle="Order lines, payment status, and dispatch controls."
         actions={
           <View className="flex-row gap-2">
+            <AppButton label="Download PDF" size="sm" variant="secondary" loading={downloadingPdf} onPress={() => void handleDownloadPdf()} />
             <AppButton label="Dispatch" size="sm" loading={dispatchOrder.isPending} onPress={() => void handleDispatch()} />
             <AppButton
               label="Cancel"
