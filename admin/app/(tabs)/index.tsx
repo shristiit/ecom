@@ -1,1 +1,5 @@
-export { DashboardScreen as default } from '@/features/dashboard';
+import { Redirect } from 'expo-router';
+
+export default function TabsIndexRedirect() {
+  return <Redirect href="/ai" />;
+}

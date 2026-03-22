@@ -1,10 +1,14 @@
 import { Image } from 'expo-image';
-import { View } from 'react-native';
+import { View, type StyleProp, type ViewStyle } from 'react-native';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 
 type AppLogoProps = {
   size?: number;
+  width?: number;
+  height?: number;
   showWordmark?: boolean;
+  opacity?: number;
+  containerStyle?: StyleProp<ViewStyle>;
 };
 
 const LOGO_SOURCES = {
@@ -18,16 +22,18 @@ const LOGO_SOURCES = {
   },
 } as const;
 
-export function AppLogo({ size = 56, showWordmark = false }: AppLogoProps) {
+export function AppLogo({ size = 56, width, height, showWordmark = false, opacity = 1, containerStyle }: AppLogoProps) {
   const colorScheme = useColorScheme();
   const mode = colorScheme === 'dark' ? 'dark' : 'light';
   const source = showWordmark ? LOGO_SOURCES[mode].full : LOGO_SOURCES[mode].badge;
+  const resolvedWidth = width ?? size;
+  const resolvedHeight = height ?? size;
 
   return (
-    <View className="items-center justify-center">
+    <View className="items-center justify-center" style={containerStyle}>
       <Image
         source={source}
-        style={{ width: size, height: size }}
+        style={{ width: resolvedWidth, height: resolvedHeight, opacity }}
         contentFit="contain"
         accessibilityLabel="StockAisle logo"
       />

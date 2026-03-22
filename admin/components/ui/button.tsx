@@ -63,10 +63,19 @@ export function AppButton({
   ...props
 }: ButtonProps) {
   const isDisabled = disabled || loading;
+  const accessibilityHint =
+    props.accessibilityHint ?? (loading ? `${label} is in progress.` : undefined);
 
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityLabel={props.accessibilityLabel ?? label}
+      accessibilityHint={accessibilityHint}
+      accessibilityState={{
+        disabled: Boolean(isDisabled),
+        busy: Boolean(loading),
+        ...(props.accessibilityState ?? {}),
+      }}
       disabled={isDisabled}
       className={`${variantClass[variant]} ${sizeClass[size]} ${fullWidth ? 'w-full' : ''} items-center justify-center ${isDisabled ? 'opacity-50' : ''} ${className ?? ''}`.trim()}
       {...props}

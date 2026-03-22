@@ -39,12 +39,17 @@ export default function MfaScreen() {
 
         <AppButton label="Verify" fullWidth onPress={handleVerify} loading={loading} />
 
-        <Pressable onPress={signOut}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Use a different account"
+          accessibilityHint="Signs out so you can log in with another account."
+          onPress={signOut}
+        >
           <Text className="text-center text-small text-muted">Use a different account</Text>
         </Pressable>
 
         <Link href="/login" asChild>
-          <Pressable>
+          <Pressable accessibilityRole="link" accessibilityLabel="Back to login" accessibilityHint="Returns to the sign in page.">
             <Text className="text-center text-small text-primary">Back to login</Text>
           </Pressable>
         </Link>

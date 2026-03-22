@@ -1,1 +1,1 @@
-export { default } from './index';
+export { DashboardScreen as default } from '@/features/dashboard';

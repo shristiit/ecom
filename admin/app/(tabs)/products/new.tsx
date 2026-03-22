@@ -389,6 +389,9 @@ export default function ProductCreateScreen() {
                       {media.name}
                     </Text>
                     <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`Remove style image ${media.name}`}
+                      accessibilityHint="Removes this uploaded style image from the draft product."
                       className="h-8 items-center justify-center rounded-md border border-border bg-surface"
                       onPress={() => setStyleMedia((previous) => previous.filter((entry) => entry.id !== media.id))}
                     >
@@ -436,6 +439,10 @@ export default function ProductCreateScreen() {
                   return (
                     <Pressable
                       key={sizeLabel}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Size ${sizeLabel}`}
+                      accessibilityHint={`${selected ? 'Removes' : 'Adds'} ${sizeLabel} from the selected sizes.`}
+                      accessibilityState={{ selected }}
                       className={`rounded-md border px-3 py-2 ${selected ? 'border-primary bg-primary-tint' : 'border-border bg-surface-2'}`}
                       onPress={() => toggleSize(sizeLabel)}
                     >
@@ -464,6 +471,9 @@ export default function ProductCreateScreen() {
                         {media.name}
                       </Text>
                       <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel={`Remove variant image ${media.name}`}
+                        accessibilityHint="Removes this uploaded image from the current variant."
                         className="h-8 items-center justify-center rounded-md border border-border bg-surface"
                         onPress={() => setVariantMedia((previous) => previous.filter((entry) => entry.id !== media.id))}
                       >
@@ -497,6 +507,9 @@ export default function ProductCreateScreen() {
                       </Text>
                     </View>
                     <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={`Remove variant ${variant.colorName}`}
+                      accessibilityHint="Removes this color variant and all of its stock rows."
                       className="h-9 w-9 items-center justify-center rounded-md border border-border bg-surface"
                       onPress={() => setVariants((previous) => previous.filter((entry) => entry.id !== variant.id))}
                     >
@@ -519,6 +532,8 @@ export default function ProductCreateScreen() {
                         <AppTableCell className="min-w-[120px]">{line.sizeLabel}</AppTableCell>
                         <AppTableCell className="min-w-[280px]">
                           <AppSelect
+                            accessibilityLabel={`Location for size ${line.sizeLabel} in variant ${variant.colorName}`}
+                            accessibilityHint="Select the opening stock location for this size."
                             value={line.locationId}
                             options={locationOptions}
                             onValueChange={(locationId) =>
@@ -533,6 +548,8 @@ export default function ProductCreateScreen() {
                         </AppTableCell>
                         <AppTableCell className="min-w-[180px]">
                           <AppInput
+                            accessibilityLabel={`Opening quantity for size ${line.sizeLabel} in variant ${variant.colorName}`}
+                            accessibilityHint="Enter the opening stock quantity for this size and location."
                             keyboardType="number-pad"
                             value={line.quantity}
                             onChangeText={(quantity) =>
@@ -547,6 +564,9 @@ export default function ProductCreateScreen() {
                         </AppTableCell>
                         <AppTableCell align="right" className="min-w-[90px]">
                           <Pressable
+                            accessibilityRole="button"
+                            accessibilityLabel={`Remove stock row for size ${line.sizeLabel}`}
+                            accessibilityHint="Removes this size and location row from the variant."
                             className="h-9 w-9 items-center justify-center rounded-md border border-border bg-surface"
                             onPress={() =>
                               updateVariant(variant.id, (current) => ({

@@ -19,6 +19,8 @@ export function AppInput({
   ...props
 }: InputProps) {
   const hasError = Boolean(error);
+  const accessibilityLabel = props.accessibilityLabel ?? label ?? props.placeholder ?? 'Input field';
+  const accessibilityHint = props.accessibilityHint ?? error ?? hint;
 
   return (
     <View className={`gap-2 ${containerClassName ?? ''}`.trim()}>
@@ -30,6 +32,12 @@ export function AppInput({
       ) : null}
 
       <TextInput
+        accessibilityLabel={accessibilityLabel}
+        accessibilityHint={accessibilityHint}
+        accessibilityState={{
+          disabled: Boolean(props.editable === false),
+          ...(props.accessibilityState ?? {}),
+        }}
         placeholderTextColor="rgb(var(--text-subtle))"
         className={`${hasError ? 'border-error' : 'border-border'} rounded-md border bg-surface px-3 py-2.5 text-body text-text ${inputClassName ?? ''}`.trim()}
         {...props}

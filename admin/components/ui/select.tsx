@@ -22,6 +22,8 @@ type AppSelectProps = {
   disabled?: boolean;
   modalTitle?: string;
   className?: string;
+  accessibilityLabel?: string;
+  accessibilityHint?: string;
 };
 
 export function AppSelect({
@@ -36,6 +38,8 @@ export function AppSelect({
   disabled = false,
   modalTitle,
   className,
+  accessibilityLabel,
+  accessibilityHint,
 }: AppSelectProps) {
   const [isOpen, setIsOpen] = useState(false);
 
@@ -61,6 +65,13 @@ export function AppSelect({
       ) : null}
 
       <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={accessibilityLabel ?? label ?? 'Selection field'}
+        accessibilityHint={accessibilityHint ?? error ?? hint ?? `Opens options for ${label ?? 'this field'}.`}
+        accessibilityState={{
+          disabled,
+          expanded: isOpen,
+        }}
         className={`${error ? 'border-error' : 'border-border'} flex-row items-center justify-between rounded-md border bg-surface px-3 py-2.5 ${disabled ? 'opacity-50' : ''}`}
         disabled={disabled}
         onPress={() => setIsOpen(true)}
@@ -86,6 +97,10 @@ export function AppSelect({
             return (
               <Pressable
                 key={option.value}
+                accessibilityRole="button"
+                accessibilityLabel={option.label}
+                accessibilityHint={option.description ?? `Select ${option.label}.`}
+                accessibilityState={{ selected: isSelected }}
                 className={`rounded-md border px-3 py-3 ${isSelected ? 'border-primary bg-primary-tint' : 'border-border bg-surface-2'}`}
                 onPress={() => selectOption(option.value)}
               >

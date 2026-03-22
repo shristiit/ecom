@@ -4,7 +4,9 @@
     "strict": true,
     "types": ["nativewind/types"],
     "paths": {
-      "@/*": ["./*"]
+      "@/*": ["./*"],
+      "@stockaisle/section-card": ["../components/section-card/src"],
+      "@stockaisle/empty-state": ["../components/empty-state/src"]
     }
   },
   "include": [

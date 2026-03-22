@@ -70,7 +70,7 @@ export default function LoginScreen() {
           <AppButton label="Continue with SSO" variant="secondary" onPress={handleSsoLogin} loading={ssoSubmitting} fullWidth />
 
           <Link href="/forgot-password" asChild>
-            <Pressable>
+            <Pressable accessibilityRole="link" accessibilityLabel="Forgot password?" accessibilityHint="Opens the password reset request page.">
               <Text className="text-center text-small text-primary">Forgot password?</Text>
             </Pressable>
           </Link>
