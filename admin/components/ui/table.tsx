@@ -26,16 +26,24 @@ const alignClass = {
 
 export function AppTable({ children, className }: TableProps) {
   const { width } = useWindowDimensions();
-  const minTableWidth = width < 768 ? 640 : width;
+  const isCompact = width < 768;
+
+  if (!isCompact) {
+    return (
+      <View className={`overflow-hidden rounded-lg border border-border bg-surface ${className ?? ''}`.trim()}>
+        <View className="w-full">{children}</View>
+      </View>
+    );
+  }
 
   return (
     <View className={`overflow-hidden rounded-lg border border-border bg-surface ${className ?? ''}`.trim()}>
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
-        contentContainerStyle={{ minWidth: minTableWidth }}
+        contentContainerStyle={{ minWidth: 640 }}
       >
-        <View className="w-full">{children}</View>
+        <View>{children}</View>
       </ScrollView>
     </View>
   );
@@ -57,10 +65,10 @@ export function AppTableRow({ children, header = false, className }: TableRowPro
 export function AppTableCell({ children, align = 'left', className }: TableCellProps) {
   const { width } = useWindowDimensions();
   const isText = typeof children === 'string' || typeof children === 'number';
-  const minWidthClass = width < 768 ? 'min-w-[96px]' : 'min-w-[120px]';
+  const widthClass = width < 768 ? 'min-w-[96px]' : 'min-w-0 basis-0';
 
   return (
-    <View className={`${minWidthClass} flex-1 justify-center ${alignClass[align]} ${className ?? ''}`.trim()}>
+    <View className={`${widthClass} flex-1 justify-center ${alignClass[align]} ${className ?? ''}`.trim()}>
       {isText ? <Text className="text-small text-text">{children}</Text> : children}
     </View>
   );
@@ -68,10 +76,10 @@ export function AppTableCell({ children, align = 'left', className }: TableCellP
 
 export function AppTableHeaderCell({ children, align = 'left', className }: TableCellProps) {
   const { width } = useWindowDimensions();
-  const minWidthClass = width < 768 ? 'min-w-[96px]' : 'min-w-[120px]';
+  const widthClass = width < 768 ? 'min-w-[96px]' : 'min-w-0 basis-0';
 
   return (
-    <View className={`${minWidthClass} flex-1 justify-center ${alignClass[align]} ${className ?? ''}`.trim()}>
+    <View className={`${widthClass} flex-1 justify-center ${alignClass[align]} ${className ?? ''}`.trim()}>
       <Text className="text-caption font-semibold uppercase tracking-wide text-subtle">{children}</Text>
     </View>
   );
