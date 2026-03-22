@@ -4,6 +4,7 @@ import {
   Building2,
   Bell,
   Boxes,
+  CreditCard,
   CircleHelp,
   LayoutGrid,
   Menu,
@@ -26,7 +27,7 @@ import { useAuthSession } from '@/features/auth';
 import { EntityQuickViewDrawer, GlobalCommandPalette, NotificationCenter } from '@/features/shared';
 
 type NavItem = {
-  href: '/' | '/dashboard' | '/products' | '/inventory' | '/orders' | '/master/locations' | '/users' | '/audit' | '/ai' | '/settings';
+  href: '/' | '/dashboard' | '/products' | '/inventory' | '/orders' | '/billing' | '/master/locations' | '/users' | '/audit' | '/ai' | '/settings';
   label: string;
   icon: LucideIcon;
   activePrefixes?: string[];
@@ -39,6 +40,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: '/products', label: 'Products', icon: Boxes, permissions: ['products.read', 'products.write'] },
   { href: '/inventory', label: 'Inventory', icon: ArrowLeftRight, permissions: ['inventory.read', 'inventory.write'] },
   { href: '/orders', label: 'Orders', icon: Package, permissions: ['sales.write', 'purchasing.write'] },
+  { href: '/billing', label: 'Billing & Payments', icon: CreditCard },
   { href: '/master/locations', label: 'Master Data', icon: Building2, activePrefixes: ['/master'], permissions: ['master.read', 'master.write'] },
   { href: '/users', label: 'Users & Access', icon: Users, activePrefixes: ['/users', '/roles', '/policies'], permissions: ['admin.roles.read', 'admin.policies.read'] },
   { href: '/audit', label: 'Audit', icon: ShieldCheck, activePrefixes: ['/audit'], permissions: ['audit.read'] },
@@ -51,6 +53,7 @@ const PAGE_TITLE_RULES = [
   { prefix: '/products', title: 'Products' },
   { prefix: '/inventory', title: 'Inventory' },
   { prefix: '/orders', title: 'Orders' },
+  { prefix: '/billing', title: 'Billing & Payments' },
   { prefix: '/master', title: 'Master Data' },
   { prefix: '/users', title: 'Users & Access' },
   { prefix: '/roles', title: 'Users & Access' },
