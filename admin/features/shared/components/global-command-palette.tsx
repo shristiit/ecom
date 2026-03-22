@@ -18,7 +18,7 @@ const COMMANDS: Command[] = [
   { id: 'so', label: 'Sales Orders', description: 'Open sales invoice list', href: '/orders/sales' },
   { id: 'po', label: 'Purchase Orders', description: 'Open purchase order list', href: '/orders/purchase' },
   { id: 'users', label: 'Users & Access', description: 'Manage users and roles', href: '/users' },
-  { id: 'ai', label: 'AI Copilot', description: 'Open AI command center', href: '/ai' },
+  { id: 'ai', label: 'My AI Assistant', description: 'Open AI command center', href: '/ai' },
 ];
 
 type GlobalCommandPaletteProps = {
@@ -62,6 +62,9 @@ export function GlobalCommandPalette({ isOpen, onClose }: GlobalCommandPalettePr
           {commands.map((command) => (
             <Pressable
               key={command.id}
+              accessibilityRole="button"
+              accessibilityLabel={command.label}
+              accessibilityHint={command.description}
               onPress={() => openCommand(command.href)}
               className="rounded-md border border-border bg-surface-2 px-3 py-3 active:bg-primary-tint"
             >

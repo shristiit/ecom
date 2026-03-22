@@ -49,7 +49,7 @@ export default function ForgotPasswordScreen() {
         <AppButton label="Send reset link" fullWidth onPress={handleSubmit} loading={loading} />
 
         <Link href="/login" asChild>
-          <Pressable>
+          <Pressable accessibilityRole="link" accessibilityLabel="Back to login" accessibilityHint="Returns to the sign in page.">
             <Text className="text-center text-small text-primary">Back to login</Text>
           </Pressable>
         </Link>
