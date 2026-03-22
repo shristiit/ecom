@@ -1,6 +1,6 @@
 import { Link } from 'expo-router';
 import { Pressable, ScrollView, Text, View } from 'react-native';
-import { AppCard, PageHeader } from '@/components/ui';
+import { AppCard, PageHeader, PageShell } from '@/components/ui';
 
 const inventoryModules = [
   {
@@ -42,20 +42,26 @@ const inventoryModules = [
 
 export default function InventoryHubScreen() {
   return (
-    <ScrollView className="bg-bg px-4 py-4">
-      <PageHeader title="Inventory" subtitle="Operations across stock, movement, and control workflows." />
+    <PageShell variant="inventory">
+      <ScrollView className="px-6 py-6">
+        <PageHeader title="Inventory" subtitle="Operations across stock, movement, and control workflows." />
 
-      <View className="gap-4">
-        {inventoryModules.map((item) => (
-          <Link key={item.href} href={item.href} asChild>
-            <Pressable>
-              <AppCard title={item.title} className="active:bg-primary-tint">
-                <Text className="text-small text-muted">{item.description}</Text>
-              </AppCard>
-            </Pressable>
-          </Link>
-        ))}
-      </View>
-    </ScrollView>
+        <View className="gap-4">
+          {inventoryModules.map((item) => (
+            <Link key={item.href} href={item.href} asChild>
+              <Pressable
+                accessibilityRole="link"
+                accessibilityLabel={item.title}
+                accessibilityHint={item.description}
+              >
+                <AppCard title={item.title} className="active:bg-primary-tint">
+                  <Text className="text-small text-muted">{item.description}</Text>
+                </AppCard>
+              </Pressable>
+            </Link>
+          ))}
+        </View>
+      </ScrollView>
+    </PageShell>
   );
 }
