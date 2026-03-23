@@ -326,7 +326,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   }, [navItems]);
 
   useEffect(() => {
-    if (typeof window === 'undefined') return;
+    if (!isWeb || typeof window === 'undefined') return;
     const onKeyDown = (event: any) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault();
