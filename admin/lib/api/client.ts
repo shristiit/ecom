@@ -121,6 +121,9 @@ export async function request<TResponse, TBody = unknown>({
 
     if (!response.ok) {
       const envelope = (isRecord(payload) ? payload : {}) as ApiErrorEnvelope;
+      if (auth && response.status === 401) {
+        apiContext.onUnauthorized?.();
+      }
       throw new ApiError(
         envelope.message ?? response.statusText ?? 'Request failed',
         response.status,
