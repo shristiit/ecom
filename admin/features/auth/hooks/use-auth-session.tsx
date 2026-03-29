@@ -70,12 +70,19 @@ async function buildSessionUser() {
 export function AuthSessionProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<SessionState>(initialState);
 
+  const signOut = useCallback(() => {
+    sessionStorage.clear();
+    setState({ ...initialState, status: 'signed_out' });
+    configureApiClient({ getAccessToken: () => null, getTenantId: () => null, onUnauthorized: undefined });
+  }, []);
+
   const applyApiContext = useCallback((nextState: SessionState) => {
     configureApiClient({
       getAccessToken: () => nextState.accessToken,
       getTenantId: () => nextState.selectedTenantId ?? nextState.user?.tenantId ?? null,
+      onUnauthorized: signOut,
     });
-  }, []);
+  }, [signOut]);
 
   const commitSignedInSession = useCallback(
     async (accessToken: string, refreshToken: string, selectedTenantId?: string | null) => {
@@ -110,12 +117,6 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
     },
     [applyApiContext],
   );
-
-  const signOut = useCallback(() => {
-    sessionStorage.clear();
-    setState({ ...initialState, status: 'signed_out' });
-    configureApiClient({ getAccessToken: () => null, getTenantId: () => null });
-  }, []);
 
   const bootstrap = useCallback(async () => {
     const stored = sessionStorage.readSession();
