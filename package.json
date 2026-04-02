@@ -4,6 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "dev": "pnpm --parallel --filter backend dev --filter admin start:prod",
+    "dev:local": "pnpm --parallel --filter backend dev --filter admin start:dev",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],

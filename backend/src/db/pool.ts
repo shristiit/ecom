@@ -3,8 +3,10 @@ import type { QueryResultRow } from 'pg';
 import { DATABASE_URL, NODE_ENV } from '../config/env.js';
 
 const { Pool } = pg;
+const requiresSslFromUrl = /\bsslmode=require\b/i.test(DATABASE_URL);
 const useSsl =
   NODE_ENV === 'production' ||
+  requiresSslFromUrl ||
   process.env.DATABASE_SSL === 'true' ||
   process.env.PGSSLMODE === 'require';
 

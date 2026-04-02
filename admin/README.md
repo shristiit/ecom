@@ -9,15 +9,13 @@ Expo-managed admin app with Android, iOS, and web targets.
 - Xcode for iOS builds
 - A valid backend URL for the build modes below
 
-Copy the example env file and adjust values for your environment:
+Configure [`admin/.env`](/Users/Apple/Desktop/ecom/admin/.env) once:
 
 ```bash
-cp .env.example .env
-```
+# default mode used by `pnpm --filter admin start`
+ADMIN_DEFAULT_MODE=dev
 
-Recommended env setup:
-
-```bash
+# mode-specific backend URLs
 ADMIN_DEV_API_URL=http://localhost:4000/api
 ADMIN_BROWSERSTACK_API_URL=https://api.example.com/api
 ADMIN_PROD_API_URL=https://api.example.com/api
@@ -25,6 +23,9 @@ ADMIN_PROD_API_URL=https://api.example.com/api
 
 `dev` runs against Metro and your local API by default.
 `browserstack` and `prod` build release binaries that point directly at the backend URL you configure.
+Use mode-specific scripts (`start:dev`, `start:browserstack`, `start:prod`, `android:*`, `ios:*`) so you can switch targets without editing env values each run.
+
+For full workspace env mapping, see [`LOCAL_DEV_ENV.md`](/Users/Apple/Desktop/ecom/LOCAL_DEV_ENV.md).
 
 ## Development
 

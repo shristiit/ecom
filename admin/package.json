@@ -3,8 +3,10 @@
   "main": "expo-router/entry",
   "version": "1.0.0",
   "scripts": {
-    "start": "expo start",
-    "start:dev": "expo start --web",
+    "start": "node ./scripts/native-workflow.js start",
+    "start:dev": "node ./scripts/native-workflow.js start dev --web",
+    "start:browserstack": "node ./scripts/native-workflow.js start browserstack --web",
+    "start:prod": "node ./scripts/native-workflow.js start prod --web",
     "build": "expo export --platform web",
     "build:web": "expo export --platform web",
     "build:prod": "expo export --platform web --output-dir dist",
@@ -22,7 +24,7 @@
     "reset-project": "node ./scripts/reset-project.js",
     "android": "pnpm android:dev",
     "ios": "pnpm ios:dev",
-    "web": "expo start --web",
+    "web": "pnpm start:dev",
     "lint": "expo lint"
   },
   "dependencies": {
