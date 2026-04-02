@@ -84,6 +84,7 @@ export function AssistantSearchBar() {
     <View className="max-w-[620px] flex-1 flex-row items-center rounded-md border border-border bg-surface-2 px-3 py-2">
       <Search size={16} color="#64748B" />
       <TextInput
+        nativeID="assistant-search-input"
         accessibilityLabel="Ask My AI Assistant"
         accessibilityHint="Type a prompt and press enter or send to open the AI Assistant page."
         value={value}
@@ -93,6 +94,7 @@ export function AssistantSearchBar() {
         placeholderTextColor="rgb(var(--text-subtle))"
         returnKeyType="go"
         className="ml-2 flex-1 text-small text-text"
+        {...({ id: 'assistant-search-input', name: 'assistant-search-input' } as unknown as Record<string, string>)}
       />
       <View className="ml-2 flex-row items-center gap-2">
         <Pressable

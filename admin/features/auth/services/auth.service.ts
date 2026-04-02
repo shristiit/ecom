@@ -6,6 +6,7 @@ export type AuthMeResponse = {
   tenantId: string;
   roleId: string;
   email: string;
+  permissions?: string[];
 };
 
 export const authService = {

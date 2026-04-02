@@ -6,6 +6,7 @@ export type QueryParams = Record<string, QueryParamValue>;
 export type ApiRequestOptions<TBody = unknown> = {
   method: HttpMethod;
   path: string;
+  baseUrl?: string;
   body?: TBody;
   headers?: Record<string, string>;
   auth?: boolean;

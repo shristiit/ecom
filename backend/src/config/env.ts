@@ -2,6 +2,7 @@ import dotenv from 'dotenv';
 import process from 'node:process';
 
 dotenv.config({ path: '.env' });
+dotenv.config({ path: '.env.local', override: true });
 
 function required(key: string, fallback?: string): string {
   const v = process.env[key] ?? fallback;

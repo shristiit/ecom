@@ -35,4 +35,10 @@ export const queryKeys = {
     approvals: () => ['ai', 'approvals'] as const,
     history: () => ['ai', 'history'] as const,
   },
+  assistant: {
+    conversations: () => ['assistant', 'conversations'] as const,
+    conversation: (id: string) => ['assistant', 'conversation', id] as const,
+    approvals: () => ['assistant', 'approvals'] as const,
+    history: () => ['assistant', 'history'] as const,
+  },
 };

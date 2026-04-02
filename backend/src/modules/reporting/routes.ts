@@ -1,0 +1,14 @@
+import { Router } from 'express';
+import { authGuard, requirePermission, requireTenant } from '../../middlewares/auth.js';
+import * as service from './service.js';
+
+const router = Router();
+
+router.use(authGuard, requireTenant);
+
+router.get('/stock-summary', requirePermission('inventory.read'), service.stockSummary);
+router.get('/movement-summary', requirePermission('inventory.read'), service.movementSummary);
+router.get('/po-summary', requirePermission('purchasing.read'), service.poSummary);
+router.get('/receipt-summary', requirePermission('inventory.read'), service.receiptSummary);
+
+export default router;

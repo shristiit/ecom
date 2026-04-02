@@ -21,6 +21,9 @@ import auditRoutes from './modules/audit/routes.js';
 import tenantRoutes from './modules/tenants/routes.js';
 import masterRoutes from './modules/master/routes.js';
 import storefrontRoutes from './modules/storefront/routes.js';
+import aiGovernanceRoutes from './modules/ai_governance/routes.js';
+import aiAuditRoutes from './modules/ai_audit/routes.js';
+import reportingRoutes from './modules/reporting/routes.js';
 
 const app = express();
 
@@ -62,6 +65,9 @@ app.use('/api/purchasing', purchasingRoutes);
 app.use('/api/sales', salesRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/audit', auditRoutes);
+app.use('/api/ai-governance', aiGovernanceRoutes);
+app.use('/api/ai-audit', aiAuditRoutes);
+app.use('/api/reporting', reportingRoutes);
 app.use('/api/master', masterRoutes);
 app.use('/api/storefront', storefrontRoutes);
 

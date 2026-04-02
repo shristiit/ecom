@@ -8,8 +8,12 @@
       "dependsOn": ["^build"],
       "outputs": ["dist/**"]
     },
+    "test": {
+      "dependsOn": ["^build"],
+      "outputs": []
+    },
     "lint": {
-      "inputs": ["src/**/*.{ts,tsx,js,jsx,d.ts,mjs}"]
+      "inputs": ["src/**/*.{ts,tsx,js,jsx,d.ts,mjs,py}", "tests/**/*.py", "pyproject.toml"]
     },
     "web": {
       "dependsOn": ["^build"],

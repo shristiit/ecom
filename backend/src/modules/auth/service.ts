@@ -109,7 +109,15 @@ export async function resetPassword(req: Request, res: Response) {
 }
 
 export async function me(_req: Request, res: Response) {
-  res.json(_req.user);
+  const roleRes = await query(
+    `SELECT permissions FROM roles WHERE id = $1 AND tenant_id = $2`,
+    [_req.user!.roleId, _req.user!.tenantId]
+  );
+
+  res.json({
+    ..._req.user,
+    permissions: roleRes.rowCount > 0 ? roleRes.rows[0].permissions ?? [] : [],
+  });
 }
 
 export async function ssoStart(req: Request, res: Response) {
