@@ -17,7 +17,7 @@ export type ApiRequestOptions<TBody = unknown> = {
 export type ApiClientContext = {
   getAccessToken?: () => string | null | Promise<string | null>;
   getTenantId?: () => string | null | Promise<string | null>;
-  onUnauthorized?: () => void;
+  onUnauthorized?: () => boolean | void | Promise<boolean | void>;
 };
 
 export type ApiSuccessEnvelope<T> = {
