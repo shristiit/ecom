@@ -1,4 +1,4 @@
-import { type ReactNode, createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { type ReactNode, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Platform } from 'react-native';
 import { openBrowserAsync, WebBrowserPresentationStyle } from 'expo-web-browser';
 import { get, configureApiClient } from '@/lib/api';
@@ -69,10 +69,13 @@ async function buildSessionUser() {
 
 export function AuthSessionProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<SessionState>(initialState);
+  const refreshInFlightRef = useRef<Promise<boolean> | null>(null);
+  const unauthorizedHandlerRef = useRef<(() => Promise<boolean>) | null>(null);
 
   const signOut = useCallback(() => {
     sessionStorage.clear();
     setState({ ...initialState, status: 'signed_out' });
+    unauthorizedHandlerRef.current = null;
     configureApiClient({ getAccessToken: () => null, getTenantId: () => null, onUnauthorized: undefined });
   }, []);
 
@@ -80,9 +83,13 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
     configureApiClient({
       getAccessToken: () => nextState.accessToken,
       getTenantId: () => nextState.selectedTenantId ?? nextState.user?.tenantId ?? null,
-      onUnauthorized: signOut,
+      onUnauthorized: async () => {
+        const handler = unauthorizedHandlerRef.current;
+        if (!handler) return false;
+        return handler();
+      },
     });
-  }, [signOut]);
+  }, []);
 
   const commitSignedInSession = useCallback(
     async (accessToken: string, refreshToken: string, selectedTenantId?: string | null) => {
@@ -117,6 +124,37 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
     },
     [applyApiContext],
   );
+
+  const handleUnauthorized = useCallback(async () => {
+    if (refreshInFlightRef.current) return refreshInFlightRef.current;
+
+    const refreshPromise = (async () => {
+      const stored = sessionStorage.readSession();
+      if (!stored.refreshToken) {
+        signOut();
+        return false;
+      }
+
+      try {
+        const refreshed = await authService.refresh({ refreshToken: stored.refreshToken });
+        await commitSignedInSession(refreshed.accessToken, refreshed.refreshToken, stored.selectedTenantId);
+        return true;
+      } catch {
+        signOut();
+        return false;
+      }
+    })();
+
+    refreshInFlightRef.current = refreshPromise.finally(() => {
+      refreshInFlightRef.current = null;
+    });
+
+    return refreshInFlightRef.current;
+  }, [commitSignedInSession, signOut]);
+
+  useEffect(() => {
+    unauthorizedHandlerRef.current = handleUnauthorized;
+  }, [handleUnauthorized]);
 
   const bootstrap = useCallback(async () => {
     const stored = sessionStorage.readSession();
