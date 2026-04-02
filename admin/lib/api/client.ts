@@ -86,44 +86,45 @@ export async function request<TResponse, TBody = unknown>({
   const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
 
   const mergedSignal = signal ?? controller.signal;
-  const contextHeaders = await getContextHeaders(auth);
-
-  const requestHeaders: Record<string, string> = {
-    Accept: 'application/json',
-    ...contextHeaders,
-    ...headers,
-  };
-
   const isWriteMethod = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method.toUpperCase());
   const resolvedIdempotencyKey = idempotencyKey ?? (isWriteMethod ? createIdempotencyKey() : undefined);
-
-  if (resolvedIdempotencyKey) {
-    requestHeaders['Idempotency-Key'] = resolvedIdempotencyKey;
-  }
-
   const hasBody = body !== undefined && body !== null;
   const isFormDataBody = hasBody && typeof FormData !== 'undefined' && body instanceof FormData;
-  if (hasBody) {
-    if (!isFormDataBody) {
+
+  async function buildRequestHeaders() {
+    const contextHeaders = await getContextHeaders(auth);
+    const requestHeaders: Record<string, string> = {
+      Accept: 'application/json',
+      ...contextHeaders,
+      ...headers,
+    };
+
+    if (resolvedIdempotencyKey) {
+      requestHeaders['Idempotency-Key'] = resolvedIdempotencyKey;
+    }
+
+    if (hasBody && !isFormDataBody) {
       requestHeaders['Content-Type'] = 'application/json';
     }
+
+    return requestHeaders;
   }
 
-  try {
-    const response = await fetch(buildUrl(path, query), {
+  async function fetchWithHeaders() {
+    const requestHeaders = await buildRequestHeaders();
+    return fetch(buildUrl(path, query), {
       method,
       headers: requestHeaders,
       body: hasBody ? (isFormDataBody ? (body as BodyInit) : JSON.stringify(body)) : undefined,
       signal: mergedSignal,
     });
+  }
 
+  async function handleResponse(response: Response) {
     const payload = await parsePayload(response);
 
     if (!response.ok) {
       const envelope = (isRecord(payload) ? payload : {}) as ApiErrorEnvelope;
-      if (auth && response.status === 401) {
-        apiContext.onUnauthorized?.();
-      }
       throw new ApiError(
         envelope.message ?? response.statusText ?? 'Request failed',
         response.status,
@@ -137,6 +138,22 @@ export async function request<TResponse, TBody = unknown>({
     }
 
     return payload as TResponse;
+  }
+
+  try {
+    const response = await fetchWithHeaders();
+
+    if (auth && response.status === 401) {
+      const unauthorizedHandler = apiContext.onUnauthorized;
+      const handled = unauthorizedHandler ? Boolean(await unauthorizedHandler()) : false;
+
+      if (handled) {
+        const retryResponse = await fetchWithHeaders();
+        return await handleResponse(retryResponse);
+      }
+    }
+
+    return await handleResponse(response);
   } catch (error) {
     if (error instanceof ApiError) {
       throw error;
