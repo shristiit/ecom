@@ -61,6 +61,9 @@ class BackendClient:
     async def list_suppliers(self, access_token: str, tenant_id: str) -> list[dict[str, object]]:
         return await self._request('GET', '/master/suppliers', access_token, tenant_id)
 
+    async def list_customers(self, access_token: str, tenant_id: str) -> list[dict[str, object]]:
+        return await self._request('GET', '/master/customers', access_token, tenant_id)
+
     async def list_categories(self, access_token: str, tenant_id: str) -> list[dict[str, object]]:
         return await self._request('GET', '/master/categories', access_token, tenant_id)
 
@@ -168,6 +171,41 @@ class BackendClient:
 
     async def close_po(self, access_token: str, tenant_id: str, po_id: str) -> dict[str, object]:
         return await self._request('POST', f'/purchasing/po/{po_id}/close', access_token, tenant_id, json={})
+
+    async def list_invoices(
+        self,
+        access_token: str,
+        tenant_id: str,
+        params: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        payload = await self._request('GET', '/sales/invoice', access_token, tenant_id, params=params)
+        return payload
+
+    async def get_invoice(self, access_token: str, tenant_id: str, invoice_id: str) -> dict[str, object]:
+        payload = await self._request('GET', f'/sales/invoice/{invoice_id}', access_token, tenant_id)
+        return payload
+
+    async def create_invoice(self, access_token: str, tenant_id: str, payload: dict[str, object]) -> dict[str, object]:
+        return await self._request('POST', '/sales/invoice', access_token, tenant_id, json=payload)
+
+    async def update_invoice(
+        self, access_token: str, tenant_id: str, invoice_id: str, payload: dict[str, object]
+    ) -> dict[str, object]:
+        return await self._request('PATCH', f'/sales/invoice/{invoice_id}', access_token, tenant_id, json=payload)
+
+    async def dispatch_invoice(
+        self, access_token: str, tenant_id: str, invoice_id: str, payload: dict[str, object]
+    ) -> dict[str, object]:
+        return await self._request(
+            'POST',
+            f'/sales/invoice/{invoice_id}/dispatch',
+            access_token,
+            tenant_id,
+            json=payload,
+        )
+
+    async def cancel_invoice(self, access_token: str, tenant_id: str, invoice_id: str) -> dict[str, object]:
+        return await self._request('POST', f'/sales/invoice/{invoice_id}/cancel', access_token, tenant_id, json={})
 
     async def reporting_stock_summary(
         self, access_token: str, tenant_id: str, params: dict[str, object]

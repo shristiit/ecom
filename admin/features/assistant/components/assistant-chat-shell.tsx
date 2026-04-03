@@ -372,10 +372,10 @@ export function AssistantChatShell({
                       </Text>
 
                       <View
-                        className={`rounded-[28px] px-5 py-4 ${
+                        className={`rounded-[28px] ${
                           turn.role === 'user'
-                            ? 'bg-surface-2'
-                            : 'border border-border bg-white'
+                            ? 'bg-surface-2 px-5 py-4'
+                            : 'bg-[#F8F6F1] px-0 py-0'
                         }`}
                       >
                         <AssistantMessageBlocks blocks={turn.blocks} />
@@ -393,8 +393,8 @@ export function AssistantChatShell({
                 ) : null}
 
                 {pendingAction?.actions?.length ? (
-                  <View className="w-full max-w-3xl rounded-[28px] border border-primary/20 bg-primary-tint px-5 py-5">
-                    <Text className="text-small font-semibold text-primary">{pendingAction.prompt}</Text>
+                  <View className="w-full max-w-3xl rounded-[28px] border border-border bg-surface-2 px-5 py-5">
+                    <Text className="text-small font-semibold text-text">{pendingAction.prompt}</Text>
                     <View className="mt-4 flex-row flex-wrap gap-2">
                       {pendingAction.actions.map((action) => (
                         <AppButton

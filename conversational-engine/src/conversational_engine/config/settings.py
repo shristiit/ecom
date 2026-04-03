@@ -27,9 +27,40 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices('CONVERSATIONAL_ENGINE_BACKEND_BASE_URL', 'BACKEND_BASE_URL'),
     )
 
+    llm_base_url: str = Field(
+        default='https://api.openai.com/v1',
+        validation_alias=AliasChoices('CONVERSATIONAL_ENGINE_LLM_BASE_URL', 'OPENAI_BASE_URL'),
+    )
+    llm_api_key: str = Field(
+        default='',
+        validation_alias=AliasChoices(
+            'CONVERSATIONAL_ENGINE_LLM_API_KEY',
+            'CONVERSATIONAL_ENGINE_OPENAI_API_KEY',
+            'OPENAI_API_KEY',
+            'CONVERSATIONAL_ENGINE_API_KEY',
+        ),
+    )
+
+    model_best: str = Field(
+        default='gpt-4.1',
+        validation_alias=AliasChoices('CONVERSATIONAL_ENGINE_MODEL_BEST', 'MODEL_BEST'),
+    )
+    model_ok: str = Field(
+        default='gpt-4.1-mini',
+        validation_alias=AliasChoices('CONVERSATIONAL_ENGINE_MODEL_OK', 'MODEL_OK'),
+    )
+    embeddings_model: str = Field(
+        default='text-embedding-3-small',
+        validation_alias=AliasChoices('CONVERSATIONAL_ENGINE_EMBEDDINGS_MODEL', 'EMBEDDINGS_MODEL'),
+    )
+    agent_model_tiers: str = Field(
+        default='',
+        validation_alias=AliasChoices('CONVERSATIONAL_ENGINE_AGENT_MODEL_TIERS', 'AGENT_MODEL_TIERS'),
+    )
+
+    # Backwards-compatible legacy fields (prefer llm_api_key + model_ok/model_best above).
     openai_api_key: str = ''
     chat_model: str = 'gpt-4.1-mini'
-    embeddings_model: str = 'text-embedding-3-small'
     classifier_model: str = 'gpt-4.1-mini'
 
     feature_enabled: bool = True

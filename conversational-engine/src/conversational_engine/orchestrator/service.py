@@ -6,7 +6,10 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
+from conversational_engine.agents.registry import AgentRegistry
+from conversational_engine.agents.types import AgentTurnResult
 from conversational_engine.clients.backend import BackendClient
+from conversational_engine.config.model_routing import ModelRouting
 from conversational_engine.contracts.api import ApprovalRequestStatus
 from conversational_engine.contracts.auth import AuthContext
 from conversational_engine.contracts.common import (
@@ -28,6 +31,7 @@ from conversational_engine.contracts.common import (
     WorkflowState,
     WorkflowStatus,
 )
+from conversational_engine.providers.base import IntentClassifier
 from conversational_engine.retrieval.service import RetrievalService
 
 SIZE_LABELS = {'XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL'} | {str(size) for size in range(2, 31, 2)}
@@ -55,9 +59,17 @@ def _normalize(value: str) -> str:
     return ' '.join(''.join(character.lower() if character.isalnum() else ' ' for character in value).split())
 
 
+def _normalized_tokens(value: str) -> set[str]:
+    return {token for token in _normalize(value).split() if token}
+
+
 def _contains_any(message: str, *needles: str) -> bool:
     normalized = _normalize(message)
     return any(_normalize(needle) in normalized for needle in needles)
+
+
+def _matches_intent_pattern(message: str, *patterns: str) -> bool:
+    return any(re.search(pattern, message, re.IGNORECASE) for pattern in patterns)
 
 
 def _parse_uuid(text: str) -> str | None:
@@ -82,9 +94,15 @@ def _parse_integer(text: str, *, keyword: str | None = None) -> int | None:
 
 
 def _parse_money(text: str) -> int | None:
-    match = re.search(r'(?:\$|cost|price|unit cost)\s*(\d+)', text, re.IGNORECASE)
-    if match:
-        return int(match.group(1))
+    patterns = [
+        r'(?:\$|cost|unit cost|base price|price|prce)\s*(?:is|of|=)?\s*(\d+)',
+        r'\b(\d+)\s*(?:gbp|usd|eur|pounds?|dollars?)\b',
+        r'@\s*(\d+)',
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            return int(match.group(1))
     return None
 
 
@@ -101,6 +119,32 @@ def _parse_size_labels(text: str) -> list[str]:
         if token in SIZE_LABELS and token not in labels:
             labels.append(token)
     return labels
+
+
+def _extract_color_names(text: str) -> list[str]:
+    patterns = [
+        r'with\s+([a-zA-Z][a-zA-Z\s,]+?)\s+colors?\b',
+        r'colors?\s+(?:are|is|=)?\s*([a-zA-Z][a-zA-Z\s,]+?)(?=\s+(?:with|sizes?|sku|barcode|location|quantity|stock|status)\b|$)',
+        r'color\s+(?:is|=)?\s*([a-zA-Z][a-zA-Z\s,]+?)(?=\s+(?:with|sizes?|sku|barcode|location|quantity|stock|status)\b|$)',
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if not match:
+            continue
+        raw = match.group(1)
+        tokens = [
+            token.strip(" ,")
+            for token in re.split(r',|\band\b', raw, flags=re.IGNORECASE)
+            if token.strip(" ,")
+        ]
+        cleaned: list[str] = []
+        for token in tokens:
+            label = ' '.join(token.split())
+            if label and label.lower() not in {'with'} and label not in cleaned:
+                cleaned.append(label.title())
+        if cleaned:
+            return cleaned
+    return []
 
 
 def _dedupe_entities(entities: list[PreviewEntity]) -> list[PreviewEntity]:
@@ -124,12 +168,18 @@ class OrchestratorService:
         self,
         backend_client: BackendClient,
         retrieval_service: RetrievalService,
+        agent_registry: AgentRegistry,
+        model_routing: ModelRouting,
+        intent_classifier: IntentClassifier | None,
         *,
         mutations_enabled: bool = True,
         retrieval_enabled: bool = True,
     ) -> None:
         self._backend_client = backend_client
         self._retrieval_service = retrieval_service
+        self._agent_registry = agent_registry
+        self._model_routing = model_routing
+        self._intent_classifier = intent_classifier
         self._mutations_enabled = mutations_enabled
         self._retrieval_enabled = retrieval_enabled
 
@@ -177,7 +227,7 @@ class OrchestratorService:
                 active_approval_id=workflow.active_approval_id,
             )
 
-        intent = self._classify_intent(user_message, memory)
+        intent = await self._classify_intent_with_providers(user_message, memory, workflow)
         memory['intent'] = intent
         await self._audit(
             auth,
@@ -186,13 +236,83 @@ class OrchestratorService:
             event_type='intent_classified',
             payload={'intent': intent},
         )
+        agent = self._agent_registry.resolve(intent)
+        if agent is None:
+            await self._audit(
+                auth,
+                conversation_id=str(conversation.id),
+                workflow_id=str(workflow.id),
+                event_type='agent_selected',
+                payload={'agent': None, 'intent': intent},
+            )
+            return OrchestratorOutcome(
+                blocks=[
+                    ErrorBlock(
+                        title='Unsupported request',
+                        message=f'No agent is registered for intent: {intent}',
+                    )
+                ],
+                status=WorkflowStatus.FAILED,
+                current_task='no_agent',
+                extracted_entities=memory,
+                missing_fields=[],
+            )
 
-        extracted = await self._extract_entities(auth, intent, memory, user_message)
-        memory.update(extracted)
+        await self._audit(
+            auth,
+            conversation_id=str(conversation.id),
+            workflow_id=str(workflow.id),
+            event_type='agent_selected',
+            payload={'agent': agent.name, 'intent': intent},
+        )
 
-        missing_fields = self._missing_fields(intent, memory)
-        if missing_fields:
-            prompt = self._clarification_prompt(intent, memory, missing_fields)
+        try:
+            result: AgentTurnResult = await agent.handle_turn(
+                auth=auth,
+                conversation=conversation,
+                workflow=workflow,
+                intent=intent,
+                user_message=user_message,
+                memory=memory,
+            )
+        except Exception as exc:
+            await self._audit(
+                auth,
+                conversation_id=str(conversation.id),
+                workflow_id=str(workflow.id),
+                event_type='agent_error',
+                payload={'agent': agent.name, 'intent': intent, 'message': str(exc)},
+            )
+            return OrchestratorOutcome(
+                blocks=[
+                    ErrorBlock(
+                        title='Assistant error',
+                        message='Something went wrong while processing that request. Please try again.',
+                    )
+                ],
+                status=WorkflowStatus.FAILED,
+                current_task=f'{intent}:agent_error',
+                extracted_entities=memory,
+                missing_fields=[],
+                active_preview_id=workflow.active_preview_id,
+                active_approval_id=workflow.active_approval_id,
+            )
+        memory.update(result.memory_updates or {})
+
+        if result.next_action == 'return_read_result':
+            return OrchestratorOutcome(
+                blocks=result.blocks or [TextBlock(content='Done.')],
+                status=WorkflowStatus.IDLE,
+                current_task=f'{intent}:completed',
+                extracted_entities=memory,
+                missing_fields=[],
+                active_preview_id=workflow.active_preview_id,
+                active_approval_id=workflow.active_approval_id,
+            )
+
+        missing_fields = list(result.missing_fields or [])
+        if result.next_action == 'ask_follow_up':
+            prompt = result.follow_up_prompt or self._clarification_prompt(intent, memory, missing_fields)
             memory.pop('_pendingActions', None)
             memory.pop('_pendingPrompt', None)
             await self._audit(
@@ -203,7 +323,8 @@ class OrchestratorService:
                 payload={'intent': intent, 'missingFields': missing_fields},
             )
             return OrchestratorOutcome(
-                blocks=[ClarificationBlock(prompt=prompt, required_fields=missing_fields)],
+                blocks=result.blocks
+                or [ClarificationBlock(prompt=prompt, required_fields=missing_fields)],
                 status=WorkflowStatus.NEEDS_INPUT,
                 current_task=f'{intent}:collect_fields',
                 extracted_entities=memory,
@@ -211,9 +332,6 @@ class OrchestratorService:
                 active_preview_id=workflow.active_preview_id,
                 active_approval_id=workflow.active_approval_id,
             )
-
-        if intent in READ_ONLY_INTENTS:
-            return await self._handle_read(auth, conversation, workflow, intent, memory, user_message)
 
         if not self._mutations_enabled:
             return OrchestratorOutcome(
@@ -229,7 +347,119 @@ class OrchestratorService:
                 missing_fields=[],
             )
 
-        return await self._prepare_preview(auth, conversation, workflow, intent, memory)
+        return await self._wrap_preview(auth, conversation, workflow, intent, memory)
+
+    async def _classify_intent_with_providers(
+        self, user_message: str, memory: dict[str, object], workflow: WorkflowState
+    ) -> str:
+        normalized = _normalize(user_message)
+        if workflow.status in {
+            WorkflowStatus.NEEDS_INPUT,
+            WorkflowStatus.AWAITING_CONFIRMATION,
+            WorkflowStatus.AWAITING_APPROVAL,
+        }:
+            if memory.get('intent') and 'new chat' not in normalized and 'start over' not in normalized:
+                return str(memory['intent'])
+
+        intents = [
+            'stock_query',
+            'stock_transfer',
+            'stock_adjustment',
+            'stock_receipt',
+            'product_create',
+            'product_update',
+            'po_create',
+            'po_update',
+            'po_receive',
+            'po_close',
+            'so_create',
+            'so_update',
+            'so_dispatch',
+            'so_cancel',
+            'reporting_query',
+            'navigation_help',
+            'unknown',
+        ]
+        if self._intent_classifier:
+            try:
+                model = self._model_routing.model_for(agent_name='orchestrator_classifier', task='classify')
+                result = await self._intent_classifier.classify(model=model, text=user_message, intents=intents)
+                if result.confidence >= 0.3:
+                    return result.intent
+            except Exception:
+                pass
+
+        return self._classify_intent(user_message, memory)
+
+    async def _wrap_preview(
+        self,
+        auth: AuthContext,
+        conversation: ConversationDetail,
+        workflow: WorkflowState,
+        intent: str,
+        memory: dict[str, object],
+    ) -> OrchestratorOutcome:
+        preview_id = uuid4()
+        preview_payload = memory.get('preview')
+        if not isinstance(preview_payload, dict):
+            return OrchestratorOutcome(
+                blocks=[
+                    ErrorBlock(
+                        title='Preview missing',
+                        message='The workflow cannot continue because no preview payload was generated.',
+                    )
+                ],
+                status=WorkflowStatus.FAILED,
+                current_task='preview_missing',
+                extracted_entities=memory,
+                missing_fields=[],
+            )
+
+        action_type = str(memory.get('actionType') or intent)
+        summary = str(memory.get('summary') or preview_payload.get('nextStep') or '')
+        memory['summary'] = summary
+        memory['reason'] = preview_payload.get('warnings', [''])[0] if preview_payload.get('warnings') else ''
+        if auth.access_token:
+            memory['requesterAccessToken'] = auth.access_token
+        memory['_pendingActions'] = WRITE_PENDING_ACTIONS
+        memory['_pendingPrompt'] = 'Review the preview, then confirm or submit it for approval.'
+
+        await self._audit(
+            auth,
+            conversation_id=str(conversation.id),
+            workflow_id=str(workflow.id),
+            event_type='preview_generated',
+            payload={'actionType': action_type, 'summary': summary},
+        )
+
+        return OrchestratorOutcome(
+            blocks=[
+                TextBlock(content=f'Prepared a preview for {action_type.replace("_", " ")}.'),
+                PreviewBlock(
+                    action_type=str(preview_payload.get('actionType') or action_type.replace('_', ' ').title()),
+                    actor=str(preview_payload.get('actor') or auth.email),
+                    entities=preview_payload.get('entities', []),
+                    warnings=preview_payload.get('warnings', []),
+                    approval_required=True,
+                    next_step=str(preview_payload.get('nextStep') or 'Confirm to continue.'),
+                ),
+                ConfirmationRequiredBlock(
+                    prompt='Confirm these details to submit the action for approval.',
+                    allowed_actions=[
+                        PendingActionType.CONFIRM,
+                        PendingActionType.CANCEL,
+                        PendingActionType.EDIT,
+                        PendingActionType.SUBMIT_FOR_APPROVAL,
+                    ],
+                ),
+            ],
+            status=WorkflowStatus.AWAITING_CONFIRMATION,
+            current_task=f'{action_type}:preview_ready',
+            extracted_entities=memory,
+            missing_fields=[],
+            active_preview_id=preview_id,
+            active_approval_id=None,
+        )
 
     async def handle_decision(
         self,
@@ -478,17 +708,76 @@ class OrchestratorService:
         ):
             return str(memory['intent'])
 
-        if 'create po' in normalized or 'po draft' in normalized or 'new po' in normalized:
+        if _matches_intent_pattern(
+            message,
+            r'\bcreate\s+(?:a\s+|an\s+)?po\b',
+            r'\bcreate\s+(?:a\s+|an\s+)?purchase\s+order\b',
+            r'\bpo\s+draft\b',
+            r'\bnew\s+po\b',
+            r'\bnew\s+purchase\s+order\b',
+        ):
             return 'po_create'
-        if 'receive po' in normalized:
+        if _matches_intent_pattern(message, r'\breceive\s+(?:a\s+|the\s+)?po\b', r'\breceive\s+purchase\s+order\b'):
             return 'po_receive'
-        if 'close po' in normalized:
+        if _matches_intent_pattern(message, r'\bclose\s+(?:a\s+|the\s+)?po\b', r'\bclose\s+purchase\s+order\b'):
+            return 'po_close'
+        if _matches_intent_pattern(
+            message,
+            r'\bupdate\s+(?:a\s+|the\s+)?po\b',
+            r'\bedit\s+(?:a\s+|the\s+)?po\b',
+            r'\bupdate\s+purchase\s+order\b',
+            r'\bedit\s+purchase\s+order\b',
+        ):
             return 'po_update'
-        if 'update po' in normalized or 'edit po' in normalized:
-            return 'po_update'
-        if 'create product' in normalized or 'new product' in normalized:
+        if _matches_intent_pattern(
+            message,
+            r'\bcreate\s+(?:a\s+|an\s+)?sales\s+order\b',
+            r'\bnew\s+sales\s+order\b',
+            r'\bcreate\s+(?:a\s+|an\s+)?so\b',
+            r'\bnew\s+so\b',
+            r'\bcreate\s+(?:an\s+)?invoice\b',
+            r'\bnew\s+invoice\b',
+        ):
+            return 'so_create'
+        if _matches_intent_pattern(
+            message,
+            r'\bupdate\s+(?:a\s+|the\s+)?sales\s+order\b',
+            r'\bedit\s+(?:a\s+|the\s+)?sales\s+order\b',
+            r'\bupdate\s+(?:a\s+|the\s+)?so\b',
+            r'\bedit\s+(?:a\s+|the\s+)?so\b',
+            r'\bupdate\s+(?:an\s+|the\s+)?invoice\b',
+            r'\bedit\s+(?:an\s+|the\s+)?invoice\b',
+        ):
+            return 'so_update'
+        if _matches_intent_pattern(
+            message,
+            r'\bdispatch\s+(?:a\s+|the\s+)?sales\s+order\b',
+            r'\bship\s+(?:a\s+|the\s+)?sales\s+order\b',
+            r'\bdispatch\s+(?:an\s+|the\s+)?invoice\b',
+            r'\bship\s+(?:an\s+|the\s+)?invoice\b',
+        ):
+            return 'so_dispatch'
+        if _matches_intent_pattern(
+            message,
+            r'\bcancel\s+(?:a\s+|the\s+)?sales\s+order\b',
+            r'\bcancel\s+(?:a\s+|the\s+)?so\b',
+            r'\bcancel\s+(?:an\s+|the\s+)?invoice\b',
+        ):
+            return 'so_cancel'
+        if _matches_intent_pattern(
+            message,
+            r'\bcreate\s+(?:a\s+|an\s+)?product\b',
+            r'\bnew\s+product\b',
+            r'\badd\s+(?:a\s+|new\s+)?product\b',
+        ):
             return 'product_create'
-        if any(phrase in normalized for phrase in ['update product', 'edit product', 'add sku', 'add size']):
+        if _matches_intent_pattern(
+            message,
+            r'\bupdate\s+(?:a\s+|the\s+)?product\b',
+            r'\bedit\s+(?:a\s+|the\s+)?product\b',
+            r'\badd\s+(?:a\s+|the\s+)?sku\b',
+            r'\badd\s+(?:a\s+|the\s+)?size\b',
+        ):
             return 'product_update'
         if 'transfer' in normalized:
             return 'stock_transfer'
@@ -517,8 +806,10 @@ class OrchestratorService:
 
         if intent in {'stock_transfer', 'stock_adjustment', 'stock_receipt'}:
             extracted.update(await self._extract_inventory_entities(auth, intent, memory, message))
-        elif intent in {'po_create', 'po_update', 'po_receive'}:
+        elif intent in {'po_create', 'po_update', 'po_receive', 'po_close'}:
             extracted.update(await self._extract_po_entities(auth, intent, memory, message))
+        elif intent in {'so_create', 'so_update', 'so_dispatch', 'so_cancel'}:
+            extracted.update(await self._extract_sales_entities(auth, intent, memory, message))
         elif intent in {'product_create', 'product_update'}:
             extracted.update(await self._extract_product_entities(auth, intent, memory, message))
         elif intent == 'reporting_query':
@@ -613,9 +904,13 @@ class OrchestratorService:
         if size_match:
             extracted.update(size_match)
 
-        quantity = _parse_integer(message, keyword='quantity')
-        if quantity is not None:
-            extracted['quantity'] = quantity
+        quantity_match = re.search(
+            r'\b(?:quantity|qty|initial stock|stock)\s*(?:is|of|=)?\s*(\d+)\b',
+            message,
+            re.IGNORECASE,
+        )
+        if quantity_match:
+            extracted['quantity'] = int(quantity_match.group(1))
 
         reason = self._extract_reason(message)
         if reason:
@@ -643,7 +938,7 @@ class OrchestratorService:
         elif intent == 'po_receive':
             extracted['actionType'] = 'receive_po'
             extracted['toolName'] = 'purchasing.receivePO'
-        elif 'close po' in normalized:
+        elif intent == 'po_close' or 'close po' in normalized:
             extracted['actionType'] = 'close_po'
             extracted['toolName'] = 'purchasing.closePO'
         else:
@@ -680,6 +975,53 @@ class OrchestratorService:
 
         return extracted
 
+    async def _extract_sales_entities(
+        self,
+        auth: AuthContext,
+        intent: str,
+        memory: dict[str, object],
+        message: str,
+    ) -> dict[str, object]:
+        extracted: dict[str, object] = {}
+
+        if intent == 'so_create':
+            extracted['actionType'] = 'create_sales_order'
+            extracted['toolName'] = 'sales.createInvoice'
+        elif intent == 'so_update':
+            extracted['actionType'] = 'update_sales_order'
+            extracted['toolName'] = 'sales.updateInvoice'
+        elif intent == 'so_dispatch':
+            extracted['actionType'] = 'dispatch_sales_order'
+            extracted['toolName'] = 'sales.dispatchInvoice'
+        else:
+            extracted['actionType'] = 'cancel_sales_order'
+            extracted['toolName'] = 'sales.cancelInvoice'
+
+        customer = await self._match_customer(auth, message)
+        if customer:
+            extracted['customerId'] = customer['id']
+            extracted['customerName'] = customer['label']
+
+        invoice_ref = await self._match_invoice(auth, message)
+        if invoice_ref:
+            extracted['invoiceId'] = invoice_ref['id']
+            extracted['invoiceNumber'] = invoice_ref['number']
+
+        location = await self._match_location(auth, message)
+        if location:
+            extracted['locationId'] = location['id']
+            extracted['locationLabel'] = location['label']
+
+        lines = await self._parse_sales_lines(
+            auth,
+            message,
+            invoice_id=str(extracted.get('invoiceId') or memory.get('invoiceId') or ''),
+        )
+        if lines:
+            extracted['lines'] = lines
+
+        return extracted
+
     async def _extract_product_entities(
         self,
         auth: AuthContext,
@@ -701,11 +1043,17 @@ class OrchestratorService:
             extracted['category'] = category['label']
         elif match := re.search(r'category\s+([a-zA-Z0-9 -]+)', message, re.IGNORECASE):
             extracted['category'] = match.group(1).strip()
+        elif match := re.search(r'([a-zA-Z0-9 -]+)\s+category\b', message, re.IGNORECASE):
+            extracted['category'] = match.group(1).strip(' ,')
 
-        if style := re.search(r'style(?: code)?\s+([A-Za-z0-9-]+)', message, re.IGNORECASE):
+        if style := re.search(r'sty(?:le|e)(?:\s*code)?\s*(?:is|=|:)?\s*([A-Za-z0-9_-]+)', message, re.IGNORECASE):
             extracted['styleCode'] = style.group(1).strip().upper()
 
-        name_match = re.search(r'(?:name|named)\s+"?([^",]+)"?', message, re.IGNORECASE)
+        name_match = re.search(
+            r'(?:name|named)\s+"?(.+?)"?(?=\s+(?:with|style|category|base|price|colors?|sizes?|sku|barcode|location|stock|qty|quantity)\b|$)',
+            message,
+            re.IGNORECASE,
+        )
         if name_match:
             extracted['name'] = name_match.group(1).strip()
 
@@ -716,8 +1064,10 @@ class OrchestratorService:
         if brand := re.search(r'brand\s+([a-zA-Z0-9 -]+)', message, re.IGNORECASE):
             extracted['brand'] = brand.group(1).strip()
 
-        if color := re.search(r'color\s+([a-zA-Z0-9 -]+)', message, re.IGNORECASE):
-            extracted['colorName'] = color.group(1).strip()
+        color_names = _extract_color_names(message)
+        if color_names:
+            extracted['colorNames'] = color_names
+            extracted['colorName'] = color_names[0]
 
         sku_code = self._extract_sku_code(message)
         if sku_code:
@@ -735,9 +1085,25 @@ class OrchestratorService:
             extracted['locationId'] = location['id']
             extracted['locationLabel'] = location['label']
 
-        quantity = _parse_integer(message, keyword='quantity')
-        if quantity is not None:
-            extracted['quantity'] = quantity
+        quantity_match = re.search(
+            (
+                r'(?:\b(?:quantity|qty|initial stock|stock)\s*(?:is|of|=)?\s*(\d+)\b|'
+                r'\bhas\s+(\d+)\s+stock\b|\b(\d+)\s+stock\b)'
+            ),
+            message,
+            re.IGNORECASE,
+        )
+        if quantity_match:
+            extracted['quantity'] = int(next(group for group in quantity_match.groups() if group is not None))
+            size_labels = extracted.get('sizeLabels') or memory.get('sizeLabels')
+            if (
+                isinstance(size_labels, list)
+                and size_labels
+                and re.search(r'\beach\b', message, re.IGNORECASE)
+            ):
+                extracted['sizeQuantities'] = {
+                    str(size_label): int(extracted['quantity']) for size_label in size_labels
+                }
 
         media_url = re.search(r'(https?://\S+)', message)
         if media_url:
@@ -761,23 +1127,30 @@ class OrchestratorService:
         return extracted
 
     def _missing_fields(self, intent: str, memory: dict[str, object]) -> list[str]:
-        action_type = str(memory.get('actionType') or '')
         required: list[str]
 
         if intent == 'po_create':
-            required = ['supplier_id', 'expected_date', 'lines']
+            required = ['supplier_id', 'lines']
         elif intent == 'po_receive':
             required = ['po_id', 'location_id', 'lines']
-        elif intent == 'po_update' and action_type == 'close_po':
+        elif intent == 'po_close':
             required = ['po_id']
         elif intent == 'po_update':
             required = ['po_id', 'changes']
+        elif intent == 'so_create':
+            required = ['customer_id', 'lines']
+        elif intent == 'so_dispatch':
+            required = ['invoice_id', 'location_id']
+        elif intent == 'so_cancel':
+            required = ['invoice_id']
+        elif intent == 'so_update':
+            required = ['invoice_id', 'changes']
         elif intent == 'stock_transfer':
             required = ['from_location_id', 'to_location_id', 'sku_and_size', 'quantity', 'reason']
         elif intent in {'stock_adjustment', 'stock_receipt'}:
             required = ['location_id', 'sku_and_size', 'quantity', 'reason']
         elif intent == 'product_create':
-            required = ['style_code', 'name', 'base_price', 'category', 'color_name', 'sku_code', 'size_labels']
+            required = ['style_code', 'name', 'base_price', 'category', 'color_name', 'size_labels']
             if ('quantity' in memory) ^ ('locationId' in memory):
                 required.append('location_and_quantity')
             size_labels = memory.get('sizeLabels')
@@ -786,6 +1159,7 @@ class OrchestratorService:
                 and len(size_labels) > 1
                 and memory.get('quantity') is not None
                 and memory.get('locationId')
+                and not memory.get('sizeQuantities')
             ):
                 required.append('size_quantity_breakdown')
         elif intent == 'product_update':
@@ -799,11 +1173,13 @@ class OrchestratorService:
         for field in required:
             if field == 'supplier_id' and not memory.get('supplierId'):
                 missing.append(field)
-            elif field == 'expected_date' and not memory.get('expectedDate'):
+            elif field == 'customer_id' and not memory.get('customerId'):
                 missing.append(field)
             elif field == 'lines' and not memory.get('lines'):
                 missing.append(field)
             elif field == 'po_id' and not memory.get('poId'):
+                missing.append(field)
+            elif field == 'invoice_id' and not memory.get('invoiceId'):
                 missing.append(field)
             elif field == 'location_id' and not memory.get('locationId'):
                 missing.append(field)
@@ -827,15 +1203,18 @@ class OrchestratorService:
                 missing.append(field)
             elif field == 'color_name' and not memory.get('colorName'):
                 missing.append(field)
-            elif field == 'sku_code' and not memory.get('skuCode'):
-                missing.append(field)
             elif field == 'size_labels' and not memory.get('sizeLabels'):
                 missing.append(field)
             elif field == 'location_and_quantity' and (not memory.get('locationId') or memory.get('quantity') is None):
                 missing.append(field)
             elif field == 'product_id' and not memory.get('productId'):
                 missing.append(field)
-            elif field == 'changes' and not self._has_product_changes(memory) and not self._has_po_changes(memory):
+            elif (
+                field == 'changes'
+                and not self._has_product_changes(memory)
+                and not self._has_po_changes(memory)
+                and not self._has_so_changes(memory)
+            ):
                 missing.append(field)
             elif field == 'report_type' and not memory.get('reportType'):
                 missing.append(field)
@@ -851,8 +1230,6 @@ class OrchestratorService:
         if intent == 'po_create':
             if 'supplier_id' in missing_fields:
                 return 'Which supplier should this PO draft use?'
-            if 'expected_date' in missing_fields:
-                return 'What is the expected date? Reply with `YYYY-MM-DD`.'
             if 'lines' in missing_fields:
                 return 'Reply with PO lines in the format `SKUCODE/SIZE xQTY @UNIT_COST`, separated by commas.'
         if intent == 'po_receive':
@@ -868,6 +1245,27 @@ class OrchestratorService:
             if 'po_id' in missing_fields:
                 return 'Which purchase order should I update or close?'
             return 'What should change on the PO? You can update supplier, expected date, or lines.'
+        if intent == 'po_close':
+            return 'Which purchase order should I close?'
+        if intent == 'so_create':
+            if 'customer_id' in missing_fields:
+                return 'Which customer should this sales order use?'
+            if 'lines' in missing_fields:
+                return (
+                    'Reply with sales order lines in the format '
+                    '`SKUCODE/SIZE xQTY @UNIT_PRICE`, separated by commas.'
+                )
+        if intent == 'so_update':
+            if 'invoice_id' in missing_fields:
+                return 'Which sales order should I update? Reply with the SO number, invoice id, or customer name.'
+            return 'What should change on the sales order? You can update customer or lines.'
+        if intent == 'so_dispatch':
+            if 'invoice_id' in missing_fields:
+                return 'Which sales order should I dispatch?'
+            if 'location_id' in missing_fields:
+                return 'Which location should dispatch this sales order?'
+        if intent == 'so_cancel':
+            return 'Which sales order should I cancel?'
         if intent == 'stock_transfer':
             prompts = {
                 'from_location_id': 'Which source location should stock move from?',
@@ -892,7 +1290,6 @@ class OrchestratorService:
                 'base_price': 'What base price should I set?',
                 'category': 'Which category should the product belong to?',
                 'color_name': 'What is the first variant color?',
-                'sku_code': 'What SKU code should I use for the first variant?',
                 'size_labels': 'Which sizes should I create? Reply like `S, M, L`.',
                 'location_and_quantity': (
                     'If you want initial stock, reply with both location and quantity. '
@@ -1190,16 +1587,18 @@ class OrchestratorService:
         elif action_type == 'create_po':
             memory['executionPayload'] = {
                 'supplierId': memory['supplierId'],
-                'expectedDate': memory['expectedDate'],
                 'lines': memory['lines'],
             }
+            if memory.get('expectedDate'):
+                memory['executionPayload']['expectedDate'] = memory['expectedDate']
             entities.extend(
                 [
                     PreviewEntity(label='Supplier', value=str(memory.get('supplierName', ''))),
-                    PreviewEntity(label='Expected date', value=str(memory.get('expectedDate', ''))[:10]),
                     PreviewEntity(label='Line count', value=str(len(memory.get('lines', [])))),
                 ]
             )
+            if memory.get('expectedDate'):
+                entities.insert(1, PreviewEntity(label='Expected date', value=str(memory.get('expectedDate', ''))[:10]))
             memory['summary'] = (
                 f'Create PO draft for {memory.get("supplierName")} with {len(memory.get("lines", []))} line(s)'
             )
@@ -1239,11 +1638,63 @@ class OrchestratorService:
             entities.append(PreviewEntity(label='PO', value=str(memory.get('poNumber', memory.get('poId', '')))))
             memory['summary'] = f'Close {memory.get("poNumber", memory.get("poId", "PO"))}'
             warnings.append('Closing a PO stops further draft edits.')
+        elif action_type == 'create_sales_order':
+            memory['executionPayload'] = {
+                'customerId': memory['customerId'],
+                'lines': memory['lines'],
+            }
+            entities.extend(
+                [
+                    PreviewEntity(label='Customer', value=str(memory.get('customerName', ''))),
+                    PreviewEntity(label='Line count', value=str(len(memory.get('lines', [])))),
+                ]
+            )
+            memory['summary'] = (
+                f'Create sales order for {memory.get("customerName")} with {len(memory.get("lines", []))} line(s)'
+            )
+        elif action_type == 'update_sales_order':
+            patch: dict[str, object] = {}
+            if memory.get('customerId'):
+                patch['customerId'] = memory['customerId']
+                entities.append(PreviewEntity(label='Customer', value=str(memory.get('customerName', ''))))
+            if memory.get('lines'):
+                patch['lines'] = memory['lines']
+                entities.append(PreviewEntity(label='Line count', value=str(len(memory.get('lines', [])))))
+            memory['executionPayload'] = {'invoiceId': memory['invoiceId'], 'patch': patch}
+            entities.insert(
+                0,
+                PreviewEntity(label='Sales order', value=str(memory.get('invoiceNumber', memory.get('invoiceId', '')))),
+            )
+            memory['summary'] = f'Update {memory.get("invoiceNumber", memory.get("invoiceId", "sales order"))}'
+        elif action_type == 'dispatch_sales_order':
+            memory['executionPayload'] = {
+                'invoiceId': memory['invoiceId'],
+                'locationId': memory['locationId'],
+            }
+            entities.extend(
+                [
+                    PreviewEntity(
+                        label='Sales order',
+                        value=str(memory.get('invoiceNumber', memory.get('invoiceId', ''))),
+                    ),
+                    PreviewEntity(label='Location', value=str(memory.get('locationLabel', ''))),
+                ]
+            )
+            memory['summary'] = (
+                f'Dispatch {memory.get("invoiceNumber", memory.get("invoiceId", "sales order"))} '
+                f'from {memory.get("locationLabel")}'
+            )
+        elif action_type == 'cancel_sales_order':
+            memory['executionPayload'] = {'invoiceId': memory['invoiceId']}
+            entities.append(
+                PreviewEntity(label='Sales order', value=str(memory.get('invoiceNumber', memory.get('invoiceId', ''))))
+            )
+            memory['summary'] = f'Cancel {memory.get("invoiceNumber", memory.get("invoiceId", "sales order"))}'
+            warnings.append('Canceling a sales order stops further processing.')
         elif action_type == 'create_product':
             size_labels = [str(label) for label in memory.get('sizeLabels', [])]
-            stock_by_location: list[dict[str, object]] = []
-            if memory.get('locationId') and memory.get('quantity') is not None and len(size_labels) == 1:
-                stock_by_location = [{'locationId': memory['locationId'], 'quantity': memory['quantity']}]
+            color_names = [str(label) for label in memory.get('colorNames', [])] or [str(memory.get('colorName', ''))]
+            stock_by_size = memory.get('sizeQuantities') if isinstance(memory.get('sizeQuantities'), dict) else {}
             media: list[dict[str, object]] = []
             if memory.get('mediaUrl'):
                 media.append(
@@ -1265,36 +1716,54 @@ class OrchestratorService:
                     'status': memory.get('status', 'active'),
                 },
                 'styleMedia': media,
-                'variants': [
-                    {
-                        'colorName': memory['colorName'],
-                        'skuCode': memory['skuCode'],
-                        'media': media,
-                        'sizes': [
-                            {
-                                'sizeLabel': size_label,
-                                'stockByLocation': stock_by_location,
-                            }
-                            for size_label in size_labels
-                        ],
-                    }
-                ],
+                'variants': [],
             }
+            for index, color_name in enumerate(color_names):
+                variant: dict[str, object] = {
+                    'colorName': color_name,
+                    'media': media,
+                    'sizes': [],
+                }
+                if memory.get('skuCode') and index == 0:
+                    variant['skuCode'] = memory['skuCode']
+                for size_label in size_labels:
+                    stock_by_location: list[dict[str, object]] = []
+                    if memory.get('locationId'):
+                        per_size_quantity = stock_by_size.get(size_label)
+                        if per_size_quantity is not None:
+                            stock_by_location = [
+                                {'locationId': memory['locationId'], 'quantity': int(per_size_quantity)}
+                            ]
+                        elif memory.get('quantity') is not None and len(size_labels) == 1:
+                            stock_by_location = [{'locationId': memory['locationId'], 'quantity': memory['quantity']}]
+                    variant['sizes'].append(
+                        {
+                            'sizeLabel': size_label,
+                            'stockByLocation': stock_by_location,
+                        }
+                    )
+                memory['executionPayload']['variants'].append(variant)
             entities.extend(
                 [
                     PreviewEntity(label='Style code', value=str(memory.get('styleCode', ''))),
                     PreviewEntity(label='Name', value=str(memory.get('name', ''))),
                     PreviewEntity(label='Category', value=str(memory.get('category', ''))),
-                    PreviewEntity(label='Variant', value=str(memory.get('colorName', ''))),
-                    PreviewEntity(label='SKU', value=str(memory.get('skuCode', ''))),
+                    PreviewEntity(label='Variants', value=', '.join(color_names)),
                     PreviewEntity(label='Sizes', value=', '.join(size_labels)),
                 ]
             )
+            if memory.get('skuCode'):
+                entities.insert(4, PreviewEntity(label='SKU', value=str(memory.get('skuCode', ''))))
             if memory.get('locationLabel'):
+                stock_summary = (
+                    ', '.join(f'{size}:{qty}' for size, qty in stock_by_size.items())
+                    if stock_by_size
+                    else str(memory.get('quantity', 0))
+                )
                 entities.append(
                     PreviewEntity(
                         label='Initial stock',
-                        value=f'{memory.get("quantity", 0)} at {memory.get("locationLabel")}',
+                        value=f'{stock_summary} at {memory.get("locationLabel")}',
                     )
                 )
             memory['summary'] = f'Create product {memory.get("styleCode")} / {memory.get("name")}'
@@ -1477,6 +1946,31 @@ class OrchestratorService:
                     access_token,
                     auth.tenant_id,
                     str(payload['poId']),
+                )
+            if action_type == 'create_sales_order':
+                return await self._backend_client.create_invoice(access_token, auth.tenant_id, payload)
+            if action_type == 'update_sales_order':
+                return await self._backend_client.update_invoice(
+                    access_token,
+                    auth.tenant_id,
+                    str(payload['invoiceId']),
+                    dict(payload.get('patch') or {}),
+                )
+            if action_type == 'dispatch_sales_order':
+                return await self._backend_client.dispatch_invoice(
+                    access_token,
+                    auth.tenant_id,
+                    str(payload['invoiceId']),
+                    {
+                        'locationId': payload['locationId'],
+                        'confirm': True,
+                    },
+                )
+            if action_type == 'cancel_sales_order':
+                return await self._backend_client.cancel_invoice(
+                    access_token,
+                    auth.tenant_id,
+                    str(payload['invoiceId']),
                 )
             if action_type == 'create_product':
                 return await self._backend_client.create_product(access_token, auth.tenant_id, payload)
@@ -1689,10 +2183,22 @@ class OrchestratorService:
                 text = qualifier_match.group(1)
         locations = await self._backend_client.list_locations(auth.access_token or '', auth.tenant_id)
         target = _normalize(text)
+        target_tokens = _normalized_tokens(text)
         for location in locations:
             name = str(location.get('name') or '')
             code = str(location.get('code') or '')
-            if _normalize(name) in target or _normalize(code) in target:
+            normalized_name = _normalize(name)
+            normalized_code = _normalize(code)
+            name_tokens = _normalized_tokens(name)
+            code_tokens = _normalized_tokens(code)
+            if (
+                normalized_name in target
+                or normalized_code in target
+                or target in normalized_name
+                or target in normalized_code
+                or bool(target_tokens & name_tokens)
+                or bool(target_tokens & code_tokens)
+            ):
                 return {'id': str(location['id']), 'label': f'{name} ({code})'}
         return None
 
@@ -1703,6 +2209,15 @@ class OrchestratorService:
             name = str(supplier.get('name') or '')
             if _normalize(name) in target:
                 return {'id': str(supplier['id']), 'label': name}
+        return None
+
+    async def _match_customer(self, auth: AuthContext, message: str) -> dict[str, str] | None:
+        customers = await self._backend_client.list_customers(auth.access_token or '', auth.tenant_id)
+        target = _normalize(message)
+        for customer in customers:
+            name = str(customer.get('name') or '')
+            if _normalize(name) in target:
+                return {'id': str(customer['id']), 'label': name}
         return None
 
     async def _match_category(self, auth: AuthContext, message: str) -> dict[str, str] | None:
@@ -1748,6 +2263,28 @@ class OrchestratorService:
             style_code = str(product.get('style_code') or product.get('styleCode') or '')
             if _normalize(name) in target or _normalize(style_code) in target:
                 return {'id': str(product['id']), 'label': f'{name} ({style_code})'.strip()}
+        return None
+
+    async def _match_invoice(self, auth: AuthContext, message: str) -> dict[str, str] | None:
+        uuid_value = _parse_uuid(message)
+        if uuid_value:
+            return {'id': uuid_value, 'number': f'SO-{uuid_value[:8].upper()}'}
+
+        payload = await self._backend_client.list_invoices(
+            auth.access_token or '',
+            auth.tenant_id,
+            params={'pageSize': 50},
+        )
+        items = payload.get('items', []) if isinstance(payload, dict) else []
+        target = _normalize(message)
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            number = str(item.get('number') or '')
+            customer_name = str(item.get('customerName') or '')
+            identifier = str(item.get('id') or '')
+            if _normalize(number) in target or identifier[:8].lower() in target or _normalize(customer_name) in target:
+                return {'id': identifier, 'number': number or f'SO-{identifier[:8].upper()}'}
         return None
 
     async def _resolve_size_reference(
@@ -1860,6 +2397,43 @@ class OrchestratorService:
             )
         return lines
 
+    async def _parse_sales_lines(
+        self,
+        auth: AuthContext,
+        message: str,
+        *,
+        invoice_id: str,
+    ) -> list[dict[str, object]]:
+        del invoice_id
+        segments = [segment.strip() for segment in re.split(r'[,\n;]+', message) if segment.strip()]
+        if not segments:
+            return []
+
+        lines: list[dict[str, object]] = []
+        pattern = re.compile(
+            r'(?P<sku>[A-Za-z0-9-]+)\s*/\s*(?P<size>[A-Za-z0-9]+)\s*x(?P<qty>\d+)(?:\s*@(?P<price>\d+))?',
+            re.IGNORECASE,
+        )
+        for segment in segments:
+            match = pattern.search(segment)
+            if not match or match.group('price') is None:
+                continue
+            size_ref = await self._resolve_size_reference(
+                auth,
+                sku_code=match.group('sku').upper(),
+                size_label=match.group('size').upper(),
+            )
+            if not size_ref or not size_ref.get('sizeId'):
+                continue
+            lines.append(
+                {
+                    'sizeId': size_ref['sizeId'],
+                    'qty': int(match.group('qty')),
+                    'unitPrice': int(match.group('price')),
+                }
+            )
+        return lines
+
     def _has_product_changes(self, memory: dict[str, object]) -> bool:
         return any(
             memory.get(key) is not None
@@ -1879,6 +2453,9 @@ class OrchestratorService:
 
     def _has_po_changes(self, memory: dict[str, object]) -> bool:
         return any(memory.get(key) is not None for key in ('supplierId', 'expectedDate', 'lines'))
+
+    def _has_so_changes(self, memory: dict[str, object]) -> bool:
+        return any(memory.get(key) is not None for key in ('customerId', 'lines'))
 
     @staticmethod
     def _json_safe_row(row: dict[str, Any]) -> dict[str, object]:

@@ -23,8 +23,8 @@ export function AssistantMessageBlocks({ blocks }: Props) {
 
         if (block.type === 'clarification') {
           return (
-            <View key={key} className="rounded-[24px] border border-info/20 bg-info-tint px-4 py-4">
-              <Text className="text-body font-semibold text-info">{block.prompt}</Text>
+            <View key={key} className="rounded-[24px] border border-border bg-surface-2 px-4 py-4">
+              <Text className="text-body font-semibold text-text">{block.prompt}</Text>
               {block.requiredFields?.length ? (
                 <Text className="mt-2 text-small text-muted">
                   Required: {block.requiredFields.join(', ')}
