@@ -7,7 +7,7 @@ This setup deploys from `master` to:
 
 Both instances are in the same VPC, so nginx can proxy API traffic to backend private IP.
 
-## 1) Backend env (`~/ecom/backend/.env`)
+## 1) Backend env (`~/ecom/apps/backend/.env`)
 
 Set production-safe values:
 
@@ -42,7 +42,7 @@ Install service (if not present):
 
 ```bash
 cd ~/ecom
-sudo cp ops/systemd/stockaisle-backend.service /etc/systemd/system/stockaisle-backend.service
+sudo cp infra/ops/systemd/stockaisle-backend.service /etc/systemd/system/stockaisle-backend.service
 sudo systemctl daemon-reload
 sudo systemctl enable stockaisle-backend
 sudo systemctl restart stockaisle-backend
@@ -55,7 +55,7 @@ Use the repo template:
 
 ```bash
 cd ~/ecom
-sudo cp ops/nginx/stockaisle-admin.conf /etc/nginx/sites-available/stockaisle-admin
+sudo cp infra/ops/nginx/stockaisle-admin.conf /etc/nginx/sites-available/stockaisle-admin
 sudo ln -sf /etc/nginx/sites-available/stockaisle-admin /etc/nginx/sites-enabled/stockaisle-admin
 sudo nginx -t
 sudo systemctl reload nginx
