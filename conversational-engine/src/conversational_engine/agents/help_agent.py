@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from conversational_engine.agents.base import Agent
-from conversational_engine.agents.types import AgentTurnResult
-from conversational_engine.config.model_routing import ModelRouting
-from conversational_engine.contracts.auth import AuthContext
-from conversational_engine.contracts.common import ConversationDetail, NavigationBlock, TextBlock, WorkflowState
-from conversational_engine.providers.base import ChatProvider, ProviderMessage
-from conversational_engine.providers.json_schema import nullable, strict_object_schema, string_schema
-from conversational_engine.retrieval.service import RetrievalService
+from conversational_engine.agents.base_agent import Agent
+from conversational_engine.agents.types_agent import AgentTurnResult
+from conversational_engine.llm.routing_model import ModelRouting
+from conversational_engine.schemas.auth_schemas import AuthContext
+from conversational_engine.schemas.shared_schemas import ConversationDetail, NavigationBlock, TextBlock, WorkflowState
+from conversational_engine.llm.provider_interfaces import ChatProvider, ProviderMessage
+from conversational_engine.llm.json_schema_utils import nullable, strict_object_schema, string_schema
+from conversational_engine.retrieval.retrieval_service import RetrievalService
 
 HELP_EXTRACTION_SCHEMA = strict_object_schema(
     properties={

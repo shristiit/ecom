@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from conversational_engine.config.settings import Settings
-from conversational_engine.providers.base import ChatProvider, EmbeddingsProvider, IntentClassifier
-from conversational_engine.providers.openai_compatible import (
+from conversational_engine.llm.provider_interfaces import ChatProvider, EmbeddingsProvider, IntentClassifier
+from conversational_engine.llm.openai_compatible_model import (
     OpenAICompatibleChatProvider,
     OpenAICompatibleEmbeddingsProvider,
     OpenAICompatibleIntentClassifier,

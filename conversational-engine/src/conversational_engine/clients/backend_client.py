@@ -4,14 +4,14 @@ from uuid import uuid4
 
 import httpx
 
-from conversational_engine.contracts.api import (
+from conversational_engine.schemas.api_schemas import (
     ApprovalDecisionResponse,
     ApprovalItem,
     ApprovalRequestStatus,
     GovernanceEvaluationResponse,
     HistoryItem,
 )
-from conversational_engine.contracts.auth import AuthContext
+from conversational_engine.schemas.auth_schemas import AuthContext
 
 
 class BackendClient:

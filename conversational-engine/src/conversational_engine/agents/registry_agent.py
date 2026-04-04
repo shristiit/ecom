@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from conversational_engine.agents.base import Agent
+from conversational_engine.agents.base_agent import Agent
 
 
 class AgentRegistry:

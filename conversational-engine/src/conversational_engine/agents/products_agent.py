@@ -2,16 +2,16 @@ from __future__ import annotations
 
 import re
 
-from conversational_engine.agents.base import Agent
-from conversational_engine.agents.entity_resolver import EntityResolver
-from conversational_engine.agents.parsing import extract_color_names, normalize, parse_money, parse_size_labels
-from conversational_engine.agents.types import AgentTurnResult
-from conversational_engine.clients.backend import BackendClient
-from conversational_engine.config.model_routing import ModelRouting
-from conversational_engine.contracts.auth import AuthContext
-from conversational_engine.contracts.common import ConversationDetail, ErrorBlock, WorkflowState
-from conversational_engine.providers.base import ChatProvider, ProviderMessage
-from conversational_engine.providers.json_schema import (
+from conversational_engine.agents.base_agent import Agent
+from conversational_engine.agents.entity_resolver_agent import EntityResolver
+from conversational_engine.agents.parsing_agent import extract_color_names, normalize, parse_money, parse_size_labels
+from conversational_engine.agents.types_agent import AgentTurnResult
+from conversational_engine.clients.backend_client import BackendClient
+from conversational_engine.llm.routing_model import ModelRouting
+from conversational_engine.schemas.auth_schemas import AuthContext
+from conversational_engine.schemas.shared_schemas import ConversationDetail, ErrorBlock, WorkflowState
+from conversational_engine.llm.provider_interfaces import ChatProvider, ProviderMessage
+from conversational_engine.llm.json_schema_utils import (
     bool_schema,
     int_schema,
     nullable,

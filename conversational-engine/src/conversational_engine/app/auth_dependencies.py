@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from fastapi import Header, HTTPException, status
 
-from conversational_engine.app.dependencies import get_backend_client
-from conversational_engine.contracts.auth import AuthContext
+from conversational_engine.app.dependency_providers import get_backend_client
+from conversational_engine.schemas.auth_schemas import AuthContext
 
 
 async def require_auth_context(
