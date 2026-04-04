@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
-from conversational_engine.contracts.common import MessageBlock
+from conversational_engine.schemas.shared_schemas import MessageBlock
 
 NextAction = Literal['ask_follow_up', 'return_read_result', 'prepare_preview']
 

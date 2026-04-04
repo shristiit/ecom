@@ -5,20 +5,20 @@ from uuid import uuid4
 
 import pytest
 
-from conversational_engine.agents.entity_resolver import EntityResolver
-from conversational_engine.agents.help import HelpAgent
-from conversational_engine.agents.inventory import InventoryAgent
-from conversational_engine.agents.products import ProductsAgent
-from conversational_engine.agents.purchasing import PurchasingAgent
-from conversational_engine.agents.registry import AgentRegistry
-from conversational_engine.agents.reporting import ReportingAgent
-from conversational_engine.agents.sales import SalesAgent
-from conversational_engine.config.model_routing import ModelRouting
-from conversational_engine.contracts.api import ApprovalRequestStatus, GovernanceEvaluationResponse
-from conversational_engine.contracts.auth import AuthContext
-from conversational_engine.contracts.common import BlockType, ConversationDetail, WorkflowState, WorkflowStatus
-from conversational_engine.orchestrator.service import OrchestratorService
-from conversational_engine.providers.base import ChatProvider, ProviderMessage
+from conversational_engine.agents.entity_resolver_agent import EntityResolver
+from conversational_engine.agents.help_agent import HelpAgent
+from conversational_engine.agents.inventory_agent import InventoryAgent
+from conversational_engine.agents.products_agent import ProductsAgent
+from conversational_engine.agents.purchasing_agent import PurchasingAgent
+from conversational_engine.agents.registry_agent import AgentRegistry
+from conversational_engine.agents.reporting_agent import ReportingAgent
+from conversational_engine.agents.sales_agent import SalesAgent
+from conversational_engine.llm.routing_model import ModelRouting
+from conversational_engine.schemas.api_schemas import ApprovalRequestStatus, GovernanceEvaluationResponse
+from conversational_engine.schemas.auth_schemas import AuthContext
+from conversational_engine.schemas.shared_schemas import BlockType, ConversationDetail, WorkflowState, WorkflowStatus
+from conversational_engine.orchestrator.orchestrator_service import OrchestratorService
+from conversational_engine.llm.provider_interfaces import ChatProvider, ProviderMessage
 
 pytestmark = pytest.mark.anyio
 

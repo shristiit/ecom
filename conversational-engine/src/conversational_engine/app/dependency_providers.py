@@ -1,21 +1,21 @@
 from functools import lru_cache
 
-from conversational_engine.agents.entity_resolver import EntityResolver
-from conversational_engine.agents.help import HelpAgent
-from conversational_engine.agents.inventory import InventoryAgent
-from conversational_engine.agents.products import ProductsAgent
-from conversational_engine.agents.purchasing import PurchasingAgent
-from conversational_engine.agents.registry import AgentRegistry
-from conversational_engine.agents.reporting import ReportingAgent
-from conversational_engine.agents.sales import SalesAgent
-from conversational_engine.clients.backend import BackendClient
-from conversational_engine.config.model_routing import ModelRouting
+from conversational_engine.agents.entity_resolver_agent import EntityResolver
+from conversational_engine.agents.help_agent import HelpAgent
+from conversational_engine.agents.inventory_agent import InventoryAgent
+from conversational_engine.agents.products_agent import ProductsAgent
+from conversational_engine.agents.purchasing_agent import PurchasingAgent
+from conversational_engine.agents.registry_agent import AgentRegistry
+from conversational_engine.agents.reporting_agent import ReportingAgent
+from conversational_engine.agents.sales_agent import SalesAgent
+from conversational_engine.clients.backend_client import BackendClient
+from conversational_engine.llm.routing_model import ModelRouting
 from conversational_engine.config.settings import get_settings
-from conversational_engine.conversations.service import ConversationService
-from conversational_engine.db.repository import EngineRepository
-from conversational_engine.orchestrator.service import OrchestratorService
-from conversational_engine.providers.factory import build_providers
-from conversational_engine.retrieval.service import RetrievalService
+from conversational_engine.conversations.conversation_service import ConversationService
+from conversational_engine.repositories.engine_repository import EngineRepository
+from conversational_engine.orchestrator.orchestrator_service import OrchestratorService
+from conversational_engine.llm.provider_factory import build_providers
+from conversational_engine.retrieval.retrieval_service import RetrievalService
 
 
 @lru_cache(maxsize=1)

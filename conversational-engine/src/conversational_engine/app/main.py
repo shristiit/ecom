@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from conversational_engine.app.routes import chat_router, router
+from conversational_engine.app.chat_routes import chat_router, router
 from conversational_engine.config.settings import get_settings
 
 

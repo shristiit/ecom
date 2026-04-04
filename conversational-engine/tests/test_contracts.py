@@ -1,7 +1,7 @@
 from uuid import uuid4
 
-from conversational_engine.contracts.api import ConversationResponse
-from conversational_engine.contracts.common import (
+from conversational_engine.schemas.api_schemas import ConversationResponse
+from conversational_engine.schemas.shared_schemas import (
     ChatMessage,
     ConfirmationRequiredBlock,
     ConversationDetail,

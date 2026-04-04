@@ -1,21 +1,21 @@
 from __future__ import annotations
 
-from conversational_engine.agents.base import Agent
-from conversational_engine.agents.entity_resolver import EntityResolver
-from conversational_engine.agents.parsing import normalize, parse_iso_date
-from conversational_engine.agents.types import AgentTurnResult
-from conversational_engine.clients.backend import BackendClient
-from conversational_engine.config.model_routing import ModelRouting
-from conversational_engine.contracts.auth import AuthContext
-from conversational_engine.contracts.common import (
+from conversational_engine.agents.base_agent import Agent
+from conversational_engine.agents.entity_resolver_agent import EntityResolver
+from conversational_engine.agents.parsing_agent import normalize, parse_iso_date
+from conversational_engine.agents.types_agent import AgentTurnResult
+from conversational_engine.clients.backend_client import BackendClient
+from conversational_engine.llm.routing_model import ModelRouting
+from conversational_engine.schemas.auth_schemas import AuthContext
+from conversational_engine.schemas.shared_schemas import (
     ConversationDetail,
     TableColumn,
     TableResultBlock,
     TextBlock,
     WorkflowState,
 )
-from conversational_engine.providers.base import ChatProvider, ProviderMessage
-from conversational_engine.providers.json_schema import (
+from conversational_engine.llm.provider_interfaces import ChatProvider, ProviderMessage
+from conversational_engine.llm.json_schema_utils import (
     nullable,
     strict_object_schema,
     string_schema,

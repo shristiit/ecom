@@ -6,13 +6,13 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
-from conversational_engine.agents.registry import AgentRegistry
-from conversational_engine.agents.types import AgentTurnResult
-from conversational_engine.clients.backend import BackendClient
-from conversational_engine.config.model_routing import ModelRouting
-from conversational_engine.contracts.api import ApprovalRequestStatus
-from conversational_engine.contracts.auth import AuthContext
-from conversational_engine.contracts.common import (
+from conversational_engine.agents.registry_agent import AgentRegistry
+from conversational_engine.agents.types_agent import AgentTurnResult
+from conversational_engine.clients.backend_client import BackendClient
+from conversational_engine.llm.routing_model import ModelRouting
+from conversational_engine.schemas.api_schemas import ApprovalRequestStatus
+from conversational_engine.schemas.auth_schemas import AuthContext
+from conversational_engine.schemas.shared_schemas import (
     ApprovalPendingBlock,
     ApprovalResultBlock,
     ClarificationBlock,
@@ -31,8 +31,8 @@ from conversational_engine.contracts.common import (
     WorkflowState,
     WorkflowStatus,
 )
-from conversational_engine.providers.base import IntentClassifier
-from conversational_engine.retrieval.service import RetrievalService
+from conversational_engine.llm.provider_interfaces import IntentClassifier
+from conversational_engine.retrieval.retrieval_service import RetrievalService
 
 SIZE_LABELS = {'XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL'} | {str(size) for size in range(2, 31, 2)}
 READ_ONLY_INTENTS = {'stock_query', 'reporting_query', 'navigation_help'}

@@ -4,11 +4,11 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from conversational_engine.app.auth import require_auth_context
-from conversational_engine.app.dependencies import get_app_settings, get_backend_client, get_conversation_service
-from conversational_engine.clients.backend import BackendClient
+from conversational_engine.app.auth_dependencies import require_auth_context
+from conversational_engine.app.dependency_providers import get_app_settings, get_backend_client, get_conversation_service
+from conversational_engine.clients.backend_client import BackendClient
 from conversational_engine.config.settings import Settings
-from conversational_engine.contracts.api import (
+from conversational_engine.schemas.api_schemas import (
     ApprovalDecisionRequest,
     ApprovalDecisionResponse,
     ApprovalItem,
@@ -21,8 +21,8 @@ from conversational_engine.contracts.api import (
     WorkflowDecisionRequest,
     WorkflowDecisionResponse,
 )
-from conversational_engine.contracts.auth import AuthContext
-from conversational_engine.conversations.service import ConversationService
+from conversational_engine.schemas.auth_schemas import AuthContext
+from conversational_engine.conversations.conversation_service import ConversationService
 
 router = APIRouter()
 chat_router = APIRouter(prefix='/api/chat', tags=['chat'])

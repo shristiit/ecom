@@ -2,17 +2,17 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from conversational_engine.clients.backend import BackendClient
-from conversational_engine.contracts.api import (
+from conversational_engine.clients.backend_client import BackendClient
+from conversational_engine.schemas.api_schemas import (
     ApprovalDecisionResponse,
     ConversationListResponse,
     ConversationResponse,
     WorkflowDecisionResponse,
 )
-from conversational_engine.contracts.auth import AuthContext
-from conversational_engine.contracts.common import MessageRole, TextBlock
-from conversational_engine.db.repository import EngineRepository
-from conversational_engine.orchestrator.service import OrchestratorOutcome, OrchestratorService
+from conversational_engine.schemas.auth_schemas import AuthContext
+from conversational_engine.schemas.shared_schemas import MessageRole, TextBlock
+from conversational_engine.repositories.engine_repository import EngineRepository
+from conversational_engine.orchestrator.orchestrator_service import OrchestratorOutcome, OrchestratorService
 
 
 class ConversationService:

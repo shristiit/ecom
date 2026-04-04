@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from conversational_engine.agents.types import AgentTurnResult
-from conversational_engine.contracts.auth import AuthContext
-from conversational_engine.contracts.common import ConversationDetail, WorkflowState
+from conversational_engine.agents.types_agent import AgentTurnResult
+from conversational_engine.schemas.auth_schemas import AuthContext
+from conversational_engine.schemas.shared_schemas import ConversationDetail, WorkflowState
 
 
 class Agent(ABC):

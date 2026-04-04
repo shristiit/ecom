@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from conversational_engine.contracts.common import ContractModel
+from conversational_engine.schemas.shared_schemas import ContractModel
 
 
 class AuthContext(ContractModel):

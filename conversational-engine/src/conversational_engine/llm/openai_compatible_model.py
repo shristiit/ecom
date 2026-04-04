@@ -5,7 +5,7 @@ from typing import Any
 
 import httpx
 
-from conversational_engine.providers.base import (
+from conversational_engine.llm.provider_interfaces import (
     ChatProvider,
     ClassificationResult,
     EmbeddingsProvider,

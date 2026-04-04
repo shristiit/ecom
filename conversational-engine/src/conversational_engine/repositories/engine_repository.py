@@ -8,7 +8,7 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 from pydantic import TypeAdapter
 
-from conversational_engine.contracts.common import (
+from conversational_engine.schemas.shared_schemas import (
     ChatMessage,
     ConversationDetail,
     ConversationSummary,
