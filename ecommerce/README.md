@@ -13,7 +13,25 @@ This is an [Expo](https://expo.dev) project created with [`create-expo-app`](htt
 2. Start the app
 
    ```bash
-   npx expo start
+   pnpm start
+   ```
+
+3. Configure env modes once in [`ecommerce/.env`](/Users/Apple/Desktop/ecom/ecommerce/.env)
+
+   ```bash
+   ECOMMERCE_DEFAULT_MODE=dev
+   ECOMMERCE_LOCAL_API_URL=http://localhost:4000/api
+   ECOMMERCE_DEV_API_URL=https://api-dev.stockaisle.com/api
+   ECOMMERCE_PROD_API_URL=https://api.stockaisle.com/api
+   EXPO_PUBLIC_TENANT_ID=<tenant-id>
+   ```
+
+4. Switch runtime target without editing env values:
+
+   ```bash
+   pnpm start:local
+   pnpm start:dev
+   pnpm start:prod
    ```
 
 In the output, you'll find options to open the app in a

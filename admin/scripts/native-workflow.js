@@ -6,7 +6,7 @@ const { spawnSync } = require("node:child_process");
 
 const projectRoot = path.resolve(__dirname, "..");
 const args = process.argv.slice(2).filter((arg) => arg !== "--local");
-const [command, platform, modeOrFlag, maybeFlag] = args;
+const [command, arg1, arg2, arg3] = args;
 
 const envFile = path.join(projectRoot, ".env");
 const appConfigPath = path.join(projectRoot, "app.json");
@@ -55,18 +55,33 @@ main();
 function main() {
   switch (command) {
     case "sync":
-      runSync(platform, modeOrFlag === "--clean" || maybeFlag === "--clean");
+      runSync(arg1, arg2 === "--clean" || arg3 === "--clean");
+      return;
+    case "start":
+      startExpo(
+        [arg1, arg2, arg3].find((arg) => arg && !arg.startsWith("--")) || defaultMode(),
+        [arg1, arg2, arg3].includes("--web")
+      );
       return;
     case "run":
-      runNative(platform, modeOrFlag || "dev");
+      runNative(arg1, arg2 || defaultMode());
       return;
     case "build":
-      buildNative(platform, modeOrFlag || "prod");
+      buildNative(arg1, arg2 || "prod");
       return;
     default:
       printUsage();
       process.exit(1);
   }
+}
+
+function startExpo(mode, webOnly) {
+  assertMode(mode);
+  const startArgs = webOnly ? ["expo", "start", "--web"] : ["expo", "start"];
+  runCommand("npx", startArgs, {
+    cwd: projectRoot,
+    env: buildEnv(mode),
+  });
 }
 
 function runSync(targetPlatform, clean) {
@@ -308,11 +323,20 @@ function assertMode(mode) {
   }
 }
 
+function defaultMode() {
+  const mode = process.env.ADMIN_DEFAULT_MODE || envFromFile.ADMIN_DEFAULT_MODE || "dev";
+  if (modeConfigs[mode]) {
+    return mode;
+  }
+  fail(`Unsupported ADMIN_DEFAULT_MODE "${mode}". Use "dev", "browserstack", or "prod".`);
+}
+
 function printUsage() {
   console.error(
     [
       "Usage:",
       "  node ./scripts/native-workflow.js sync [android|ios|all] [--clean]",
+      "  node ./scripts/native-workflow.js start [dev|browserstack|prod] [--web]",
       "  node ./scripts/native-workflow.js run [android|ios] [dev|browserstack|prod]",
       "  node ./scripts/native-workflow.js build [android|ios] [prod|browserstack|dev]",
     ].join("\n")

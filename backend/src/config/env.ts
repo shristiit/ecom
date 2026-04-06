@@ -1,7 +1,12 @@
 import dotenv from 'dotenv';
+import path from 'node:path';
 import process from 'node:process';
+import { fileURLToPath } from 'node:url';
 
-dotenv.config({ path: '.env' });
+const moduleDir = path.dirname(fileURLToPath(import.meta.url));
+const envPath = path.resolve(moduleDir, '../../.env');
+
+dotenv.config({ path: envPath });
 
 function required(key: string, fallback?: string): string {
   const v = process.env[key] ?? fallback;
@@ -9,9 +14,33 @@ function required(key: string, fallback?: string): string {
   return v;
 }
 
+function requiredDatabaseUrl(): string {
+  const raw = required('DATABASE_URL');
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error(
+      'DATABASE_URL is invalid. Use a PostgreSQL URL like postgres://user:pass@localhost:5433/postgres?uselibpqcompat=true&sslmode=require'
+    );
+  }
+
+  if (parsed.protocol !== 'postgres:' && parsed.protocol !== 'postgresql:') {
+    throw new Error(
+      'DATABASE_URL must use postgres:// or postgresql:// (not http://).'
+    );
+  }
+
+  if (!parsed.pathname || parsed.pathname === '/') {
+    throw new Error('DATABASE_URL must include a database name in the path (for example /postgres).');
+  }
+
+  return raw;
+}
+
 export const NODE_ENV = required('NODE_ENV', 'development');
 export const PORT = parseInt(required('PORT', '4000'), 10);
-export const DATABASE_URL = required('DATABASE_URL');
+export const DATABASE_URL = requiredDatabaseUrl();
 export const JWT_SECRET = required('JWT_SECRET');
 export const ACCESS_TOKEN_TTL = required('ACCESS_TOKEN_TTL', '15m');
 export const REFRESH_TOKEN_TTL = required('REFRESH_TOKEN_TTL', '7d');
