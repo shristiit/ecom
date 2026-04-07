@@ -33,6 +33,31 @@ from conversational_engine.contracts.common import (
 )
 from conversational_engine.providers.base import IntentClassifier
 from conversational_engine.retrieval.service import RetrievalService
+from conversational_engine.orchestrator.entities import (
+    extract_inventory_entities,
+    extract_po_entities,
+    extract_product_entities,
+    extract_reporting_entities,
+    extract_sales_entities,
+    extract_stock_query_entities,
+)
+from conversational_engine.orchestrator.intents import classify_intent as resolve_intent
+from conversational_engine.orchestrator.parsing import (
+    contains_any as _contains_any,
+    extract_color_names as _extract_color_names,
+    matches_intent_pattern as _matches_intent_pattern,
+    normalize_text as _normalize,
+    normalized_tokens as _normalized_tokens,
+    parse_integer as _parse_integer,
+    parse_iso_date as _parse_iso_date,
+    parse_money as _parse_money,
+    parse_size_labels as _parse_size_labels,
+    parse_uuid as _parse_uuid,
+)
+from conversational_engine.orchestrator.previews import (
+    build_preview_payload as compose_preview_payload,
+    build_product_update_operations as compose_product_update_operations,
+)
 
 SIZE_LABELS = {'XXS', 'XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL'} | {str(size) for size in range(2, 31, 2)}
 READ_ONLY_INTENTS = {'stock_query', 'reporting_query', 'navigation_help'}
@@ -53,99 +78,6 @@ class OrchestratorOutcome:
     missing_fields: list[str]
     active_preview_id: UUID | None = None
     active_approval_id: UUID | None = None
-
-
-def _normalize(value: str) -> str:
-    return ' '.join(''.join(character.lower() if character.isalnum() else ' ' for character in value).split())
-
-
-def _normalized_tokens(value: str) -> set[str]:
-    return {token for token in _normalize(value).split() if token}
-
-
-def _contains_any(message: str, *needles: str) -> bool:
-    normalized = _normalize(message)
-    return any(_normalize(needle) in normalized for needle in needles)
-
-
-def _matches_intent_pattern(message: str, *patterns: str) -> bool:
-    return any(re.search(pattern, message, re.IGNORECASE) for pattern in patterns)
-
-
-def _parse_uuid(text: str) -> str | None:
-    match = re.search(
-        r'\b[0-9a-fA-F]{8}\-[0-9a-fA-F]{4}\-[0-9a-fA-F]{4}\-[0-9a-fA-F]{4}\-[0-9a-fA-F]{12}\b',
-        text,
-    )
-    return match.group(0) if match else None
-
-
-def _parse_integer(text: str, *, keyword: str | None = None) -> int | None:
-    if keyword:
-        pattern = re.compile(rf'{re.escape(keyword)}\s*(?:is|of|=)?\s*(\d+)', re.IGNORECASE)
-        match = pattern.search(text)
-        if match:
-            return int(match.group(1))
-    match = re.search(r'(?:x|qty|quantity|units?|cost|price|@)\s*(\d+)', text, re.IGNORECASE)
-    if match:
-        return int(match.group(1))
-    standalone = re.search(r'\b(\d+)\b', text)
-    return int(standalone.group(1)) if standalone else None
-
-
-def _parse_money(text: str) -> int | None:
-    patterns = [
-        r'(?:\$|cost|unit cost|base price|price|prce)\s*(?:is|of|=)?\s*(\d+)',
-        r'\b(\d+)\s*(?:gbp|usd|eur|pounds?|dollars?)\b',
-        r'@\s*(\d+)',
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, text, re.IGNORECASE)
-        if match:
-            return int(match.group(1))
-    return None
-
-
-def _parse_iso_date(text: str) -> str | None:
-    match = re.search(r'\b(20\d{2}-\d{2}-\d{2})\b', text)
-    if not match:
-        return None
-    return f'{match.group(1)}T00:00:00Z'
-
-
-def _parse_size_labels(text: str) -> list[str]:
-    labels: list[str] = []
-    for token in re.findall(r'\b[A-Za-z0-9]+\b', text.upper()):
-        if token in SIZE_LABELS and token not in labels:
-            labels.append(token)
-    return labels
-
-
-def _extract_color_names(text: str) -> list[str]:
-    patterns = [
-        r'with\s+([a-zA-Z][a-zA-Z\s,]+?)\s+colors?\b',
-        r'colors?\s+(?:are|is|=)?\s*([a-zA-Z][a-zA-Z\s,]+?)(?=\s+(?:with|sizes?|sku|barcode|location|quantity|stock|status)\b|$)',
-        r'color\s+(?:is|=)?\s*([a-zA-Z][a-zA-Z\s,]+?)(?=\s+(?:with|sizes?|sku|barcode|location|quantity|stock|status)\b|$)',
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, text, re.IGNORECASE)
-        if not match:
-            continue
-        raw = match.group(1)
-        tokens = [
-            token.strip(" ,")
-            for token in re.split(r',|\band\b', raw, flags=re.IGNORECASE)
-            if token.strip(" ,")
-        ]
-        cleaned: list[str] = []
-        for token in tokens:
-            label = ' '.join(token.split())
-            if label and label.lower() not in {'with'} and label not in cleaned:
-                cleaned.append(label.title())
-        if cleaned:
-            return cleaned
-    return []
-
 
 def _dedupe_entities(entities: list[PreviewEntity]) -> list[PreviewEntity]:
     seen: set[tuple[str, str]] = set()
@@ -701,99 +633,7 @@ class OrchestratorService:
         return base_outcome
 
     def _classify_intent(self, message: str, memory: dict[str, object]) -> str:
-        normalized = _normalize(message)
-
-        if memory.get('intent') and any(
-            word in normalized for word in ['yes', 'update', 'change', 'it', 'that', 'for', 'with', 'at']
-        ):
-            return str(memory['intent'])
-
-        if _matches_intent_pattern(
-            message,
-            r'\bcreate\s+(?:a\s+|an\s+)?po\b',
-            r'\bcreate\s+(?:a\s+|an\s+)?purchase\s+order\b',
-            r'\bpo\s+draft\b',
-            r'\bnew\s+po\b',
-            r'\bnew\s+purchase\s+order\b',
-        ):
-            return 'po_create'
-        if _matches_intent_pattern(message, r'\breceive\s+(?:a\s+|the\s+)?po\b', r'\breceive\s+purchase\s+order\b'):
-            return 'po_receive'
-        if _matches_intent_pattern(message, r'\bclose\s+(?:a\s+|the\s+)?po\b', r'\bclose\s+purchase\s+order\b'):
-            return 'po_close'
-        if _matches_intent_pattern(
-            message,
-            r'\bupdate\s+(?:a\s+|the\s+)?po\b',
-            r'\bedit\s+(?:a\s+|the\s+)?po\b',
-            r'\bupdate\s+purchase\s+order\b',
-            r'\bedit\s+purchase\s+order\b',
-        ):
-            return 'po_update'
-        if _matches_intent_pattern(
-            message,
-            r'\bcreate\s+(?:a\s+|an\s+)?sales\s+order\b',
-            r'\bnew\s+sales\s+order\b',
-            r'\bcreate\s+(?:a\s+|an\s+)?so\b',
-            r'\bnew\s+so\b',
-            r'\bcreate\s+(?:an\s+)?invoice\b',
-            r'\bnew\s+invoice\b',
-        ):
-            return 'so_create'
-        if _matches_intent_pattern(
-            message,
-            r'\bupdate\s+(?:a\s+|the\s+)?sales\s+order\b',
-            r'\bedit\s+(?:a\s+|the\s+)?sales\s+order\b',
-            r'\bupdate\s+(?:a\s+|the\s+)?so\b',
-            r'\bedit\s+(?:a\s+|the\s+)?so\b',
-            r'\bupdate\s+(?:an\s+|the\s+)?invoice\b',
-            r'\bedit\s+(?:an\s+|the\s+)?invoice\b',
-        ):
-            return 'so_update'
-        if _matches_intent_pattern(
-            message,
-            r'\bdispatch\s+(?:a\s+|the\s+)?sales\s+order\b',
-            r'\bship\s+(?:a\s+|the\s+)?sales\s+order\b',
-            r'\bdispatch\s+(?:an\s+|the\s+)?invoice\b',
-            r'\bship\s+(?:an\s+|the\s+)?invoice\b',
-        ):
-            return 'so_dispatch'
-        if _matches_intent_pattern(
-            message,
-            r'\bcancel\s+(?:a\s+|the\s+)?sales\s+order\b',
-            r'\bcancel\s+(?:a\s+|the\s+)?so\b',
-            r'\bcancel\s+(?:an\s+|the\s+)?invoice\b',
-        ):
-            return 'so_cancel'
-        if _matches_intent_pattern(
-            message,
-            r'\bcreate\s+(?:a\s+|an\s+)?product\b',
-            r'\bnew\s+product\b',
-            r'\badd\s+(?:a\s+|new\s+)?product\b',
-        ):
-            return 'product_create'
-        if _matches_intent_pattern(
-            message,
-            r'\bupdate\s+(?:a\s+|the\s+)?product\b',
-            r'\bedit\s+(?:a\s+|the\s+)?product\b',
-            r'\badd\s+(?:a\s+|the\s+)?sku\b',
-            r'\badd\s+(?:a\s+|the\s+)?size\b',
-        ):
-            return 'product_update'
-        if 'transfer' in normalized:
-            return 'stock_transfer'
-        if any(phrase in normalized for phrase in ['write off', 'damaged', 'adjust', 'cycle count']):
-            return 'stock_adjustment'
-        if 'receive stock' in normalized or 'stock receipt' in normalized:
-            return 'stock_receipt'
-        if any(phrase in normalized for phrase in ['report', 'summary', 'movement', 'receipts', 'receipt summary']):
-            return 'reporting_query'
-        if any(phrase in normalized for phrase in ['help', 'where is', 'how do i', 'how to', 'screen', 'navigate']):
-            return 'navigation_help'
-        if any(phrase in normalized for phrase in ['stock', 'inventory', 'sku']):
-            return 'stock_query'
-        if any(phrase in normalized for phrase in ['purchase order', 'po ']):
-            return 'reporting_query'
-        return str(memory.get('intent') or 'navigation_help')
+        return resolve_intent(message, memory)
 
     async def _extract_entities(
         self,
@@ -1536,344 +1376,10 @@ class OrchestratorService:
         )
 
     def _build_preview_payload(self, auth: AuthContext, memory: dict[str, object]) -> dict[str, object]:
-        action_type = str(memory.get('actionType') or memory.get('intent') or 'workflow')
-        entities: list[PreviewEntity] = []
-        warnings: list[str] = []
-
-        if action_type == 'transfer_stock':
-            memory['executionPayload'] = {
-                'sizeId': memory['sizeId'],
-                'fromLocationId': memory['fromLocationId'],
-                'toLocationId': memory['toLocationId'],
-                'quantity': memory['quantity'],
-                'reason': memory['reason'],
-            }
-            entities.extend(
-                [
-                    PreviewEntity(label='SKU', value=str(memory.get('skuCode', ''))),
-                    PreviewEntity(label='Size', value=str(memory.get('sizeLabel', ''))),
-                    PreviewEntity(label='From', value=str(memory.get('fromLocationLabel', ''))),
-                    PreviewEntity(label='To', value=str(memory.get('toLocationLabel', ''))),
-                    PreviewEntity(label='Quantity', value=str(memory.get('quantity', ''))),
-                    PreviewEntity(label='Reason', value=str(memory.get('reason', ''))),
-                ]
-            )
-            memory['summary'] = (
-                f'Transfer {memory.get("quantity")} units of {memory.get("skuCode")} / {memory.get("sizeLabel")} '
-                f'from {memory.get("fromLocationLabel")} to {memory.get("toLocationLabel")}'
-            )
-        elif action_type in {'adjust_stock', 'receive_stock', 'write_off_stock', 'cycle_count'}:
-            memory['executionPayload'] = {
-                'sizeId': memory['sizeId'],
-                'locationId': memory['locationId'],
-                'quantity': memory['quantity'],
-                'reason': memory['reason'],
-            }
-            entities.extend(
-                [
-                    PreviewEntity(label='SKU', value=str(memory.get('skuCode', ''))),
-                    PreviewEntity(label='Size', value=str(memory.get('sizeLabel', ''))),
-                    PreviewEntity(label='Location', value=str(memory.get('locationLabel', ''))),
-                    PreviewEntity(label='Quantity', value=str(memory.get('quantity', ''))),
-                    PreviewEntity(label='Reason', value=str(memory.get('reason', ''))),
-                ]
-            )
-            memory['summary'] = (
-                f'{action_type.replace("_", " ").title()} for {memory.get("quantity")} units of '
-                f'{memory.get("skuCode")} / {memory.get("sizeLabel")} at {memory.get("locationLabel")}'
-            )
-            if action_type == 'write_off_stock':
-                warnings.append('This write-off will permanently reduce stock.')
-        elif action_type == 'create_po':
-            memory['executionPayload'] = {
-                'supplierId': memory['supplierId'],
-                'lines': memory['lines'],
-            }
-            if memory.get('expectedDate'):
-                memory['executionPayload']['expectedDate'] = memory['expectedDate']
-            entities.extend(
-                [
-                    PreviewEntity(label='Supplier', value=str(memory.get('supplierName', ''))),
-                    PreviewEntity(label='Line count', value=str(len(memory.get('lines', [])))),
-                ]
-            )
-            if memory.get('expectedDate'):
-                entities.insert(1, PreviewEntity(label='Expected date', value=str(memory.get('expectedDate', ''))[:10]))
-            memory['summary'] = (
-                f'Create PO draft for {memory.get("supplierName")} with {len(memory.get("lines", []))} line(s)'
-            )
-        elif action_type == 'update_po':
-            patch: dict[str, object] = {}
-            if memory.get('supplierId'):
-                patch['supplierId'] = memory['supplierId']
-                entities.append(PreviewEntity(label='Supplier', value=str(memory.get('supplierName', ''))))
-            if memory.get('expectedDate'):
-                patch['expectedDate'] = memory['expectedDate']
-                entities.append(PreviewEntity(label='Expected date', value=str(memory.get('expectedDate', ''))[:10]))
-            if memory.get('lines'):
-                patch['lines'] = memory['lines']
-                entities.append(PreviewEntity(label='Line count', value=str(len(memory.get('lines', [])))))
-            memory['executionPayload'] = {'poId': memory['poId'], 'patch': patch}
-            entities.insert(0, PreviewEntity(label='PO', value=str(memory.get('poNumber', memory.get('poId', '')))))
-            memory['summary'] = f'Update {memory.get("poNumber", memory.get("poId", "PO"))}'
-        elif action_type == 'receive_po':
-            memory['executionPayload'] = {
-                'poId': memory['poId'],
-                'locationId': memory['locationId'],
-                'lines': memory['lines'],
-            }
-            entities.extend(
-                [
-                    PreviewEntity(label='PO', value=str(memory.get('poNumber', memory.get('poId', '')))),
-                    PreviewEntity(label='Location', value=str(memory.get('locationLabel', ''))),
-                    PreviewEntity(label='Line count', value=str(len(memory.get('lines', [])))),
-                ]
-            )
-            memory['summary'] = (
-                f'Receive {len(memory.get("lines", []))} PO line(s) for '
-                f'{memory.get("poNumber", memory.get("poId", "PO"))}'
-            )
-        elif action_type == 'close_po':
-            memory['executionPayload'] = {'poId': memory['poId']}
-            entities.append(PreviewEntity(label='PO', value=str(memory.get('poNumber', memory.get('poId', '')))))
-            memory['summary'] = f'Close {memory.get("poNumber", memory.get("poId", "PO"))}'
-            warnings.append('Closing a PO stops further draft edits.')
-        elif action_type == 'create_sales_order':
-            memory['executionPayload'] = {
-                'customerId': memory['customerId'],
-                'lines': memory['lines'],
-            }
-            entities.extend(
-                [
-                    PreviewEntity(label='Customer', value=str(memory.get('customerName', ''))),
-                    PreviewEntity(label='Line count', value=str(len(memory.get('lines', [])))),
-                ]
-            )
-            memory['summary'] = (
-                f'Create sales order for {memory.get("customerName")} with {len(memory.get("lines", []))} line(s)'
-            )
-        elif action_type == 'update_sales_order':
-            patch: dict[str, object] = {}
-            if memory.get('customerId'):
-                patch['customerId'] = memory['customerId']
-                entities.append(PreviewEntity(label='Customer', value=str(memory.get('customerName', ''))))
-            if memory.get('lines'):
-                patch['lines'] = memory['lines']
-                entities.append(PreviewEntity(label='Line count', value=str(len(memory.get('lines', [])))))
-            memory['executionPayload'] = {'invoiceId': memory['invoiceId'], 'patch': patch}
-            entities.insert(
-                0,
-                PreviewEntity(label='Sales order', value=str(memory.get('invoiceNumber', memory.get('invoiceId', '')))),
-            )
-            memory['summary'] = f'Update {memory.get("invoiceNumber", memory.get("invoiceId", "sales order"))}'
-        elif action_type == 'dispatch_sales_order':
-            memory['executionPayload'] = {
-                'invoiceId': memory['invoiceId'],
-                'locationId': memory['locationId'],
-            }
-            entities.extend(
-                [
-                    PreviewEntity(
-                        label='Sales order',
-                        value=str(memory.get('invoiceNumber', memory.get('invoiceId', ''))),
-                    ),
-                    PreviewEntity(label='Location', value=str(memory.get('locationLabel', ''))),
-                ]
-            )
-            memory['summary'] = (
-                f'Dispatch {memory.get("invoiceNumber", memory.get("invoiceId", "sales order"))} '
-                f'from {memory.get("locationLabel")}'
-            )
-        elif action_type == 'cancel_sales_order':
-            memory['executionPayload'] = {'invoiceId': memory['invoiceId']}
-            entities.append(
-                PreviewEntity(label='Sales order', value=str(memory.get('invoiceNumber', memory.get('invoiceId', ''))))
-            )
-            memory['summary'] = f'Cancel {memory.get("invoiceNumber", memory.get("invoiceId", "sales order"))}'
-            warnings.append('Canceling a sales order stops further processing.')
-        elif action_type == 'create_product':
-            size_labels = [str(label) for label in memory.get('sizeLabels', [])]
-            color_names = [str(label) for label in memory.get('colorNames', [])] or [str(memory.get('colorName', ''))]
-            stock_by_size = memory.get('sizeQuantities') if isinstance(memory.get('sizeQuantities'), dict) else {}
-            media: list[dict[str, object]] = []
-            if memory.get('mediaUrl'):
-                media.append(
-                    {
-                        'url': memory['mediaUrl'],
-                        'altText': str(memory.get('name', '')),
-                        'sortOrder': 0,
-                        'isPrimary': True,
-                    }
-                )
-            memory['executionPayload'] = {
-                'product': {
-                    'styleCode': memory['styleCode'],
-                    'name': memory['name'],
-                    'category': memory.get('category', ''),
-                    'brand': memory.get('brand', ''),
-                    'basePrice': memory['basePrice'],
-                    'categoryId': memory.get('categoryId'),
-                    'status': memory.get('status', 'active'),
-                },
-                'styleMedia': media,
-                'variants': [],
-            }
-            for index, color_name in enumerate(color_names):
-                variant: dict[str, object] = {
-                    'colorName': color_name,
-                    'media': media,
-                    'sizes': [],
-                }
-                if memory.get('skuCode') and index == 0:
-                    variant['skuCode'] = memory['skuCode']
-                for size_label in size_labels:
-                    stock_by_location: list[dict[str, object]] = []
-                    if memory.get('locationId'):
-                        per_size_quantity = stock_by_size.get(size_label)
-                        if per_size_quantity is not None:
-                            stock_by_location = [
-                                {'locationId': memory['locationId'], 'quantity': int(per_size_quantity)}
-                            ]
-                        elif memory.get('quantity') is not None and len(size_labels) == 1:
-                            stock_by_location = [{'locationId': memory['locationId'], 'quantity': memory['quantity']}]
-                    variant['sizes'].append(
-                        {
-                            'sizeLabel': size_label,
-                            'stockByLocation': stock_by_location,
-                        }
-                    )
-                memory['executionPayload']['variants'].append(variant)
-            entities.extend(
-                [
-                    PreviewEntity(label='Style code', value=str(memory.get('styleCode', ''))),
-                    PreviewEntity(label='Name', value=str(memory.get('name', ''))),
-                    PreviewEntity(label='Category', value=str(memory.get('category', ''))),
-                    PreviewEntity(label='Variants', value=', '.join(color_names)),
-                    PreviewEntity(label='Sizes', value=', '.join(size_labels)),
-                ]
-            )
-            if memory.get('skuCode'):
-                entities.insert(4, PreviewEntity(label='SKU', value=str(memory.get('skuCode', ''))))
-            if memory.get('locationLabel'):
-                stock_summary = (
-                    ', '.join(f'{size}:{qty}' for size, qty in stock_by_size.items())
-                    if stock_by_size
-                    else str(memory.get('quantity', 0))
-                )
-                entities.append(
-                    PreviewEntity(
-                        label='Initial stock',
-                        value=f'{stock_summary} at {memory.get("locationLabel")}',
-                    )
-                )
-            memory['summary'] = f'Create product {memory.get("styleCode")} / {memory.get("name")}'
-        elif action_type == 'update_product':
-            operations = self._build_product_update_operations(memory)
-            memory['executionPayload'] = operations
-            entities.extend(operations['previewEntities'])
-            memory['summary'] = f'Update product {memory.get("productName", memory.get("productId", ""))}'
-        else:
-            memory['executionPayload'] = {}
-            warnings.append('The execution payload could not be constructed.')
-
-        preview = {
-            'actionType': action_type.replace('_', ' ').title(),
-            'actor': auth.email,
-            'entities': _serialize_entities(_dedupe_entities(entities)),
-            'warnings': warnings,
-            'nextStep': 'Confirm to submit this request for approval.',
-        }
-        return preview
+        return compose_preview_payload(auth, memory)
 
     def _build_product_update_operations(self, memory: dict[str, object]) -> dict[str, object]:
-        product_patch: dict[str, object] = {}
-        for source, target in (
-            ('styleCode', 'styleCode'),
-            ('name', 'name'),
-            ('category', 'category'),
-            ('brand', 'brand'),
-            ('basePrice', 'basePrice'),
-            ('categoryId', 'categoryId'),
-            ('status', 'status'),
-            ('pickupEnabled', 'pickupEnabled'),
-        ):
-            if memory.get(source) is not None:
-                product_patch[target] = memory[source]
-
-        preview_entities = [
-            PreviewEntity(label='Product', value=str(memory.get('productName', memory.get('productId', ''))))
-        ]
-        sku_ops: list[dict[str, object]] = []
-        size_ops: list[dict[str, object]] = []
-        location_ops: list[dict[str, object]] = []
-
-        if memory.get('skuCode') or memory.get('colorName'):
-            if memory.get('existingSkuId'):
-                sku_ops.append(
-                    {
-                        'op': 'update',
-                        'skuId': memory['existingSkuId'],
-                        'payload': {
-                            key: value
-                            for key, value in {
-                                'skuCode': memory.get('skuCode'),
-                                'colorName': memory.get('colorName'),
-                                'status': memory.get('status'),
-                            }.items()
-                            if value is not None
-                        },
-                    }
-                )
-                preview_entities.append(PreviewEntity(label='SKU update', value=str(memory.get('skuCode', 'existing'))))
-            else:
-                sku_ops.append(
-                    {
-                        'op': 'create',
-                        'payload': {
-                            'skuCode': memory['skuCode'],
-                            'colorName': memory.get('colorName', 'Default'),
-                            'status': memory.get('status', 'active'),
-                        },
-                    }
-                )
-                preview_entities.append(PreviewEntity(label='SKU create', value=str(memory.get('skuCode', 'new'))))
-
-        if memory.get('sizeLabels'):
-            size_label = str(memory['sizeLabels'][0])
-            size_payload = {
-                'sizeLabel': size_label,
-                'barcode': str(memory.get('barcode') or f'AUTO-{size_label}'),
-                'unitOfMeasure': 'unit',
-                'packSize': 1,
-                'status': memory.get('status', 'active'),
-            }
-            if memory.get('existingSizeId'):
-                size_ops.append({'op': 'update', 'sizeId': memory['existingSizeId'], 'payload': size_payload})
-                preview_entities.append(PreviewEntity(label='Size update', value=size_label))
-            else:
-                size_ops.append({'op': 'create', 'skuCode': memory.get('skuCode'), 'payload': size_payload})
-                preview_entities.append(PreviewEntity(label='Size create', value=size_label))
-
-        if memory.get('locationId'):
-            location_ops.append(
-                {
-                    'payload': {
-                        'locationId': memory['locationId'],
-                        'isEnabled': True,
-                        'pickupEnabled': bool(memory.get('pickupEnabled', False)),
-                    }
-                }
-            )
-            preview_entities.append(PreviewEntity(label='Location', value=str(memory.get('locationLabel', ''))))
-
-        return {
-            'productId': memory['productId'],
-            'productPatch': product_patch,
-            'skuOps': sku_ops,
-            'sizeOps': size_ops,
-            'locationOps': location_ops,
-            'previewEntities': _serialize_entities(_dedupe_entities(preview_entities)),
-        }
+        return compose_product_update_operations(memory)
 
     async def _execute_action(
         self,

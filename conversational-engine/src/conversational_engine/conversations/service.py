@@ -10,9 +10,16 @@ from conversational_engine.contracts.api import (
     WorkflowDecisionResponse,
 )
 from conversational_engine.contracts.auth import AuthContext
-from conversational_engine.contracts.common import MessageRole, TextBlock
+from conversational_engine.contracts.common import WorkflowStatus
+from conversational_engine.contracts.runs import RunRequest
 from conversational_engine.db.repository import EngineRepository
-from conversational_engine.orchestrator.service import OrchestratorOutcome, OrchestratorService
+from conversational_engine.orchestrator.service import OrchestratorService
+from conversational_engine.runtime.service import AgentRuntimeService
+
+from .approval_executor import RuntimeApprovalExecutor
+from .outcome_store import ConversationOutcomeStore
+from .runtime_decisions import RuntimeDecisionHandler
+from .runtime_runner import ConversationRuntimeRunner
 
 
 class ConversationService:
@@ -21,10 +28,19 @@ class ConversationService:
         repository: EngineRepository,
         backend_client: BackendClient,
         orchestrator: OrchestratorService,
+        runtime_service: AgentRuntimeService,
     ) -> None:
         self._repository = repository
         self._backend_client = backend_client
         self._orchestrator = orchestrator
+        self._outcome_store = ConversationOutcomeStore(repository)
+        self._runtime_runner = ConversationRuntimeRunner(
+            repository=repository,
+            runtime_service=runtime_service,
+            outcome_store=self._outcome_store,
+        )
+        self._approval_executor = RuntimeApprovalExecutor(backend_client)
+        self._runtime_decision_handler = RuntimeDecisionHandler(backend_client)
 
     def list_conversations(self, auth: AuthContext) -> ConversationListResponse:
         return ConversationListResponse(items=self._repository.list_conversations(auth.tenant_id))
@@ -42,16 +58,13 @@ class ConversationService:
         )
 
         if initial_message:
-            self._repository.append_message(
-                tenant_id=auth.tenant_id,
-                conversation_id=conversation.id,
-                workflow_id=workflow.id,
-                role=MessageRole.USER,
-                blocks=[TextBlock(content=initial_message)],
-                raw_text=initial_message,
+            await self._runtime_runner.run_message(
+                auth=auth,
+                conversation=conversation,
+                workflow=workflow,
+                content=initial_message,
+                event_listener=None,
             )
-            outcome = await self._orchestrator.handle_message(auth, conversation, workflow, initial_message)
-            self._store_outcome(auth, conversation.id, workflow.id, initial_message, outcome)
             return self.get_conversation(auth, conversation.id) or ConversationResponse(
                 conversation=conversation,
                 workflow=workflow,
@@ -65,7 +78,7 @@ class ConversationService:
         if result is None:
             return None
         conversation, workflow, messages = result
-        safe_workflow = self._sanitize_workflow(workflow)
+        safe_workflow = self._outcome_store.sanitize_workflow(workflow)
         return ConversationResponse(
             conversation=conversation,
             workflow=safe_workflow,
@@ -82,17 +95,18 @@ class ConversationService:
         if workflow is None:
             return None
 
-        self._repository.append_message(
-            tenant_id=auth.tenant_id,
-            conversation_id=conversation.id,
-            workflow_id=workflow.id,
-            role=MessageRole.USER,
-            blocks=[TextBlock(content=content)],
-            raw_text=content,
+        await self._runtime_runner.run_message(
+            auth=auth,
+            conversation=conversation,
+            workflow=workflow,
+            content=content,
+            event_listener=None,
         )
-        outcome = await self._orchestrator.handle_message(auth, conversation, workflow, content)
-        self._store_outcome(auth, conversation.id, workflow.id, content, outcome)
         return self.get_conversation(auth, conversation_id)
+
+    async def stream_run(self, auth: AuthContext, request: RunRequest):
+        async for event in self._runtime_runner.stream_run(auth=auth, request=request):
+            yield event
 
     async def apply_decision(
         self,
@@ -117,8 +131,26 @@ class ConversationService:
             )
 
         conversation, _existing_workflow = conversation_lookup
-        outcome = await self._orchestrator.handle_decision(auth, conversation, workflow, decision)
-        self._store_outcome(auth, conversation.id, workflow.id, None, outcome)
+        if (
+            workflow.status == WorkflowStatus.AWAITING_CONFIRMATION
+            and workflow.extracted_entities.get('_workflowEngine') == 'runtime'
+        ):
+            outcome = await self._runtime_decision_handler.apply(
+                auth=auth,
+                conversation_id=conversation.id,
+                workflow_id=workflow.id,
+                workflow=workflow,
+                decision=decision,
+            )
+        else:
+            outcome = await self._orchestrator.handle_decision(auth, conversation, workflow, decision)
+        self._outcome_store.store(
+            auth=auth,
+            conversation_id=conversation.id,
+            workflow_id=workflow.id,
+            raw_text=None,
+            outcome=outcome,
+        )
         return WorkflowDecisionResponse(
             workflow_id=workflow_id,
             accepted=True,
@@ -148,42 +180,13 @@ class ConversationService:
             current = self._repository.get_conversation(auth.tenant_id, approval.conversation_id)
             if workflow and current:
                 conversation, _workflow, _messages = current
-                outcome = await self._orchestrator.handle_approval_result(auth, conversation, workflow, approval)
-                self._store_outcome(auth, conversation.id, workflow.id, None, outcome)
+                outcome = await self._approval_executor.execute(auth=auth, approval=approval)
+                self._outcome_store.store(
+                    auth=auth,
+                    conversation_id=conversation.id,
+                    workflow_id=workflow.id,
+                    raw_text=None,
+                    outcome=outcome,
+                )
 
         return result
-
-    def _store_outcome(
-        self,
-        auth: AuthContext,
-        conversation_id: UUID,
-        workflow_id: UUID,
-        raw_text: str | None,
-        outcome: OrchestratorOutcome,
-    ) -> None:
-        self._repository.append_message(
-            tenant_id=auth.tenant_id,
-            conversation_id=conversation_id,
-            workflow_id=workflow_id,
-            role=MessageRole.ASSISTANT,
-            blocks=outcome.blocks,
-            raw_text=raw_text,
-        )
-        self._repository.save_workflow_state(
-            auth.tenant_id,
-            workflow_id,
-            status=outcome.status,
-            current_task=outcome.current_task,
-            extracted_entities=outcome.extracted_entities,
-            missing_fields=outcome.missing_fields,
-            active_preview_id=outcome.active_preview_id,
-            active_approval_id=outcome.active_approval_id,
-        )
-
-    @staticmethod
-    def _sanitize_workflow(workflow):
-        if workflow is None:
-            return None
-        extracted_entities = dict(workflow.extracted_entities or {})
-        extracted_entities.pop('requesterAccessToken', None)
-        return workflow.model_copy(update={'extracted_entities': extracted_entities})

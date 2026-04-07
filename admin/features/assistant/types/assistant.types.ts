@@ -1,5 +1,14 @@
 export type AssistantPendingActionType = 'confirm' | 'cancel' | 'edit' | 'submit_for_approval';
 
+export type AssistantRunEvent = {
+  type: string;
+  runId: string;
+  conversationId: string;
+  workflowId?: string | null;
+  sequence: number;
+  payload?: Record<string, unknown>;
+};
+
 export type AssistantMessageBlock =
   | {
       type: 'text';

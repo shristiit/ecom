@@ -28,6 +28,8 @@ const approvalDecisionSchema = z.object({
   approve: z.boolean(),
 });
 
+const approvalRequestSelect = `id, status, conversation_id, workflow_id, action_type, tool_name, summary, reason, preview, execution_payload, result, requested_by, approved_by, created_at, updated_at`;
+
 function approvalReason(actionType: string) {
   if (readOnlyActions.has(actionType)) {
     return {
@@ -62,7 +64,7 @@ export async function createApprovalRequest(req: Request, res: Response) {
     `INSERT INTO ai_action_requests
      (tenant_id, conversation_id, workflow_id, requested_by, action_type, tool_name, status, summary, reason, preview, execution_payload)
      VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7, $8, $9, $10)
-     RETURNING id, status, conversation_id, workflow_id, action_type, tool_name, summary, reason, preview, execution_payload, requested_by, approved_by, created_at, updated_at`,
+     RETURNING ${approvalRequestSelect}`,
     [
       req.user!.tenantId,
       parsed.data.conversationId ?? null,
@@ -80,24 +82,52 @@ export async function createApprovalRequest(req: Request, res: Response) {
   return res.status(201).json(result.rows[0]);
 }
 
+export async function updateApprovalRequest(req: Request, res: Response) {
+  const parsed = createRequestSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ message: 'Invalid payload' });
+
+  const current = await query(
+    `SELECT status
+     FROM ai_action_requests
+     WHERE id = $1 AND tenant_id = $2`,
+    [req.params.id, req.user!.tenantId]
+  );
+
+  if (current.rowCount === 0) return res.status(404).json({ message: 'Approval request not found' });
+  if (current.rows[0].status !== 'pending') {
+    return res.status(409).json({ message: 'Only pending approval requests can be updated' });
+  }
+
+  const result = await query(
+    `UPDATE ai_action_requests
+     SET action_type = $1,
+         tool_name = $2,
+         summary = $3,
+         reason = $4,
+         preview = $5,
+         execution_payload = $6,
+         updated_at = NOW()
+     WHERE id = $7 AND tenant_id = $8
+     RETURNING ${approvalRequestSelect}`,
+    [
+      parsed.data.actionType,
+      parsed.data.toolName,
+      parsed.data.summary,
+      parsed.data.reason,
+      parsed.data.preview,
+      parsed.data.executionPayload,
+      req.params.id,
+      req.user!.tenantId,
+    ]
+  );
+
+  return res.json(result.rows[0]);
+}
+
 export async function getApprovalRequest(req: Request, res: Response) {
   const result = await query(
     `SELECT
-       ar.id,
-       ar.status,
-       ar.conversation_id,
-       ar.workflow_id,
-       ar.action_type,
-       ar.tool_name,
-       ar.summary,
-       ar.reason,
-       ar.preview,
-       ar.execution_payload,
-       ar.result,
-       ar.requested_by,
-       ar.approved_by,
-       ar.created_at,
-       ar.updated_at
+       ${approvalRequestSelect}
      FROM ai_action_requests ar
      WHERE ar.id = $1 AND ar.tenant_id = $2`,
     [req.params.id, req.user!.tenantId]

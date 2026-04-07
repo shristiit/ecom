@@ -1,4 +1,4 @@
-import { request } from '@admin/lib/api';
+import { request, streamRequest } from '@admin/lib/api';
 import { ENGINE_BASE_URL } from './config';
 
 export function engineGet<TResponse>(path: string) {
@@ -15,5 +15,19 @@ export function enginePost<TResponse, TBody = unknown>(path: string, body?: TBod
     path,
     body,
     baseUrl: ENGINE_BASE_URL,
+  });
+}
+
+export function engineStream<TEvent, TBody = unknown>(
+  path: string,
+  body: TBody,
+  onEvent: (event: TEvent) => void | Promise<void>,
+) {
+  return streamRequest<TEvent, TBody>({
+    method: 'POST',
+    path,
+    body,
+    baseUrl: ENGINE_BASE_URL,
+    onEvent,
   });
 }
