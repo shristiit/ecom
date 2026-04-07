@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { Link } from 'expo-router';
 
-import { loginStorefrontCustomer } from '@/lib/storefront';
+import { loginStorefrontCustomer } from '@ecommerce/lib/storefront';
 
 const TENANT_ID = (process.env.EXPO_PUBLIC_TENANT_ID ?? '').trim();
 

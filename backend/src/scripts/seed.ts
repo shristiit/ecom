@@ -1,7 +1,7 @@
 import bcrypt from 'bcrypt';
 import { faker } from '@faker-js/faker';
 import type { PoolClient } from 'pg';
-import { pool } from '../db/pool.js';
+import { pool } from '@backend/db/pool.js';
 
 const ALL_PERMISSIONS = [
   'admin.roles.read',
@@ -14,6 +14,7 @@ const ALL_PERMISSIONS = [
   'inventory.write',
   'master.read',
   'master.write',
+  'purchasing.read',
   'purchasing.write',
   'sales.write',
   'audit.read',
@@ -110,7 +111,7 @@ const ROLE_SEEDS: RoleSeed[] = [
   },
   {
     name: 'purchasing_manager',
-    permissions: ['purchasing.write', 'inventory.read', 'products.read', 'master.read', 'master.write', 'audit.read', 'chat.use'],
+    permissions: ['purchasing.read', 'purchasing.write', 'inventory.read', 'products.read', 'master.read', 'master.write', 'audit.read', 'chat.use'],
   },
   {
     name: 'sales_manager',
@@ -130,11 +131,11 @@ const ROLE_SEEDS: RoleSeed[] = [
   },
   {
     name: 'ai_operator',
-    permissions: ['chat.use', 'inventory.read', 'products.read', 'master.read'],
+    permissions: ['chat.use', 'inventory.read', 'products.read', 'master.read', 'purchasing.read'],
   },
   {
     name: 'ai_approver',
-    permissions: ['chat.use', 'chat.approve', 'inventory.read', 'products.read', 'audit.read'],
+    permissions: ['chat.use', 'chat.approve', 'inventory.read', 'products.read', 'purchasing.read', 'audit.read'],
   },
 ];
 
@@ -202,6 +203,12 @@ function pickManyUnique<T>(items: T[], min: number, max: number) {
 
 async function clearTenantData(client: PoolClient, tenantId: string) {
   const tables = [
+    'ai_audit_events',
+    'ai_action_requests',
+    'ai_conversation_messages',
+    'ai_workflow_memory',
+    'ai_workflows',
+    'ai_conversations',
     'audit_records',
     'conversation_turns',
     'approvals',
@@ -323,7 +330,7 @@ async function seedPolicies(client: PoolClient, tenantId: string) {
     await client.query(
       `INSERT INTO policies (tenant_id, name, rules)
        VALUES ($1, $2, $3)`,
-      [tenantId, policy.name, policy.rules],
+      [tenantId, policy.name, JSON.stringify(policy.rules)],
     );
   }
 

@@ -1,4 +1,4 @@
-import { queryKeys, useQuery } from '@/lib/query';
+import { queryKeys, useQuery } from '@admin/lib/query';
 import { productsService } from '../services/products.service';
 
 export function useProductLocationsQuery(productId: string | undefined, enabled = true) {

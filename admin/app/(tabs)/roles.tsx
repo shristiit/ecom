@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
-import { AppButton, AppCard, AppInput, AppModal, AppTable, AppTableCell, AppTableHeaderCell, AppTableRow, PageHeader } from '@/components/ui';
-import { PermissionGate } from '@/features/auth';
-import { useCreateRoleMutation, useDeleteRoleMutation, useRolesQuery, useUpdateRoleMutation } from '@/features/users';
+import { AppButton, AppCard, AppInput, AppModal, AppTable, AppTableCell, AppTableHeaderCell, AppTableRow, PageHeader } from '@admin/components/ui';
+import { PermissionGate } from '@admin/features/auth';
+import { useCreateRoleMutation, useDeleteRoleMutation, useRolesQuery, useUpdateRoleMutation } from '@admin/features/users';
 
 export default function RolesScreen() {
   const [isModalOpen, setIsModalOpen] = useState(false);

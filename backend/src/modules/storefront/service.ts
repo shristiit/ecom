@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { z } from 'zod';
-import { pool } from '../../db/pool.js';
-import { RESERVATION_TTL_MIN } from '../../config/env.js';
+import { pool } from '@backend/db/pool.js';
+import { RESERVATION_TTL_MIN } from '@backend/config/env.js';
 
 const cartItemSchema = z.object({
   sizeId: z.string().uuid(),

@@ -1,5 +1,5 @@
 import { Slot } from 'expo-router';
-import { AppShell } from '@/components/navigation/app-shell';
+import { AppShell } from '@admin/components/navigation/app-shell';
 
 export default function TabLayout() {
   return (

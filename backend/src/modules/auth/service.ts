@@ -1,11 +1,11 @@
 import { Request, Response } from 'express';
 import bcrypt from 'bcrypt';
 import { z } from 'zod';
-import { query } from '../../db/pool.js';
-import { signAccessToken, signRefreshToken } from '../../utils/jwt.js';
-import { SSO_PROVIDERS, AUTH0_DOMAIN, AUTH0_CLIENT_ID, AUTH0_CLIENT_SECRET, AUTH0_AUDIENCE, AUTH0_REDIRECT_URI, DEFAULT_SSO_ROLE_NAME } from '../../config/env.js';
+import { query } from '@backend/db/pool.js';
+import { signAccessToken, signRefreshToken } from '@backend/utils/jwt.js';
+import { SSO_PROVIDERS, AUTH0_DOMAIN, AUTH0_CLIENT_ID, AUTH0_CLIENT_SECRET, AUTH0_AUDIENCE, AUTH0_REDIRECT_URI, DEFAULT_SSO_ROLE_NAME } from '@backend/config/env.js';
 import jwt from 'jsonwebtoken';
-import { JWT_SECRET } from '../../config/env.js';
+import { JWT_SECRET } from '@backend/config/env.js';
 import fetch from 'node-fetch';
 import crypto from 'node:crypto';
 
@@ -109,7 +109,15 @@ export async function resetPassword(req: Request, res: Response) {
 }
 
 export async function me(_req: Request, res: Response) {
-  res.json(_req.user);
+  const roleRes = await query(
+    `SELECT permissions FROM roles WHERE id = $1 AND tenant_id = $2`,
+    [_req.user!.roleId, _req.user!.tenantId]
+  );
+
+  res.json({
+    ..._req.user,
+    permissions: roleRes.rowCount > 0 ? roleRes.rows[0].permissions ?? [] : [],
+  });
 }
 
 export async function ssoStart(req: Request, res: Response) {

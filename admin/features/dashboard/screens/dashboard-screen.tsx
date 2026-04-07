@@ -1,6 +1,6 @@
 import { Link } from 'expo-router';
 import { ScrollView, Text, View, useWindowDimensions } from 'react-native';
-import { AppBadge, AppButton, AppCard, AppTable, AppTableCell, AppTableHeaderCell, AppTableRow, PageHeader, PageShell } from '@/components/ui';
+import { AppBadge, AppButton, AppCard, AppTable, AppTableCell, AppTableHeaderCell, AppTableRow, PageHeader, PageShell } from '@admin/components/ui';
 import { useDashboardOverviewQuery } from '../hooks/use-dashboard-overview-query';
 import { KpiCard } from '../components/kpi-card';
 

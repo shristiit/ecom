@@ -2,8 +2,8 @@ import { Request, Response } from 'express';
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
-import { S3_BUCKET, S3_PUBLIC_BASE_URL, S3_REGION } from '../../config/env.js';
-import { pool, query } from '../../db/pool.js';
+import { S3_BUCKET, S3_PUBLIC_BASE_URL, S3_REGION } from '@backend/config/env.js';
+import { pool, query } from '@backend/db/pool.js';
 
 const s3Client = S3_REGION ? new S3Client({ region: S3_REGION }) : null;
 

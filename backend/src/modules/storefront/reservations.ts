@@ -1,4 +1,4 @@
-import { pool } from '../../db/pool.js';
+import { pool } from '@backend/db/pool.js';
 
 export async function releaseExpiredReservations() {
   const client = await pool.connect();

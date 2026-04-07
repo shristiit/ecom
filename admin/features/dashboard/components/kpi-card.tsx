@@ -1,5 +1,5 @@
 import { Text, View } from 'react-native';
-import { AppBadge, AppCard } from '@/components/ui';
+import { AppBadge, AppCard } from '@admin/components/ui';
 import type { DashboardKpi } from '../types/dashboard.types';
 
 export function KpiCard({ kpi }: { kpi: DashboardKpi }) {

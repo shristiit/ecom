@@ -1,14 +1,14 @@
 import { Link } from 'expo-router';
 import { useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
-import { AppButton, AppCard, AppTable, AppTableCell, AppTableHeaderCell, AppTableRow, PageHeader } from '@/components/ui';
+import { AppButton, AppCard, AppTable, AppTableCell, AppTableHeaderCell, AppTableRow, PageHeader } from '@admin/components/ui';
 import {
   MasterFormModal,
   useCreateMasterCategoryMutation,
   useDeleteMasterCategoryMutation,
   useMasterCategoriesQuery,
   useUpdateMasterCategoryMutation,
-} from '@/features/master';
+} from '@admin/features/master';
 
 export default function MasterCategoriesScreen() {
   const [isModalOpen, setIsModalOpen] = useState(false);

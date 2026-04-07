@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { queryKeys, useQuery } from '@/lib/query';
+import { queryKeys, useQuery } from '@admin/lib/query';
 import { auditService } from '../services/audit.service';
 import type { AuditQueryFilter } from '../types/audit.types';
 

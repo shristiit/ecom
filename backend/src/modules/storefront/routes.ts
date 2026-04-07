@@ -1,8 +1,8 @@
 import { Router } from 'express';
-import * as ctrl from './service.js';
-import * as auth from './auth.js';
-import { customerAuthGuard, requireCustomerRole } from '../../middlewares/customerAuth.js';
-import { idempotencyGuard } from '../../middlewares/idempotency.js';
+import * as ctrl from '@backend/modules/storefront/service.js';
+import * as auth from '@backend/modules/storefront/auth.js';
+import { customerAuthGuard, requireCustomerRole } from '@backend/middlewares/customerAuth.js';
+import { idempotencyGuard } from '@backend/middlewares/idempotency.js';
 
 const r = Router();
 

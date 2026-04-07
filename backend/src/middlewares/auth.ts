@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import { JWT_SECRET } from '../config/env.js';
-import { query } from '../db/pool.js';
+import { JWT_SECRET } from '@backend/config/env.js';
+import { query } from '@backend/db/pool.js';
 
 export interface AuthUser {
   id: string;

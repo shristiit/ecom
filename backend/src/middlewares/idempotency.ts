@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import crypto from 'node:crypto';
-import { query } from '../db/pool.js';
+import { query } from '@backend/db/pool.js';
 
 export function idempotencyGuard(getTenantId: (req: Request) => string | null) {
   return async (req: Request, res: Response, next: NextFunction) => {

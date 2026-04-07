@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { type Href, useRouter } from 'expo-router';
 import { Pressable, Text, View } from 'react-native';
-import { AppButton, AppInput, AppModal } from '@/components/ui';
+import { AppButton, AppInput, AppModal } from '@admin/components/ui';
 
 type Command = {
   id: string;

@@ -1,5 +1,5 @@
-import type { AuditEvent, PaginatedResponse } from '@/features/shared';
-import { get } from '@/lib/api';
+import type { AuditEvent, PaginatedResponse } from '@admin/features/shared';
+import { get } from '@admin/lib/api';
 import type { AuditQueryFilter } from '../types/audit.types';
 
 type AuditRow = {

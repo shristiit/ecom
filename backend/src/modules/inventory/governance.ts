@@ -1,4 +1,4 @@
-import { query } from '../../db/pool.js';
+import { query } from '@backend/db/pool.js';
 
 export type GovernanceDecision = {
   requiresApproval: boolean;

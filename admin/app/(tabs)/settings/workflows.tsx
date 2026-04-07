@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
-import { AppButton, AppCard, AppInput, PageHeader } from '@/components/ui';
-import { useSettingsWorkflowsQuery, useUpsertSettingsWorkflowMutation } from '@/features/settings';
+import { AppButton, AppCard, AppInput, PageHeader } from '@admin/components/ui';
+import { useSettingsWorkflowsQuery, useUpsertSettingsWorkflowMutation } from '@admin/features/settings';
 
 export default function SettingsWorkflowsScreen() {
   const query = useSettingsWorkflowsQuery();

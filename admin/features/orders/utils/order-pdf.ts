@@ -1,7 +1,7 @@
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import { Platform } from 'react-native';
-import type { PO, SO } from '@/features/shared';
+import type { PO, SO } from '@admin/features/shared';
 
 const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
 

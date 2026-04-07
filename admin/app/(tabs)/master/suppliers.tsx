@@ -10,14 +10,14 @@ import {
   AppTableHeaderCell,
   AppTableRow,
   PageHeader,
-} from '@/components/ui';
+} from '@admin/components/ui';
 import {
   MasterFormModal,
   useCreateMasterSupplierMutation,
   useDeleteMasterSupplierMutation,
   useMasterSuppliersQuery,
   useUpdateMasterSupplierMutation,
-} from '@/features/master';
+} from '@admin/features/master';
 
 export default function MasterSuppliersScreen() {
   const [isModalOpen, setIsModalOpen] = useState(false);

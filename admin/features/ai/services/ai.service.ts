@@ -1,4 +1,4 @@
-import { get, post } from '@/lib/api';
+import { get, post } from '@admin/lib/api';
 import type { AIApproval, AIHistoryItem, AIInterpretResponse, AINavigationResponse, AISendResponse, AIThread, AIThreadSummary } from '../types';
 
 type ThreadSummaryRow = {

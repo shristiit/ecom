@@ -1,7 +1,7 @@
 import { Link } from 'expo-router';
 import { ScrollView, Text, View } from 'react-native';
-import { AppButton, AppCard, AppTable, AppTableCell, AppTableHeaderCell, AppTableRow, PageHeader } from '@/components/ui';
-import { useAiHistoryQuery } from '@/features/ai';
+import { AppButton, AppCard, AppTable, AppTableCell, AppTableHeaderCell, AppTableRow, PageHeader } from '@admin/components/ui';
+import { useAssistantHistoryQuery } from '@admin/features/assistant';
 
 function formatDate(value: string) {
   const date = new Date(value);
@@ -10,7 +10,7 @@ function formatDate(value: string) {
 }
 
 export default function AiHistoryScreen() {
-  const query = useAiHistoryQuery();
+  const query = useAssistantHistoryQuery();
   const rows = query.data ?? [];
 
   return (

@@ -10,14 +10,14 @@ import {
   AppTableHeaderCell,
   AppTableRow,
   PageHeader,
-} from '@/components/ui';
+} from '@admin/components/ui';
 import {
   MasterFormModal,
   useCreateMasterLocationMutation,
   useDeleteMasterLocationMutation,
   useMasterLocationsQuery,
   useUpdateMasterLocationMutation,
-} from '@/features/master';
+} from '@admin/features/master';
 
 export default function MasterLocationsScreen() {
   const [isModalOpen, setIsModalOpen] = useState(false);

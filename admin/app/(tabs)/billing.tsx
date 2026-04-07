@@ -9,7 +9,7 @@ import {
   AppTableRow,
   PageHeader,
   PageShell,
-} from '@/components/ui';
+} from '@admin/components/ui';
 
 const invoices = [
   {

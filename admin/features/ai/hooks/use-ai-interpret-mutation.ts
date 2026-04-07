@@ -1,4 +1,4 @@
-import { useMutation } from '@/lib/query';
+import { useMutation } from '@admin/lib/query';
 import { aiService } from '../services';
 
 export function useAiInterpretMutation() {

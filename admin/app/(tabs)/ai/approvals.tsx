@@ -1,7 +1,7 @@
 import { Link } from 'expo-router';
 import { ScrollView, Text, View } from 'react-native';
-import { AppBadge, AppButton, AppCard, AppTable, AppTableCell, AppTableHeaderCell, AppTableRow, PageHeader } from '@/components/ui';
-import { useAiApproveMutation, useAiApprovalsQuery } from '@/features/ai';
+import { AppBadge, AppButton, AppCard, AppTable, AppTableCell, AppTableHeaderCell, AppTableRow, PageHeader } from '@admin/components/ui';
+import { useAssistantApproveMutation, useAssistantApprovalsQuery } from '@admin/features/assistant';
 
 function formatDate(value: string) {
   const date = new Date(value);
@@ -10,8 +10,8 @@ function formatDate(value: string) {
 }
 
 export default function AiApprovalsScreen() {
-  const query = useAiApprovalsQuery();
-  const approveMutation = useAiApproveMutation();
+  const query = useAssistantApprovalsQuery();
+  const approveMutation = useAssistantApproveMutation();
   const rows = query.data ?? [];
 
   const handleDecision = async (approvalId: string, approve: boolean) => {

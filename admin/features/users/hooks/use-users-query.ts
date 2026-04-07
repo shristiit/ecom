@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { queryKeys, useQuery } from '@/lib/query';
+import { queryKeys, useQuery } from '@admin/lib/query';
 import { usersService } from '../services/users.service';
 import type { UsersFilter } from '../types/users.types';
 

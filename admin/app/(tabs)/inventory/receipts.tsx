@@ -10,8 +10,8 @@ import {
   AppTableHeaderCell,
   AppTableRow,
   PageHeader,
-} from '@/components/ui';
-import { TransactionFormModal, useCreateReceiveMutation, useInventoryReceiptsQuery } from '@/features/inventory';
+} from '@admin/components/ui';
+import { TransactionFormModal, useCreateReceiveMutation, useInventoryReceiptsQuery } from '@admin/features/inventory';
 
 function formatDate(value: string) {
   const date = new Date(value);

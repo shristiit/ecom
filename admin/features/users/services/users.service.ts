@@ -1,5 +1,5 @@
-import type { User } from '@/features/shared';
-import { del, get, patch, post } from '@/lib/api';
+import type { User } from '@admin/features/shared';
+import { del, get, patch, post } from '@admin/lib/api';
 import type { Policy, Role, UserDetail, UsersFilter } from '../types/users.types';
 
 type UsersResponse = {

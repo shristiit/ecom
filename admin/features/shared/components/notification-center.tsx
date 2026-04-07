@@ -1,6 +1,6 @@
 import { type Href, Link } from 'expo-router';
 import { Text, View } from 'react-native';
-import { AppBadge, AppButton, AppDrawer } from '@/components/ui';
+import { AppBadge, AppButton, AppDrawer } from '@admin/components/ui';
 
 const notifications: Array<{ id: string; title: string; detail: string; tone: 'warning' | 'error'; href: Href }> = [
   { id: 'n1', title: 'Low stock detected', detail: 'SKU-CORE-TEE-BLK-S at WH-01', tone: 'warning' as const, href: '/inventory/stock-on-hand' },

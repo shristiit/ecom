@@ -1,4 +1,4 @@
-import { useMutation } from '@/lib/query';
+import { useMutation } from '@admin/lib/query';
 import { ordersService } from '../services/orders.service';
 
 type ReceiveLine = {

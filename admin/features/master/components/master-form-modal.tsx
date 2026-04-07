@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Text, View } from 'react-native';
-import { AppButton, AppInput, AppModal } from '@/components/ui';
+import { AppButton, AppInput, AppModal } from '@admin/components/ui';
 
 export type MasterFormField = {
   key: string;

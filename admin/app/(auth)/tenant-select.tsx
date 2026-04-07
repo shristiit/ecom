@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Text, View } from 'react-native';
-import { AppButton, AppSelect } from '@/components/ui';
-import { AuthScreenShell, useAuthSession } from '@/features/auth';
+import { AppButton, AppSelect } from '@admin/components/ui';
+import { AuthScreenShell, useAuthSession } from '@admin/features/auth';
 
 export default function TenantSelectScreen() {
   const { tenants, selectedTenantId, selectTenant } = useAuthSession();

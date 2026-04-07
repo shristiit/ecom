@@ -1,6 +1,6 @@
 import pg from 'pg';
 import type { QueryResultRow } from 'pg';
-import { DATABASE_URL, NODE_ENV } from '../config/env.js';
+import { DATABASE_URL, NODE_ENV } from '@backend/config/env.js';
 
 const { Pool } = pg;
 const useSsl =

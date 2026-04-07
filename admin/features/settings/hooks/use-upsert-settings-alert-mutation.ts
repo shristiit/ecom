@@ -1,4 +1,4 @@
-import { useMutation } from '@/lib/query';
+import { useMutation } from '@admin/lib/query';
 import { settingsService } from '../services/settings.service';
 import type { SettingsAlertRule } from '../types/settings.types';
 

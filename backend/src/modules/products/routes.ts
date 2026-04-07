@@ -1,8 +1,8 @@
 import { Router } from 'express';
 import multer from 'multer';
-import { authGuard, requireTenant, requirePermission } from '../../middlewares/auth.js';
-import { idempotencyGuard } from '../../middlewares/idempotency.js';
-import * as ctrl from './service.js';
+import { authGuard, requireTenant, requirePermission } from '@backend/middlewares/auth.js';
+import { idempotencyGuard } from '@backend/middlewares/idempotency.js';
+import * as ctrl from '@backend/modules/products/service.js';
 
 const r = Router();
 const mediaUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });

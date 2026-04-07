@@ -1,6 +1,6 @@
-import { aiService } from '@/features/ai';
-import { inventoryService } from '@/features/inventory/services/inventory.service';
-import { ordersService } from '@/features/orders/services/orders.service';
+import { aiService } from '@admin/features/ai';
+import { inventoryService } from '@admin/features/inventory/services/inventory.service';
+import { ordersService } from '@admin/features/orders/services/orders.service';
 import type { DashboardAlert, DashboardKpi, DashboardOverview } from '../types/dashboard.types';
 
 const lowStockThreshold = 5;

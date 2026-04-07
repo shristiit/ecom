@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { z } from 'zod';
-import { pool } from '../../db/pool.js';
-import { evaluateGovernance } from './governance.js';
+import { pool } from '@backend/db/pool.js';
+import { evaluateGovernance } from '@backend/modules/inventory/governance.js';
 
 const baseWriteSchema = z.object({
   sizeId: z.string().uuid(),

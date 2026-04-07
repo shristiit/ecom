@@ -10,9 +10,9 @@ import {
   AppTableHeaderCell,
   AppTableRow,
   PageHeader,
-} from '@/components/ui';
-import { PermissionGate } from '@/features/auth';
-import { useUsersQuery } from '@/features/users';
+} from '@admin/components/ui';
+import { PermissionGate } from '@admin/features/auth';
+import { useUsersQuery } from '@admin/features/users';
 
 export default function UsersScreen() {
   const query = useUsersQuery({ page: 1, pageSize: 100 });

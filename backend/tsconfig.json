@@ -3,6 +3,10 @@
     "target": "ES2022",
     "module": "ES2022",
     "moduleResolution": "Bundler",
+    "baseUrl": ".",
+    "paths": {
+      "@backend/*": ["src/*"]
+    },
     "outDir": "dist",
     "rootDir": "src",
     "esModuleInterop": true,

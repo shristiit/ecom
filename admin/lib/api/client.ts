@@ -20,9 +20,9 @@ function createIdempotencyKey() {
   return `${now}-${randA}-${randB}`;
 }
 
-function buildUrl(path: string, query?: QueryParams) {
+function buildUrl(path: string, query?: QueryParams, baseUrl?: string) {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
-  const url = new URL(`${API_BASE_URL}${normalizedPath}`);
+  const url = new URL(`${baseUrl ?? API_BASE_URL}${normalizedPath}`);
 
   if (query) {
     Object.entries(query).forEach(([key, value]) => {
@@ -75,6 +75,7 @@ async function parsePayload(response: Response) {
 export async function request<TResponse, TBody = unknown>({
   method,
   path,
+  baseUrl,
   body,
   headers,
   auth = true,
@@ -112,7 +113,7 @@ export async function request<TResponse, TBody = unknown>({
 
   async function fetchWithHeaders() {
     const requestHeaders = await buildRequestHeaders();
-    return fetch(buildUrl(path, query), {
+    return fetch(buildUrl(path, query, baseUrl), {
       method,
       headers: requestHeaders,
       body: hasBody ? (isFormDataBody ? (body as BodyInit) : JSON.stringify(body)) : undefined,

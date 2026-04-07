@@ -1,7 +1,7 @@
 import { Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { AppButton, AppCard } from '@/components/ui';
-import { useAuthSession } from '@/features/auth';
+import { AppButton, AppCard } from '@admin/components/ui';
+import { useAuthSession } from '@admin/features/auth';
 
 export default function ForbiddenScreen() {
   const { signOut } = useAuthSession();

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
-import { AppButton, AppCard, AppInput, PageHeader } from '@/components/ui';
-import { useSaveSettingsProfileMutation, useSettingsProfileQuery } from '@/features/settings';
+import { AppButton, AppCard, AppInput, PageHeader } from '@admin/components/ui';
+import { useSaveSettingsProfileMutation, useSettingsProfileQuery } from '@admin/features/settings';
 
 export default function SettingsProfileScreen() {
   const query = useSettingsProfileQuery();

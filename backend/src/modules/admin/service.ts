@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import bcrypt from 'bcrypt';
 import { z } from 'zod';
-import { query } from '../../db/pool.js';
+import { query } from '@backend/db/pool.js';
 
 const roleSchema = z.object({
   name: z.string().min(2),

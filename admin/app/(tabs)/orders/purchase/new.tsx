@@ -2,10 +2,10 @@ import { Link, useRouter } from 'expo-router';
 import { Plus } from 'lucide-react-native';
 import { useMemo, useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
-import { AppButton, AppCard, AppInput, AppSelect, PageHeader } from '@/components/ui';
-import { useMasterSuppliersQuery } from '@/features/master';
-import { OrderLineEditorCard, type DraftOrderLine, useCreatePurchaseOrderMutation } from '@/features/orders';
-import { useProductsQuery } from '@/features/products';
+import { AppButton, AppCard, AppInput, AppSelect, PageHeader } from '@admin/components/ui';
+import { useMasterSuppliersQuery } from '@admin/features/master';
+import { OrderLineEditorCard, type DraftOrderLine, useCreatePurchaseOrderMutation } from '@admin/features/orders';
+import { useProductsQuery } from '@admin/features/products';
 
 function makeId() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;

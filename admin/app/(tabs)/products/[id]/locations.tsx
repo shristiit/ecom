@@ -12,8 +12,8 @@ import {
   AppTableHeaderCell,
   AppTableRow,
   PageHeader,
-} from '@/components/ui';
-import { useProductLocationsQuery, useRemoveProductLocationMutation, useUpsertProductLocationMutation } from '@/features/products';
+} from '@admin/components/ui';
+import { useProductLocationsQuery, useRemoveProductLocationMutation, useUpsertProductLocationMutation } from '@admin/features/products';
 
 export default function ProductLocationsScreen() {
   const [isModalOpen, setIsModalOpen] = useState(false);
