@@ -1,4 +1,4 @@
-import { useMutation } from '@/lib/query';
+import { useMutation } from '@admin/lib/query';
 import { usersService } from '../services/users.service';
 
 export function useUpdateUserStatusMutation() {

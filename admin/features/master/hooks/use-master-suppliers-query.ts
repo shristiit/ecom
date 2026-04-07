@@ -1,4 +1,4 @@
-import { queryKeys, useQuery } from '@/lib/query';
+import { queryKeys, useQuery } from '@admin/lib/query';
 import { masterService } from '../services/master.service';
 
 export function useMasterSuppliersQuery(enabled = true) {

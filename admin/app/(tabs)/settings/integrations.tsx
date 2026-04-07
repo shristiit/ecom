@@ -1,6 +1,6 @@
 import { ScrollView, Text, View } from 'react-native';
-import { AppButton, AppCard, PageHeader } from '@/components/ui';
-import { useSettingsIntegrationsQuery, useUpdateSettingsIntegrationMutation } from '@/features/settings';
+import { AppButton, AppCard, PageHeader } from '@admin/components/ui';
+import { useSettingsIntegrationsQuery, useUpdateSettingsIntegrationMutation } from '@admin/features/settings';
 
 export default function SettingsIntegrationsScreen() {
   const query = useSettingsIntegrationsQuery();

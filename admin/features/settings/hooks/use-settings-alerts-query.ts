@@ -1,4 +1,4 @@
-import { queryKeys, useQuery } from '@/lib/query';
+import { queryKeys, useQuery } from '@admin/lib/query';
 import { settingsService } from '../services/settings.service';
 
 export function useSettingsAlertsQuery(enabled = true) {

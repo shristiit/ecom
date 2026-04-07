@@ -2,6 +2,7 @@ packages:
   - components/*
   - backend
   - admin
+  - conversational-engine
   - ecommerce
   - e2e
 

@@ -1,9 +1,9 @@
 import fetch from 'node-fetch';
-import { OPENAI_API_KEY, OPENAI_BASE_URL, OPENAI_MODEL } from '../../config/env.js';
-import { query } from '../../db/pool.js';
-import { logger } from '../../utils/logger.js';
-import { resolveNavigation } from './navigation.js';
-import { interpretTransaction } from './transaction-tool.js';
+import { OPENAI_API_KEY, OPENAI_BASE_URL, OPENAI_MODEL } from '@backend/config/env.js';
+import { query } from '@backend/db/pool.js';
+import { logger } from '@backend/utils/logger.js';
+import { resolveNavigation } from '@backend/modules/chat/navigation.js';
+import { interpretTransaction } from '@backend/modules/chat/transaction-tool.js';
 
 type OrchestratorInput = {
   text: string;

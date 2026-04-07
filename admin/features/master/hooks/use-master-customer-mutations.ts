@@ -1,4 +1,4 @@
-import { useMutation } from '@/lib/query';
+import { useMutation } from '@admin/lib/query';
 import { masterService } from '../services/master.service';
 import type { MasterPartyInput } from '../types/master.types';
 

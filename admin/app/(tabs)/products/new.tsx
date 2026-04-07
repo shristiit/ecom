@@ -14,10 +14,10 @@ import {
   AppTableHeaderCell,
   AppTableRow,
   PageHeader,
-} from '@/components/ui';
-import { useMasterCategoriesQuery, useMasterLocationsQuery } from '@/features/master';
-import { useCreateComposedProductMutation, useUploadProductMediaMutation } from '@/features/products';
-import type { ComposedProductInput } from '@/features/products/types';
+} from '@admin/components/ui';
+import { useMasterCategoriesQuery, useMasterLocationsQuery } from '@admin/features/master';
+import { useCreateComposedProductMutation, useUploadProductMediaMutation } from '@admin/features/products';
+import type { ComposedProductInput } from '@admin/features/products/types';
 
 const fallbackCategoryOptions = [
   { label: 'Tops', value: 'tops' },

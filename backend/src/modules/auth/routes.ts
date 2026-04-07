@@ -1,6 +1,6 @@
 import { Router } from 'express';
-import * as ctrl from './service.js';
-import { authGuard } from '../../middlewares/auth.js';
+import * as ctrl from '@backend/modules/auth/service.js';
+import { authGuard } from '@backend/middlewares/auth.js';
 
 const r = Router();
 

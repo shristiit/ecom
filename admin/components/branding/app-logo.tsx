@@ -1,6 +1,6 @@
 import { Image } from 'expo-image';
 import { View, type StyleProp, type ViewStyle } from 'react-native';
-import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useColorScheme } from '@admin/hooks/use-color-scheme';
 
 type AppLogoProps = {
   size?: number;

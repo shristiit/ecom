@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
-import { AppButton, AppCard, AppInput, PageHeader } from '@/components/ui';
+import { AppButton, AppCard, AppInput, PageHeader } from '@admin/components/ui';
 import {
   useDeleteSettingsAlertMutation,
   useSettingsAlertsQuery,
   useUpsertSettingsAlertMutation,
-} from '@/features/settings';
+} from '@admin/features/settings';
 
 export default function SettingsAlertsScreen() {
   const query = useSettingsAlertsQuery();

@@ -1,15 +1,15 @@
 import { Router } from 'express';
-import { authGuard, requireTenant, requirePermission } from '../../middlewares/auth.js';
-import { idempotencyGuard } from '../../middlewares/idempotency.js';
-import * as ctrl from './service.js';
+import { authGuard, requireTenant, requirePermission } from '@backend/middlewares/auth.js';
+import { idempotencyGuard } from '@backend/middlewares/idempotency.js';
+import * as ctrl from '@backend/modules/purchasing/service.js';
 
 const r = Router();
 
 r.use(authGuard, requireTenant);
 const idem = idempotencyGuard((req) => req.user?.tenantId ?? null);
 
-r.get('/po', requirePermission('purchasing.write'), ctrl.listPOs);
-r.get('/po/:id', requirePermission('purchasing.write'), ctrl.getPO);
+r.get('/po', requirePermission('purchasing.read'), ctrl.listPOs);
+r.get('/po/:id', requirePermission('purchasing.read'), ctrl.getPO);
 r.post('/po', requirePermission('purchasing.write'), idem, ctrl.createPO);
 r.patch('/po/:id', requirePermission('purchasing.write'), idem, ctrl.updatePO);
 r.post('/po/:id/receive', requirePermission('purchasing.write'), idem, ctrl.receivePO);

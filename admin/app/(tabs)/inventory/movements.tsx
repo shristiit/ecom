@@ -8,8 +8,8 @@ import {
   AppTableHeaderCell,
   AppTableRow,
   PageHeader,
-} from '@/components/ui';
-import { useInventoryMovementsQuery } from '@/features/inventory';
+} from '@admin/components/ui';
+import { useInventoryMovementsQuery } from '@admin/features/inventory';
 
 function formatDateTime(value: string) {
   const date = new Date(value);

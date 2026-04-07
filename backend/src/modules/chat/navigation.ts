@@ -1,7 +1,7 @@
 import fetch from 'node-fetch';
-import { OPENAI_API_KEY, OPENAI_BASE_URL, OPENAI_MODEL } from '../../config/env.js';
-import { query } from '../../db/pool.js';
-import { logger } from '../../utils/logger.js';
+import { OPENAI_API_KEY, OPENAI_BASE_URL, OPENAI_MODEL } from '@backend/config/env.js';
+import { query } from '@backend/db/pool.js';
+import { logger } from '@backend/utils/logger.js';
 
 type NavigationTarget = {
   key: string;

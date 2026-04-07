@@ -1,5 +1,5 @@
-import type { InventoryMovement, PaginatedResponse } from '@/features/shared';
-import { get, post } from '@/lib/api';
+import type { InventoryMovement, PaginatedResponse } from '@admin/features/shared';
+import { get, post } from '@admin/lib/api';
 import type {
   InventoryAdjustmentInput,
   InventoryMovementsFilter,

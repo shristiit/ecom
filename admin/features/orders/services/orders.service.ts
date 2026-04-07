@@ -1,5 +1,5 @@
-import type { PO, SO, PaginatedResponse } from '@/features/shared';
-import { get, post } from '@/lib/api';
+import type { PO, SO, PaginatedResponse } from '@admin/features/shared';
+import { get, post } from '@admin/lib/api';
 import type { PurchaseOrdersFilter, SalesOrdersFilter } from '../types/orders.types';
 
 type PaginatedInput<T> =

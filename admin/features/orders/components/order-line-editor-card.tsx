@@ -1,8 +1,8 @@
 import { useMemo } from 'react';
 import { Text, View } from 'react-native';
-import { AppButton, AppCard, AppInput, AppSelect } from '@/components/ui';
-import type { SelectOption } from '@/components/ui';
-import { useProductQuery } from '@/features/products';
+import { AppButton, AppCard, AppInput, AppSelect } from '@admin/components/ui';
+import type { SelectOption } from '@admin/components/ui';
+import { useProductQuery } from '@admin/features/products';
 
 export type DraftOrderLine = {
   id: string;

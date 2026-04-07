@@ -1,4 +1,4 @@
-import { del, get, patch, post } from '@/lib/api';
+import { del, get, patch, post } from '@admin/lib/api';
 import type {
   MasterCategory,
   MasterCategoryInput,

@@ -1,7 +1,7 @@
 import { type ReactNode, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Platform } from 'react-native';
 import { openBrowserAsync, WebBrowserPresentationStyle } from 'expo-web-browser';
-import { get, configureApiClient } from '@/lib/api';
+import { get, configureApiClient } from '@admin/lib/api';
 import { authService } from '../services/auth.service';
 import { sessionStorage } from '../services/session-storage';
 import type { LoginInput } from '../types/auth.types';

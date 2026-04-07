@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import * as ctrl from './service.js';
+import * as ctrl from '@backend/modules/tenants/service.js';
 
 const r = Router();
 

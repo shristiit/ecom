@@ -1,5 +1,5 @@
-import type { PaginatedResponse } from '@/features/shared';
-import { del, get, patch, post } from '@/lib/api';
+import type { PaginatedResponse } from '@admin/features/shared';
+import { del, get, patch, post } from '@admin/lib/api';
 import type {
   ComposedProductInput,
   ComposedProductResult,

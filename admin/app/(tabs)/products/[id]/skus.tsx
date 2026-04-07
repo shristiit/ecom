@@ -12,8 +12,8 @@ import {
   AppTableHeaderCell,
   AppTableRow,
   PageHeader,
-} from '@/components/ui';
-import { useCreateProductSkuMutation, useProductQuery } from '@/features/products';
+} from '@admin/components/ui';
+import { useCreateProductSkuMutation, useProductQuery } from '@admin/features/products';
 
 const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
 

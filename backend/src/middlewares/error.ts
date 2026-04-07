@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { logger } from '../utils/logger.js';
+import { logger } from '@backend/utils/logger.js';
 
 type PgLikeError = {
   code?: string;

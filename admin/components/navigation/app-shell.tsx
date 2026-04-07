@@ -20,11 +20,11 @@ import { type LucideIcon } from 'lucide-react-native';
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import { Platform, Pressable, Text, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { AppLogo } from '@/components/branding';
-import { AssistantSearchBar } from '@/components/navigation/assistant-search-bar';
-import { AppCard, AppDrawer } from '@/components/ui';
-import { useAuthSession } from '@/features/auth';
-import { EntityQuickViewDrawer, GlobalCommandPalette, NotificationCenter } from '@/features/shared';
+import { AppLogo } from '@admin/components/branding';
+import { AssistantSearchBar } from '@admin/components/navigation/assistant-search-bar';
+import { AppCard, AppDrawer } from '@admin/components/ui';
+import { useAuthSession } from '@admin/features/auth';
+import { EntityQuickViewDrawer, GlobalCommandPalette, NotificationCenter } from '@admin/features/shared';
 
 type NavItem = {
   href: '/' | '/dashboard' | '/products' | '/inventory' | '/orders' | '/billing' | '/master/locations' | '/users' | '/audit' | '/ai' | '/settings';

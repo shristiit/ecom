@@ -9,8 +9,8 @@ import {
   AppTableHeaderCell,
   AppTableRow,
   PageHeader,
-} from '@/components/ui';
-import { useStockOnHandQuery } from '@/features/inventory';
+} from '@admin/components/ui';
+import { useStockOnHandQuery } from '@admin/features/inventory';
 
 export default function StockOnHandScreen() {
   const query = useStockOnHandQuery();

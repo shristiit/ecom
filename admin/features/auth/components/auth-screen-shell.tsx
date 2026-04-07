@@ -1,8 +1,8 @@
 import { type ReactNode } from 'react';
 import { Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { AppLogo } from '@/components/branding';
-import { AppCard } from '@/components/ui';
+import { AppLogo } from '@admin/components/branding';
+import { AppCard } from '@admin/components/ui';
 
 type AuthScreenShellProps = {
   title: string;

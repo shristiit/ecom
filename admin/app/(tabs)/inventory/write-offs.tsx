@@ -9,8 +9,8 @@ import {
   AppTableHeaderCell,
   AppTableRow,
   PageHeader,
-} from '@/components/ui';
-import { TransactionFormModal, useCreateWriteOffMutation, useInventoryMovementsQuery } from '@/features/inventory';
+} from '@admin/components/ui';
+import { TransactionFormModal, useCreateWriteOffMutation, useInventoryMovementsQuery } from '@admin/features/inventory';
 
 export default function WriteOffsScreen() {
   const [isModalOpen, setIsModalOpen] = useState(false);

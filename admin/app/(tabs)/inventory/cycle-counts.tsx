@@ -9,8 +9,8 @@ import {
   AppTableHeaderCell,
   AppTableRow,
   PageHeader,
-} from '@/components/ui';
-import { TransactionFormModal, useCreateCycleCountMutation, useInventoryMovementsQuery } from '@/features/inventory';
+} from '@admin/components/ui';
+import { TransactionFormModal, useCreateCycleCountMutation, useInventoryMovementsQuery } from '@admin/features/inventory';
 
 function formatDate(value: string) {
   const date = new Date(value);

@@ -1,4 +1,4 @@
-import { get, post } from '@/lib/api';
+import { get, post } from '@admin/lib/api';
 import type { AuthTokens, LoginInput, RefreshInput } from '../types/auth.types';
 
 export type AuthMeResponse = {
@@ -6,6 +6,7 @@ export type AuthMeResponse = {
   tenantId: string;
   roleId: string;
   email: string;
+  permissions?: string[];
 };
 
 export const authService = {

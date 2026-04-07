@@ -1,8 +1,8 @@
 import { Request, Response } from 'express';
 import { z } from 'zod';
 import bcrypt from 'bcrypt';
-import { query } from '../../db/pool.js';
-import { signAccessToken, signRefreshToken } from '../../utils/jwt.js';
+import { query } from '@backend/db/pool.js';
+import { signAccessToken, signRefreshToken } from '@backend/utils/jwt.js';
 import { jwtVerify, createRemoteJWKSet } from 'jose';
 
 const registerSchema = z.object({

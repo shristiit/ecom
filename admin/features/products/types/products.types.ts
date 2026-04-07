@@ -1,4 +1,4 @@
-import type { Status } from '@/features/shared';
+import type { Status } from '@admin/features/shared';
 
 export type ProductsFilter = {
   page?: number;
