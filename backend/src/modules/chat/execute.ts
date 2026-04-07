@@ -1,7 +1,7 @@
-import { query } from '../../db/pool.js';
-import { executeReceive, executeTransfer, executeAdjust, executeWriteOff } from '../inventory/service.js';
-import { executeCreatePO } from '../purchasing/service.js';
-import { executeCreateInvoice } from '../sales/service.js';
+import { query } from '@backend/db/pool.js';
+import { executeReceive, executeTransfer, executeAdjust, executeWriteOff } from '@backend/modules/inventory/service.js';
+import { executeCreatePO } from '@backend/modules/purchasing/service.js';
+import { executeCreateInvoice } from '@backend/modules/sales/service.js';
 
 export async function executeSpec(tenantId: string, actorId: string, spec: any) {
   const intent = String(spec.intent ?? '').toUpperCase();

@@ -1,4 +1,4 @@
-import { engineGet, enginePost } from '@/lib/engine-client';
+import { engineGet, enginePost } from '@admin/lib/engine-client';
 import type {
   AssistantApproval,
   AssistantConversation,

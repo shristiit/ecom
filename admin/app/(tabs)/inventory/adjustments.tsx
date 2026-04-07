@@ -9,8 +9,8 @@ import {
   AppTableHeaderCell,
   AppTableRow,
   PageHeader,
-} from '@/components/ui';
-import { TransactionFormModal, useCreateAdjustmentMutation, useInventoryMovementsQuery } from '@/features/inventory';
+} from '@admin/components/ui';
+import { TransactionFormModal, useCreateAdjustmentMutation, useInventoryMovementsQuery } from '@admin/features/inventory';
 
 export default function AdjustmentsScreen() {
   const [isModalOpen, setIsModalOpen] = useState(false);

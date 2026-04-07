@@ -1,6 +1,6 @@
 import { Link } from 'expo-router';
 import { Text, View } from 'react-native';
-import { AppBadge, AppButton, AppTable, AppTableCell, AppTableHeaderCell, AppTableRow } from '@/components/ui';
+import { AppBadge, AppButton, AppTable, AppTableCell, AppTableHeaderCell, AppTableRow } from '@admin/components/ui';
 import type { AssistantMessageBlock } from '../types/assistant.types';
 
 type Props = {

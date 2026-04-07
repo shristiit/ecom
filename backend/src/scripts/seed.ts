@@ -1,7 +1,7 @@
 import bcrypt from 'bcrypt';
 import { faker } from '@faker-js/faker';
 import type { PoolClient } from 'pg';
-import { pool } from '../db/pool.js';
+import { pool } from '@backend/db/pool.js';
 
 const ALL_PERMISSIONS = [
   'admin.roles.read',

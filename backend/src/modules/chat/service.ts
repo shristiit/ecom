@@ -1,11 +1,11 @@
 import { Request, Response } from 'express';
 import { z } from 'zod';
-import { query } from '../../db/pool.js';
-import { logger } from '../../utils/logger.js';
-import { executeSpec } from './execute.js';
-import { resolveNavigation } from './navigation.js';
-import { orchestrateChat } from './orchestrator.js';
-import { interpretTransaction } from './transaction-tool.js';
+import { query } from '@backend/db/pool.js';
+import { logger } from '@backend/utils/logger.js';
+import { executeSpec } from '@backend/modules/chat/execute.js';
+import { resolveNavigation } from '@backend/modules/chat/navigation.js';
+import { orchestrateChat } from '@backend/modules/chat/orchestrator.js';
+import { interpretTransaction } from '@backend/modules/chat/transaction-tool.js';
 
 const interpretSchema = z.object({
   text: z.string().min(1),

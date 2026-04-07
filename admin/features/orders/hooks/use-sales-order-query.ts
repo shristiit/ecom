@@ -1,4 +1,4 @@
-import { queryKeys, useQuery } from '@/lib/query';
+import { queryKeys, useQuery } from '@admin/lib/query';
 import { ordersService } from '../services/orders.service';
 
 export function useSalesOrderQuery(id: string | undefined, enabled = true) {

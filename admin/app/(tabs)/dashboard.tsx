@@ -1,1 +1,1 @@
-export { DashboardScreen as default } from '@/features/dashboard';
+export { DashboardScreen as default } from '@admin/features/dashboard';

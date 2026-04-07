@@ -1,4 +1,4 @@
-import { request } from '@/lib/api';
+import { request } from '@admin/lib/api';
 import { ENGINE_BASE_URL } from './config';
 
 export function engineGet<TResponse>(path: string) {

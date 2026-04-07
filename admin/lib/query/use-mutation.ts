@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { ApiError } from '@/lib/api';
+import { ApiError } from '@admin/lib/api';
 import type { MutationState } from './types';
 
 type UseMutationOptions<TPayload, TResult> = {

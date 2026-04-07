@@ -1,7 +1,7 @@
 import { useLocalSearchParams } from 'expo-router';
 import { ScrollView, Text, View } from 'react-native';
-import { AppBadge, AppButton, AppCard, PageHeader } from '@/components/ui';
-import { useAuditDetailQuery } from '@/features/audit';
+import { AppBadge, AppButton, AppCard, PageHeader } from '@admin/components/ui';
+import { useAuditDetailQuery } from '@admin/features/audit';
 
 export default function AuditEventDetailScreen() {
   const params = useLocalSearchParams<{ eventId?: string | string[] }>();

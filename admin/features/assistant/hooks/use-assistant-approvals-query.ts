@@ -1,4 +1,4 @@
-import { queryKeys, useQuery } from '@/lib/query';
+import { queryKeys, useQuery } from '@admin/lib/query';
 import { assistantService } from '../services/assistant.service';
 
 export function useAssistantApprovalsQuery(enabled = true) {

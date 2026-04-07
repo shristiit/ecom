@@ -1,4 +1,4 @@
-import { useMutation } from '@/lib/query';
+import { useMutation } from '@admin/lib/query';
 import { assistantService } from '../services/assistant.service';
 
 export function useAssistantSendMessageMutation() {

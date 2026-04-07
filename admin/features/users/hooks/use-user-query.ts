@@ -1,4 +1,4 @@
-import { queryKeys, useQuery } from '@/lib/query';
+import { queryKeys, useQuery } from '@admin/lib/query';
 import { usersService } from '../services/users.service';
 
 export function useUserQuery(id: string | undefined, enabled = true) {

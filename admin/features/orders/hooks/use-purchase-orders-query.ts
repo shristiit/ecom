@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { queryKeys, useQuery } from '@/lib/query';
+import { queryKeys, useQuery } from '@admin/lib/query';
 import { ordersService } from '../services/orders.service';
 import type { PurchaseOrdersFilter } from '../types/orders.types';
 

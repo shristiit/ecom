@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ApiError } from '@/lib/api';
+import { ApiError } from '@admin/lib/api';
 import type { QueryKey, QueryState } from './types';
 
 type UseQueryOptions<TData> = {

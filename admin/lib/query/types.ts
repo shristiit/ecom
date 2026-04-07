@@ -1,4 +1,4 @@
-import type { ApiError } from '@/lib/api';
+import type { ApiError } from '@admin/lib/api';
 
 export type QueryKey = readonly (string | number | boolean | null | undefined)[];
 

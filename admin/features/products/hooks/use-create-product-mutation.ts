@@ -1,4 +1,4 @@
-import { useMutation } from '@/lib/query';
+import { useMutation } from '@admin/lib/query';
 import { productsService } from '../services/products.service';
 
 export function useCreateProductMutation() {

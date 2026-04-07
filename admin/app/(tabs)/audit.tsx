@@ -12,8 +12,8 @@ import {
   AppTableHeaderCell,
   AppTableRow,
   PageHeader,
-} from '@/components/ui';
-import { auditService, useAuditQuery } from '@/features/audit';
+} from '@admin/components/ui';
+import { auditService, useAuditQuery } from '@admin/features/audit';
 
 function formatDate(value: string) {
   const date = new Date(value);

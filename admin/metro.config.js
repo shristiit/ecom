@@ -1,7 +1,23 @@
+const path = require('path');
 const { getDefaultConfig } = require('expo/metro-config');
 const { withNativeWind } = require('nativewind/metro');
 
-const config = getDefaultConfig(__dirname);
+const projectRoot = __dirname;
+const config = getDefaultConfig(projectRoot);
+const defaultResolveRequest = config.resolver.resolveRequest;
+
+config.resolver.resolveRequest = (context, moduleName, platform) => {
+  if (moduleName.startsWith('@admin/')) {
+    const target = path.join(projectRoot, moduleName.slice('@admin/'.length));
+    return context.resolveRequest(context, target, platform);
+  }
+
+  if (defaultResolveRequest) {
+    return defaultResolveRequest(context, moduleName, platform);
+  }
+
+  return context.resolveRequest(context, moduleName, platform);
+};
 
 module.exports = withNativeWind(config, {
   input: './app/global.css',

@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { z } from 'zod';
-import { query } from '../../db/pool.js';
+import { query } from '@backend/db/pool.js';
 
 const auditEventSchema = z.object({
   conversationId: z.string().uuid().optional().nullable(),

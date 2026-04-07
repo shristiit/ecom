@@ -1,4 +1,4 @@
-import type { InventoryMovementType } from '@/features/shared';
+import type { InventoryMovementType } from '@admin/features/shared';
 
 export type InventoryMovementsFilter = {
   page?: number;

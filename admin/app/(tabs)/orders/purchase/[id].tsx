@@ -1,13 +1,13 @@
 import { useLocalSearchParams } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
-import { AppBadge, AppButton, AppCard, AppInput, AppTable, AppTableCell, AppTableHeaderCell, AppTableRow, PageHeader } from '@/components/ui';
+import { AppBadge, AppButton, AppCard, AppInput, AppTable, AppTableCell, AppTableHeaderCell, AppTableRow, PageHeader } from '@admin/components/ui';
 import {
   useClosePurchaseOrderMutation,
   usePurchaseOrderQuery,
   useReceivePurchaseOrderMutation,
-} from '@/features/orders';
-import { downloadPurchaseOrderPdf } from '@/features/orders/utils/order-pdf';
+} from '@admin/features/orders';
+import { downloadPurchaseOrderPdf } from '@admin/features/orders/utils/order-pdf';
 
 const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
 

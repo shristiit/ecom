@@ -1,7 +1,7 @@
 import fetch from 'node-fetch';
-import { CONVERSATIONAL_ENGINE_URL } from '../../config/env.js';
-import { query } from '../../db/pool.js';
-import { logger } from '../../utils/logger.js';
+import { CONVERSATIONAL_ENGINE_URL } from '@backend/config/env.js';
+import { query } from '@backend/db/pool.js';
+import { logger } from '@backend/utils/logger.js';
 
 type InterpretTransactionInput = {
   text: string;

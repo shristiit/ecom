@@ -6,8 +6,8 @@ import 'react-native-reanimated';
 import { GluestackUIProvider } from '@gluestack-ui/themed';
 import { config } from '@gluestack-ui/config';
 
-import { AuthRouteGuard, AuthSessionProvider } from '@/features/auth';
-import { useColorScheme } from '@/hooks/use-color-scheme';
+import { AuthRouteGuard, AuthSessionProvider } from '@admin/features/auth';
+import { useColorScheme } from '@admin/hooks/use-color-scheme';
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();

@@ -1,6 +1,6 @@
 import { Link } from 'expo-router';
 import { Pressable, ScrollView, Text, View } from 'react-native';
-import { AppCard, PageHeader, PageShell } from '@/components/ui';
+import { AppCard, PageHeader, PageShell } from '@admin/components/ui';
 
 const settingsItems = [
   {

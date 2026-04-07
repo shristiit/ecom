@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { query } from '../../db/pool.js';
+import { query } from '@backend/db/pool.js';
 
 export async function queryAudit(req: Request, res: Response) {
   const { sizeId, from, to } = req.query as any;

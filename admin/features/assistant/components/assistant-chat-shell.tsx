@@ -2,7 +2,7 @@ import { Link, useRouter } from 'expo-router';
 import { MessageSquarePlus, Mic, PanelRightClose, PanelRightOpen, Square, Sparkles } from 'lucide-react-native';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, Text, TextInput, View, useWindowDimensions } from 'react-native';
-import { AppButton } from '@/components/ui';
+import { AppButton } from '@admin/components/ui';
 import {
   useAssistantConversationQuery,
   useAssistantConversationsQuery,

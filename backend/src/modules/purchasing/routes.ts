@@ -1,7 +1,7 @@
 import { Router } from 'express';
-import { authGuard, requireTenant, requirePermission } from '../../middlewares/auth.js';
-import { idempotencyGuard } from '../../middlewares/idempotency.js';
-import * as ctrl from './service.js';
+import { authGuard, requireTenant, requirePermission } from '@backend/middlewares/auth.js';
+import { idempotencyGuard } from '@backend/middlewares/idempotency.js';
+import * as ctrl from '@backend/modules/purchasing/service.js';
 
 const r = Router();
 

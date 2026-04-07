@@ -1,6 +1,6 @@
 import { useLocalSearchParams } from 'expo-router';
-import { PageShell } from '@/components/ui';
-import { AssistantChatShell } from '@/features/assistant';
+import { PageShell } from '@admin/components/ui';
+import { AssistantChatShell } from '@admin/features/assistant';
 
 export default function AiHomeScreen() {
   const params = useLocalSearchParams<{ prompt?: string | string[]; autostart?: string | string[] }>();

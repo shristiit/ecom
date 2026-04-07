@@ -9,8 +9,8 @@ import {
   AppTableHeaderCell,
   AppTableRow,
   PageHeader,
-} from '@/components/ui';
-import { usePurchaseOrdersQuery } from '@/features/orders';
+} from '@admin/components/ui';
+import { usePurchaseOrdersQuery } from '@admin/features/orders';
 
 const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
 

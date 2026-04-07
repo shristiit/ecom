@@ -1,4 +1,4 @@
-import { queryKeys, useQuery } from '@/lib/query';
+import { queryKeys, useQuery } from '@admin/lib/query';
 import { aiService } from '../services';
 
 export function useAiHistoryQuery(enabled = true) {

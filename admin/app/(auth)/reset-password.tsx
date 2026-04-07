@@ -1,8 +1,8 @@
 import { Link } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
-import { AppButton, AppInput } from '@/components/ui';
-import { AuthScreenShell, useAuthSession } from '@/features/auth';
+import { AppButton, AppInput } from '@admin/components/ui';
+import { AuthScreenShell, useAuthSession } from '@admin/features/auth';
 
 export default function ResetPasswordScreen() {
   const { resetPassword } = useAuthSession();

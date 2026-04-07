@@ -1,11 +1,11 @@
 import { Request, Response } from 'express';
 import bcrypt from 'bcrypt';
 import { z } from 'zod';
-import { query } from '../../db/pool.js';
-import { signAccessToken, signRefreshToken } from '../../utils/jwt.js';
-import { SSO_PROVIDERS, AUTH0_DOMAIN, AUTH0_CLIENT_ID, AUTH0_CLIENT_SECRET, AUTH0_AUDIENCE, AUTH0_REDIRECT_URI, DEFAULT_SSO_ROLE_NAME } from '../../config/env.js';
+import { query } from '@backend/db/pool.js';
+import { signAccessToken, signRefreshToken } from '@backend/utils/jwt.js';
+import { SSO_PROVIDERS, AUTH0_DOMAIN, AUTH0_CLIENT_ID, AUTH0_CLIENT_SECRET, AUTH0_AUDIENCE, AUTH0_REDIRECT_URI, DEFAULT_SSO_ROLE_NAME } from '@backend/config/env.js';
 import jwt from 'jsonwebtoken';
-import { JWT_SECRET } from '../../config/env.js';
+import { JWT_SECRET } from '@backend/config/env.js';
 import fetch from 'node-fetch';
 import crypto from 'node:crypto';
 

@@ -1,6 +1,6 @@
 import { Link } from 'expo-router';
 import { Text, View } from 'react-native';
-import { AppButton, AppCard, AppDrawer } from '@/components/ui';
+import { AppButton, AppCard, AppDrawer } from '@admin/components/ui';
 
 type EntityQuickViewDrawerProps = {
   isOpen: boolean;

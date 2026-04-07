@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { pool } from '../../db/pool.js';
+import { pool } from '@backend/db/pool.js';
 
 function rangeFilters(req: Request['query']) {
   return {

@@ -1,12 +1,12 @@
 import { useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
-import { AppBadge, AppButton, AppCard, AppInput, PageHeader } from '@/components/ui';
+import { AppBadge, AppButton, AppCard, AppInput, PageHeader } from '@admin/components/ui';
 import {
   useResetUserPasswordMutation,
   useUpdateUserStatusMutation,
   useUserQuery,
-} from '@/features/users';
+} from '@admin/features/users';
 
 export default function UserDetailScreen() {
   const params = useLocalSearchParams<{ id?: string | string[] }>();

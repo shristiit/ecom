@@ -1,7 +1,7 @@
 import { Link } from 'expo-router';
 import { ScrollView, Text, View } from 'react-native';
-import { AppBadge, AppButton, AppCard, AppTable, AppTableCell, AppTableHeaderCell, AppTableRow, PageHeader } from '@/components/ui';
-import { useAssistantApproveMutation, useAssistantApprovalsQuery } from '@/features/assistant';
+import { AppBadge, AppButton, AppCard, AppTable, AppTableCell, AppTableHeaderCell, AppTableRow, PageHeader } from '@admin/components/ui';
+import { useAssistantApproveMutation, useAssistantApprovalsQuery } from '@admin/features/assistant';
 
 function formatDate(value: string) {
   const date = new Date(value);

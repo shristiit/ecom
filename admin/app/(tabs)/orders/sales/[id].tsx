@@ -1,9 +1,9 @@
 import { useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
-import { AppBadge, AppButton, AppCard, AppInput, AppTable, AppTableCell, AppTableHeaderCell, AppTableRow, PageHeader } from '@/components/ui';
-import { useCancelSalesOrderMutation, useDispatchSalesOrderMutation, useSalesOrderQuery } from '@/features/orders';
-import { downloadSalesOrderPdf } from '@/features/orders/utils/order-pdf';
+import { AppBadge, AppButton, AppCard, AppInput, AppTable, AppTableCell, AppTableHeaderCell, AppTableRow, PageHeader } from '@admin/components/ui';
+import { useCancelSalesOrderMutation, useDispatchSalesOrderMutation, useSalesOrderQuery } from '@admin/features/orders';
+import { downloadSalesOrderPdf } from '@admin/features/orders/utils/order-pdf';
 
 const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
 
