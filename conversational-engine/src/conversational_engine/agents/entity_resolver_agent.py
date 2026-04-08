@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import re
 
-from conversational_engine.agents.parsing import normalize, normalized_tokens, parse_uuid
-from conversational_engine.clients.backend import BackendClient
-from conversational_engine.contracts.auth import AuthContext
+from conversational_engine.agents.parsing_agent import normalize, normalized_tokens, parse_uuid
+from conversational_engine.clients.backend_client import BackendClient
+from conversational_engine.schemas.auth_schemas import AuthContext
 
 
 class EntityResolver:

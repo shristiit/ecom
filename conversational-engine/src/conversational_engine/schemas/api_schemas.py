@@ -4,7 +4,7 @@ from uuid import UUID
 
 from pydantic import Field
 
-from conversational_engine.contracts.common import (
+from conversational_engine.schemas.shared_schemas import (
     ChatMessage,
     ContractModel,
     ConversationDetail,
