@@ -62,6 +62,30 @@ class Settings(BaseSettings):
     openai_api_key: str = ''
     chat_model: str = 'gpt-4.1-mini'
     classifier_model: str = 'gpt-4.1-mini'
+    gemini_api_key: str = ''
+    deepseek_api_key: str = ''
+    gemini_base_url: str = 'https://generativelanguage.googleapis.com/v1beta'
+    deepseek_base_url: str = 'https://api.deepseek.com/v1'
+
+    planner_provider_chain: str = 'openai,gemini,deepseek'
+    executor_provider_chain: str = 'openai,gemini,deepseek'
+    reviewer_provider_chain: str = 'openai,gemini,deepseek'
+    narrator_provider_chain: str = 'openai,gemini,deepseek'
+
+    openai_planner_model: str = 'gpt-4.1'
+    openai_executor_model: str = 'gpt-4.1-mini'
+    openai_reviewer_model: str = 'gpt-4.1'
+    openai_narrator_model: str = 'gpt-4.1-mini'
+
+    gemini_planner_model: str = 'gemini-2.5-flash'
+    gemini_executor_model: str = 'gemini-2.5-flash'
+    gemini_reviewer_model: str = 'gemini-2.5-flash'
+    gemini_narrator_model: str = 'gemini-2.5-flash'
+
+    deepseek_planner_model: str = 'deepseek-chat'
+    deepseek_executor_model: str = 'deepseek-chat'
+    deepseek_reviewer_model: str = 'deepseek-chat'
+    deepseek_narrator_model: str = 'deepseek-chat'
 
     feature_enabled: bool = True
     mutations_enabled: bool = True

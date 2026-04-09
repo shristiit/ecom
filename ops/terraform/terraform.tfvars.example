@@ -1,0 +1,8 @@
+aws_region                  = "us-east-1"
+project                     = "stockaisle"
+environment                 = "prod"
+domain_name                 = "stockaisle.com"
+route53_zone_name           = "stockaisle.com"
+github_repository           = "shristiit/ecom"
+existing_rds_security_group_id = "sg-xxxxxxxxxxxxxxxxx"
+alarm_email                 = "alerts@stockaisle.com"

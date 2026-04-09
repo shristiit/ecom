@@ -3,6 +3,7 @@ from __future__ import annotations
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 
 from conversational_engine.app.auth import require_auth_context
 from conversational_engine.app.dependencies import get_app_settings, get_backend_client, get_conversation_service
@@ -22,7 +23,9 @@ from conversational_engine.contracts.api import (
     WorkflowDecisionResponse,
 )
 from conversational_engine.contracts.auth import AuthContext
+from conversational_engine.contracts.runs import RunRequest
 from conversational_engine.conversations.service import ConversationService
+from conversational_engine.events.stream import encode_event
 
 router = APIRouter()
 chat_router = APIRouter(prefix='/api/chat', tags=['chat'])
@@ -73,6 +76,19 @@ async def post_message(
     if conversation is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Conversation not found')
     return conversation
+
+
+@chat_router.post('/runs/stream')
+async def stream_run(
+    request: RunRequest,
+    auth: AuthContext = Depends(require_auth_context),
+    service: ConversationService = Depends(get_conversation_service),
+):
+    async def event_stream():
+        async for event in service.stream_run(auth, request):
+            yield encode_event(event)
+
+    return StreamingResponse(event_stream(), media_type='application/x-ndjson')
 
 
 @chat_router.post('/workflows/{workflow_id}/decision', response_model=WorkflowDecisionResponse)

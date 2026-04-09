@@ -255,6 +255,22 @@ class BackendClient:
         result = await self._request('POST', '/ai-governance/requests', access_token, tenant_id, json=payload)
         return ApprovalRequestStatus.model_validate(result)
 
+    async def update_approval_request(
+        self,
+        access_token: str,
+        tenant_id: str,
+        approval_id: str,
+        payload: dict[str, object],
+    ) -> ApprovalRequestStatus:
+        result = await self._request(
+            'PATCH',
+            f'/ai-governance/requests/{approval_id}',
+            access_token,
+            tenant_id,
+            json=payload,
+        )
+        return ApprovalRequestStatus.model_validate(result)
+
     async def get_approval_request(
         self,
         access_token: str,

@@ -11,6 +11,7 @@ const idem = idempotencyGuard((req) => req.user?.tenantId ?? null);
 
 router.post('/evaluate', requirePermission('chat.use'), idem, service.evaluateAction);
 router.post('/requests', requirePermission('chat.use'), idem, service.createApprovalRequest);
+router.patch('/requests/:id', requirePermission('chat.use'), idem, service.updateApprovalRequest);
 router.get('/requests/:id', requirePermission('chat.use'), service.getApprovalRequest);
 router.get('/approvals', requirePermission('chat.approve'), service.listApprovals);
 router.post('/approvals/:id/decision', requirePermission('chat.approve'), idem, service.decideApproval);

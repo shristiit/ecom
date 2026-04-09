@@ -72,6 +72,31 @@ async function parsePayload(response: Response) {
   }
 }
 
+async function composeRequestHeaders(
+  auth: boolean,
+  headers?: Record<string, string>,
+  idempotencyKey?: string,
+  hasBody?: boolean,
+  isFormDataBody?: boolean,
+) {
+  const contextHeaders = await getContextHeaders(auth);
+  const requestHeaders: Record<string, string> = {
+    Accept: 'application/json',
+    ...contextHeaders,
+    ...headers,
+  };
+
+  if (idempotencyKey) {
+    requestHeaders['Idempotency-Key'] = idempotencyKey;
+  }
+
+  if (hasBody && !isFormDataBody) {
+    requestHeaders['Content-Type'] = 'application/json';
+  }
+
+  return requestHeaders;
+}
+
 export async function request<TResponse, TBody = unknown>({
   method,
   path,
@@ -93,22 +118,7 @@ export async function request<TResponse, TBody = unknown>({
   const isFormDataBody = hasBody && typeof FormData !== 'undefined' && body instanceof FormData;
 
   async function buildRequestHeaders() {
-    const contextHeaders = await getContextHeaders(auth);
-    const requestHeaders: Record<string, string> = {
-      Accept: 'application/json',
-      ...contextHeaders,
-      ...headers,
-    };
-
-    if (resolvedIdempotencyKey) {
-      requestHeaders['Idempotency-Key'] = resolvedIdempotencyKey;
-    }
-
-    if (hasBody && !isFormDataBody) {
-      requestHeaders['Content-Type'] = 'application/json';
-    }
-
-    return requestHeaders;
+    return composeRequestHeaders(auth, headers, resolvedIdempotencyKey, hasBody, isFormDataBody);
   }
 
   async function fetchWithHeaders() {
@@ -200,4 +210,85 @@ export function put<TResponse, TBody = unknown>(
 
 export function del<TResponse>(path: string, options?: Omit<ApiRequestOptions<never>, 'method' | 'path' | 'body'>) {
   return request<TResponse>({ method: 'DELETE', path, ...options });
+}
+
+export async function streamRequest<TEvent, TBody = unknown>({
+  method,
+  path,
+  baseUrl,
+  body,
+  headers,
+  auth = true,
+  query,
+  idempotencyKey,
+  signal,
+  onEvent,
+}: ApiRequestOptions<TBody> & {
+  onEvent: (event: TEvent) => void | Promise<void>;
+}) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS * 4);
+  const mergedSignal = signal ?? controller.signal;
+  const hasBody = body !== undefined && body !== null;
+  const isFormDataBody = hasBody && typeof FormData !== 'undefined' && body instanceof FormData;
+  const resolvedIdempotencyKey = idempotencyKey ?? createIdempotencyKey();
+
+  try {
+    const requestHeaders = await composeRequestHeaders(auth, headers, resolvedIdempotencyKey, hasBody, isFormDataBody);
+    requestHeaders.Accept = 'application/x-ndjson';
+
+    const response = await fetch(buildUrl(path, query, baseUrl), {
+      method,
+      headers: requestHeaders,
+      body: hasBody ? (isFormDataBody ? (body as BodyInit) : JSON.stringify(body)) : undefined,
+      signal: mergedSignal,
+    });
+
+    if (!response.ok) {
+      const payload = await parsePayload(response);
+      const envelope = (isRecord(payload) ? payload : {}) as ApiErrorEnvelope;
+      throw new ApiError(
+        envelope.message ?? response.statusText ?? 'Request failed',
+        response.status,
+        envelope.code,
+        envelope.details,
+      );
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) {
+      throw new ApiError('Streaming is not supported in this environment', 0, 'STREAM_UNAVAILABLE');
+    }
+
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      while (true) {
+        const newlineIndex = buffer.indexOf('\n');
+        if (newlineIndex === -1) break;
+        const chunk = buffer.slice(0, newlineIndex).trim();
+        buffer = buffer.slice(newlineIndex + 1);
+        if (!chunk) continue;
+        await onEvent(JSON.parse(chunk) as TEvent);
+      }
+    }
+
+    const tail = buffer.trim();
+    if (tail) {
+      await onEvent(JSON.parse(tail) as TEvent);
+    }
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new ApiError('Request timed out', 408, 'REQUEST_TIMEOUT');
+    }
+    throw new ApiError('Network request failed', 0, 'NETWORK_ERROR', error);
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
