@@ -6,10 +6,9 @@ import { AppButton } from '@admin/components/ui';
 import {
   useAssistantConversationQuery,
   useAssistantConversationsQuery,
-  useAssistantCreateConversationMutation,
   useAssistantDecisionMutation,
-  useAssistantSendMessageMutation,
 } from '../hooks';
+import { assistantService } from '../services';
 import { AssistantMessageBlocks } from './assistant-message-blocks';
 
 type AssistantChatShellProps = {
@@ -72,8 +71,6 @@ export function AssistantChatShell({
   const { width } = useWindowDimensions();
   const conversationsQuery = useAssistantConversationsQuery();
   const conversationQuery = useAssistantConversationQuery(conversationId, mode === 'thread' && Boolean(conversationId));
-  const createConversation = useAssistantCreateConversationMutation();
-  const sendMessage = useAssistantSendMessageMutation();
   const decision = useAssistantDecisionMutation();
 
   const [prompt, setPrompt] = useState(incomingPrompt);
@@ -81,6 +78,7 @@ export function AssistantChatShell({
   const [error, setError] = useState<string | null>(null);
   const [isDictating, setIsDictating] = useState(false);
   const [isHistoryRailOpen, setIsHistoryRailOpen] = useState(false);
+  const [isStreamingRun, setIsStreamingRun] = useState(false);
 
   const scrollRef = useRef<ScrollView | null>(null);
   const lastAutoStartedPromptRef = useRef<string | null>(null);
@@ -91,7 +89,7 @@ export function AssistantChatShell({
   const activeConversation = isThreadMode ? conversationQuery.data : undefined;
   const conversations = conversationsQuery.data ?? [];
   const pendingAction = activeConversation?.pendingAction;
-  const isSubmitting = createConversation.isPending || sendMessage.isPending;
+  const isSubmitting = isStreamingRun;
   const isDesktop = width >= 1280;
   const showHistoryRail = isDesktop ? isHistoryRailOpen : isHistoryRailOpen;
   const historyRailContainerClassName = isDesktop ? 'lg:w-[340px]' : 'w-full';
@@ -112,21 +110,39 @@ export function AssistantChatShell({
 
     setError(null);
     setStatusMessage(null);
+    setIsStreamingRun(true);
 
     try {
-      const result = await createConversation.mutateAsync({
-        title: trimmedPrompt.slice(0, 60),
-        initialMessage: trimmedPrompt,
-      });
+      const result = await assistantService.streamRun(
+        {
+          title: trimmedPrompt.slice(0, 60),
+          content: trimmedPrompt,
+        },
+        async (event) => {
+          if (event.type === 'plan.updated') {
+            setStatusMessage('Planning next step...');
+          }
+          if (event.type === 'tool.called') {
+            setStatusMessage(`Running ${String(event.payload?.toolName ?? 'tool')}...`);
+          }
+          if (event.type === 'approval.requested') {
+            setStatusMessage('Approval requested.');
+          }
+        },
+      );
 
       setPrompt('');
-      setStatusMessage(null);
+      setStatusMessage('Run completed.');
       await conversationsQuery.refetch();
-      router.replace(`/ai/thread/${result.conversation.id}`);
+      if (result.conversationId) {
+        router.replace(`/ai/thread/${result.conversationId}`);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to start conversation.');
+    } finally {
+      setIsStreamingRun(false);
     }
-  }, [conversationsQuery, createConversation, router]);
+  }, [conversationsQuery, router]);
 
   const handleSend = useCallback(async () => {
     const trimmedPrompt = prompt.trim();
@@ -142,16 +158,32 @@ export function AssistantChatShell({
 
     setError(null);
     setStatusMessage(null);
+    setIsStreamingRun(true);
 
     try {
-      await sendMessage.mutateAsync({ conversationId, content: trimmedPrompt });
+      await assistantService.streamRun(
+        { conversationId, content: trimmedPrompt },
+        async (event) => {
+          if (event.type === 'plan.updated') {
+            setStatusMessage('Planning next step...');
+          }
+          if (event.type === 'tool.called') {
+            setStatusMessage(`Running ${String(event.payload?.toolName ?? 'tool')}...`);
+          }
+          if (event.type === 'approval.requested') {
+            setStatusMessage('Approval requested.');
+          }
+        },
+      );
       setPrompt('');
-      setStatusMessage('Message sent.');
+      setStatusMessage('Run completed.');
       await refreshConversationViews();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to send message.');
+    } finally {
+      setIsStreamingRun(false);
     }
-  }, [conversationId, handleCreateConversation, isThreadMode, prompt, refreshConversationViews, sendMessage]);
+  }, [conversationId, handleCreateConversation, isThreadMode, prompt, refreshConversationViews]);
 
   const handleDecision = useCallback(async (nextDecision: 'confirm' | 'cancel' | 'edit' | 'submit_for_approval') => {
     const workflowId = activeConversation?.workflow?.id;
@@ -250,12 +282,12 @@ export function AssistantChatShell({
 
   useEffect(() => {
     if (!incomingPrompt || !shouldAutostart) return;
-    if (createConversation.isPending) return;
+    if (isStreamingRun) return;
     if (lastAutoStartedPromptRef.current === incomingPrompt) return;
 
     lastAutoStartedPromptRef.current = incomingPrompt;
     void handleCreateConversation(incomingPrompt);
-  }, [createConversation.isPending, handleCreateConversation, incomingPrompt, shouldAutostart]);
+  }, [handleCreateConversation, incomingPrompt, isStreamingRun, shouldAutostart]);
 
   useEffect(() => {
     const timer = setTimeout(() => {

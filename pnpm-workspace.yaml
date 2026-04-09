@@ -4,6 +4,7 @@ packages:
   - admin
   - conversational-engine
   - ecommerce
+  - landing
   - e2e
 
 nodeLinker: hoisted

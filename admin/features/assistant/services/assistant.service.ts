@@ -1,10 +1,11 @@
-import { engineGet, enginePost } from '@admin/lib/engine-client';
+import { engineGet, enginePost, engineStream } from '@admin/lib/engine-client';
 import type {
   AssistantApproval,
   AssistantConversation,
   AssistantConversationSummary,
   AssistantDecisionResponse,
   AssistantHistoryItem,
+  AssistantRunEvent,
 } from '../types/assistant.types';
 
 type ConversationSummaryRow = {
@@ -75,6 +76,27 @@ export const assistantService = {
       `/api/chat/conversations/${input.conversationId}/messages`,
       { content: input.content },
     );
+  },
+
+  async streamRun(
+    input: { conversationId?: string; title?: string | null; content: string },
+    onEvent: (event: AssistantRunEvent) => void | Promise<void>,
+  ): Promise<{ runId: string | null; conversationId: string | null; workflowId: string | null }> {
+    let latestEvent: AssistantRunEvent | null = null;
+    await engineStream<AssistantRunEvent, { conversationId?: string; title?: string | null; content: string }>(
+      '/api/chat/runs/stream',
+      input,
+      async (event) => {
+        latestEvent = event;
+        await onEvent(event);
+      },
+    );
+    const finalEvent = latestEvent as AssistantRunEvent | null;
+    return {
+      runId: finalEvent?.runId ?? null,
+      conversationId: finalEvent?.conversationId ?? input.conversationId ?? null,
+      workflowId: finalEvent?.workflowId ?? null,
+    };
   },
 
   decide(input: { workflowId: string; decision: string; note?: string }) {

@@ -1,0 +1,202 @@
+name: Deploy Production
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Component to deploy"
+        required: true
+        type: choice
+        default: all
+        options:
+          - all
+          - backend
+          - engine
+          - admin
+          - landing
+      force_rebuild:
+        description: "Force a fresh rebuild of the selected target"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION: us-east-1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve deployment variables
+        id: vars
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "target=${{ github.event.inputs.target }}" >> "$GITHUB_OUTPUT"
+            echo "force_rebuild=${{ github.event.inputs.force_rebuild }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "target=all" >> "$GITHUB_OUTPUT"
+            echo "force_rebuild=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "image_tag=sha-${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+
+      - name: Setup pnpm
+        if: steps.vars.outputs.target == 'all' || steps.vars.outputs.target == 'admin' || steps.vars.outputs.target == 'landing'
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.13.1
+          run_install: false
+
+      - name: Setup Node.js
+        if: steps.vars.outputs.target == 'all' || steps.vars.outputs.target == 'admin' || steps.vars.outputs.target == 'landing'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install workspace dependencies
+        if: steps.vars.outputs.target == 'all' || steps.vars.outputs.target == 'admin' || steps.vars.outputs.target == 'landing'
+        run: pnpm install --frozen-lockfile
+
+      - name: Login to Amazon ECR
+        if: steps.vars.outputs.target == 'all' || steps.vars.outputs.target == 'backend' || steps.vars.outputs.target == 'engine'
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push backend image
+        if: steps.vars.outputs.target == 'all' || steps.vars.outputs.target == 'backend'
+        env:
+          BACKEND_REPOSITORY: ${{ vars.AWS_BACKEND_ECR_REPOSITORY }}
+          IMAGE_TAG: ${{ steps.vars.outputs.image_tag }}
+        run: |
+          docker build -f backend/Dockerfile -t "${BACKEND_REPOSITORY}:${IMAGE_TAG}" .
+          docker push "${BACKEND_REPOSITORY}:${IMAGE_TAG}"
+
+      - name: Register backend task definition
+        id: backend_task_def
+        if: steps.vars.outputs.target == 'all' || steps.vars.outputs.target == 'backend'
+        env:
+          IMAGE_TAG: ${{ steps.vars.outputs.image_tag }}
+        run: |
+          TASK_DEFINITION_ARN="$(
+            bash scripts/aws-register-ecs-task-def.sh \
+              "${{ vars.AWS_BACKEND_TASK_FAMILY }}" \
+              "backend" \
+              "${{ vars.AWS_BACKEND_ECR_REPOSITORY }}:${IMAGE_TAG}"
+          )"
+          echo "task_definition_arn=${TASK_DEFINITION_ARN}" >> "$GITHUB_OUTPUT"
+
+      - name: Run backend migrations
+        if: steps.vars.outputs.target == 'all' || steps.vars.outputs.target == 'backend'
+        run: |
+          bash scripts/aws-run-ecs-task.sh \
+            "${{ vars.AWS_ECS_CLUSTER }}" \
+            "${{ vars.AWS_BACKEND_SERVICE }}" \
+            "${{ steps.backend_task_def.outputs.task_definition_arn }}" \
+            "backend" \
+            npm run migrate:up:runtime
+
+      - name: Deploy backend ECS service
+        if: steps.vars.outputs.target == 'all' || steps.vars.outputs.target == 'backend'
+        run: |
+          bash scripts/aws-update-ecs-service.sh \
+            "${{ vars.AWS_ECS_CLUSTER }}" \
+            "${{ vars.AWS_BACKEND_SERVICE }}" \
+            "${{ steps.backend_task_def.outputs.task_definition_arn }}"
+
+      - name: Build and push conversational-engine image
+        if: steps.vars.outputs.target == 'all' || steps.vars.outputs.target == 'engine'
+        env:
+          ENGINE_REPOSITORY: ${{ vars.AWS_ENGINE_ECR_REPOSITORY }}
+          IMAGE_TAG: ${{ steps.vars.outputs.image_tag }}
+        run: |
+          docker build -f conversational-engine/Dockerfile -t "${ENGINE_REPOSITORY}:${IMAGE_TAG}" conversational-engine
+          docker push "${ENGINE_REPOSITORY}:${IMAGE_TAG}"
+
+      - name: Register conversational-engine task definition
+        id: engine_task_def
+        if: steps.vars.outputs.target == 'all' || steps.vars.outputs.target == 'engine'
+        env:
+          IMAGE_TAG: ${{ steps.vars.outputs.image_tag }}
+        run: |
+          TASK_DEFINITION_ARN="$(
+            bash scripts/aws-register-ecs-task-def.sh \
+              "${{ vars.AWS_ENGINE_TASK_FAMILY }}" \
+              "conversational-engine" \
+              "${{ vars.AWS_ENGINE_ECR_REPOSITORY }}:${IMAGE_TAG}"
+          )"
+          echo "task_definition_arn=${TASK_DEFINITION_ARN}" >> "$GITHUB_OUTPUT"
+
+      - name: Run conversational-engine migrations
+        if: steps.vars.outputs.target == 'all' || steps.vars.outputs.target == 'engine'
+        run: |
+          bash scripts/aws-run-ecs-task.sh \
+            "${{ vars.AWS_ECS_CLUSTER }}" \
+            "${{ vars.AWS_ENGINE_SERVICE }}" \
+            "${{ steps.engine_task_def.outputs.task_definition_arn }}" \
+            "conversational-engine" \
+            uv run alembic upgrade head
+
+      - name: Deploy conversational-engine ECS service
+        if: steps.vars.outputs.target == 'all' || steps.vars.outputs.target == 'engine'
+        run: |
+          bash scripts/aws-update-ecs-service.sh \
+            "${{ vars.AWS_ECS_CLUSTER }}" \
+            "${{ vars.AWS_ENGINE_SERVICE }}" \
+            "${{ steps.engine_task_def.outputs.task_definition_arn }}"
+
+      - name: Build admin site
+        if: steps.vars.outputs.target == 'all' || steps.vars.outputs.target == 'admin'
+        env:
+          ADMIN_DEFAULT_MODE: prod
+          ADMIN_PROD_API_URL: https://api.stockaisle.com/api
+          EXPO_PUBLIC_API_URL: https://api.stockaisle.com/api
+          EXPO_PUBLIC_CONVERSATIONAL_ENGINE_URL: https://engine.stockaisle.com
+          EXPO_PUBLIC_ENABLE_MFA: "false"
+          EXPO_PUBLIC_SSO_URL: ""
+        run: pnpm --filter admin build:prod
+
+      - name: Deploy admin static assets
+        if: steps.vars.outputs.target == 'all' || steps.vars.outputs.target == 'admin'
+        run: bash scripts/aws-deploy-static.sh admin/dist "${{ vars.AWS_ADMIN_BUCKET }}" "${{ vars.AWS_ADMIN_DISTRIBUTION_ID }}"
+
+      - name: Build landing site
+        if: steps.vars.outputs.target == 'all' || steps.vars.outputs.target == 'landing'
+        env:
+          LOGIN_URL: https://admin.stockaisle.com/login
+        run: pnpm --filter landing build
+
+      - name: Deploy landing static assets
+        if: steps.vars.outputs.target == 'all' || steps.vars.outputs.target == 'landing'
+        run: bash scripts/aws-deploy-static.sh landing/dist "${{ vars.AWS_LANDING_BUCKET }}" "${{ vars.AWS_LANDING_DISTRIBUTION_ID }}"
+
+      - name: Write deployment summary
+        shell: bash
+        run: |
+          {
+            echo "## Production deploy"
+            echo
+            echo "- Target: \`${{ steps.vars.outputs.target }}\`"
+            echo "- Image tag: \`${{ steps.vars.outputs.image_tag }}\`"
+            echo "- Force rebuild: \`${{ steps.vars.outputs.force_rebuild }}\`"
+            echo "- Commit: \`${GITHUB_SHA}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

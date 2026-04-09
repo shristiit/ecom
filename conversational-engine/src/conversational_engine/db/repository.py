@@ -6,7 +6,6 @@ from uuid import UUID, uuid4
 from psycopg import Connection, connect
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
-from pydantic import TypeAdapter
 
 from conversational_engine.contracts.common import (
     ChatMessage,
@@ -19,9 +18,22 @@ from conversational_engine.contracts.common import (
     WorkflowState,
     WorkflowStatus,
 )
+from conversational_engine.db.mappers import (
+    conversation_detail_from_row,
+    message_from_row,
+    preview_text,
+    workflow_state_from_row,
+)
+from conversational_engine.db.runs import (
+    append_run_event as insert_run_event,
+    create_run as insert_run,
+    create_training_dataset as insert_training_dataset,
+    finish_run as update_run_status,
+    list_recent_trace_examples as fetch_recent_trace_examples,
+    record_trace as insert_trace,
+)
+from conversational_engine.db.schema import ensure_engine_schema
 from conversational_engine.utils.time import utc_now
-
-MESSAGE_BLOCKS_ADAPTER = TypeAdapter(list[MessageBlock])
 
 
 class EngineRepository:
@@ -45,118 +57,7 @@ class EngineRepository:
     def _ensure_schema(self, conn: Connection) -> None:
         if self._schema_ready:
             return
-
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                CREATE TABLE IF NOT EXISTS ai_conversations (
-                  id uuid PRIMARY KEY,
-                  tenant_id uuid NOT NULL,
-                  created_by uuid,
-                  title text NOT NULL,
-                  status text NOT NULL DEFAULT 'active',
-                  created_at timestamptz NOT NULL DEFAULT now(),
-                  updated_at timestamptz NOT NULL DEFAULT now()
-                );
-                """
-            )
-            cur.execute(
-                """
-                CREATE TABLE IF NOT EXISTS ai_workflows (
-                  id uuid PRIMARY KEY,
-                  tenant_id uuid NOT NULL,
-                  conversation_id uuid NOT NULL REFERENCES ai_conversations(id) ON DELETE CASCADE,
-                  status text NOT NULL,
-                  current_task text,
-                  active_preview_id uuid,
-                  active_approval_id uuid,
-                  created_at timestamptz NOT NULL DEFAULT now(),
-                  updated_at timestamptz NOT NULL DEFAULT now()
-                );
-                """
-            )
-            cur.execute(
-                """
-                CREATE TABLE IF NOT EXISTS ai_workflow_memory (
-                  id uuid PRIMARY KEY,
-                  tenant_id uuid NOT NULL,
-                  workflow_id uuid NOT NULL REFERENCES ai_workflows(id) ON DELETE CASCADE,
-                  current_task text,
-                  extracted_entities jsonb NOT NULL DEFAULT '{}'::jsonb,
-                  missing_fields jsonb NOT NULL DEFAULT '[]'::jsonb,
-                  created_at timestamptz NOT NULL DEFAULT now(),
-                  updated_at timestamptz NOT NULL DEFAULT now()
-                );
-                """
-            )
-            cur.execute(
-                """
-                CREATE UNIQUE INDEX IF NOT EXISTS ix_ai_workflow_memory_tenant_workflow
-                ON ai_workflow_memory (tenant_id, workflow_id);
-                """
-            )
-            cur.execute(
-                """
-                CREATE TABLE IF NOT EXISTS ai_conversation_messages (
-                  id uuid PRIMARY KEY,
-                  tenant_id uuid NOT NULL,
-                  conversation_id uuid NOT NULL REFERENCES ai_conversations(id) ON DELETE CASCADE,
-                  workflow_id uuid REFERENCES ai_workflows(id) ON DELETE SET NULL,
-                  role text NOT NULL,
-                  blocks jsonb NOT NULL DEFAULT '[]'::jsonb,
-                  raw_text text,
-                  created_at timestamptz NOT NULL DEFAULT now()
-                );
-                """
-            )
-            cur.execute(
-                """
-                CREATE INDEX IF NOT EXISTS ix_ai_conversations_tenant_updated
-                ON ai_conversations (tenant_id, updated_at DESC);
-                """
-            )
-            cur.execute(
-                """
-                CREATE INDEX IF NOT EXISTS ix_ai_messages_tenant_conversation
-                ON ai_conversation_messages (tenant_id, conversation_id, created_at);
-                """
-            )
-            cur.execute(
-                """
-                CREATE TABLE IF NOT EXISTS ai_help_documents (
-                  id uuid PRIMARY KEY,
-                  tenant_id uuid,
-                  source_key text NOT NULL UNIQUE,
-                  title text NOT NULL,
-                  document_type text NOT NULL,
-                  status text NOT NULL DEFAULT 'active',
-                  metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
-                  created_at timestamptz NOT NULL DEFAULT now(),
-                  updated_at timestamptz NOT NULL DEFAULT now()
-                );
-                """
-            )
-            cur.execute(
-                """
-                CREATE TABLE IF NOT EXISTS ai_help_chunks (
-                  id uuid PRIMARY KEY,
-                  tenant_id uuid,
-                  document_id uuid NOT NULL REFERENCES ai_help_documents(id) ON DELETE CASCADE,
-                  chunk_index integer NOT NULL,
-                  content text NOT NULL,
-                  embedding jsonb,
-                  metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
-                  created_at timestamptz NOT NULL DEFAULT now()
-                );
-                """
-            )
-            cur.execute(
-                """
-                CREATE UNIQUE INDEX IF NOT EXISTS ix_ai_help_chunks_document_index
-                ON ai_help_chunks (document_id, chunk_index);
-                """
-            )
-
+        ensure_engine_schema(conn)
         self._schema_ready = True
 
     def list_conversations(self, tenant_id: str) -> list[ConversationSummary]:
@@ -191,7 +92,7 @@ class EngineRepository:
                 title=row['title'],
                 created_at=row['created_at'],
                 updated_at=row['updated_at'],
-                last_message_preview=self._preview_text(row.get('last_blocks') or []),
+                last_message_preview=preview_text(row.get('last_blocks') or []),
                 last_role=row.get('last_role'),
             )
             for row in rows
@@ -235,19 +136,8 @@ class EngineRepository:
             )
 
         return (
-            ConversationDetail(
-                id=conversation['id'],
-                title=conversation['title'],
-                created_at=conversation['created_at'],
-                updated_at=conversation['updated_at'],
-            ),
-            WorkflowState(
-                id=workflow['id'],
-                status=workflow['status'],
-                current_task=workflow['current_task'],
-                active_preview_id=workflow['active_preview_id'],
-                active_approval_id=workflow['active_approval_id'],
-            ),
+            conversation_detail_from_row(conversation),
+            workflow_state_from_row(workflow),
         )
 
     def append_message(
@@ -295,7 +185,23 @@ class EngineRepository:
                 (now, tenant_id, conversation_id),
             )
 
-        return self._message_from_row(row)
+        return message_from_row(row)
+
+    def list_message_dicts(self, tenant_id: str, conversation_id: UUID) -> list[dict[str, object]]:
+        with self._connection() as conn, conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT id, role, blocks, created_at
+                FROM ai_conversation_messages
+                WHERE tenant_id = %s AND conversation_id = %s
+                ORDER BY created_at ASC
+                """,
+                (tenant_id, conversation_id),
+            )
+            rows = cur.fetchall()
+
+        messages = [message_from_row(row) for row in rows]
+        return [message.model_dump(by_alias=True, mode='json') for message in messages]
 
     def get_conversation(
         self,
@@ -349,25 +255,12 @@ class EngineRepository:
 
         workflow_state = None
         if workflow is not None:
-            workflow_state = WorkflowState(
-                id=workflow['id'],
-                status=workflow['status'],
-                current_task=workflow['current_task'],
-                extracted_entities=workflow['extracted_entities'] or {},
-                missing_fields=workflow['missing_fields'] or [],
-                active_preview_id=workflow['active_preview_id'],
-                active_approval_id=workflow['active_approval_id'],
-            )
+            workflow_state = workflow_state_from_row(workflow)
 
         return (
-            ConversationDetail(
-                id=conversation['id'],
-                title=conversation['title'],
-                created_at=conversation['created_at'],
-                updated_at=conversation['updated_at'],
-            ),
+            conversation_detail_from_row(conversation),
             workflow_state,
-            [self._message_from_row(row) for row in messages],
+            [message_from_row(row) for row in messages],
         )
 
     def find_workflow_by_id(self, tenant_id: str, workflow_id: UUID) -> WorkflowState | None:
@@ -394,15 +287,7 @@ class EngineRepository:
         if workflow is None:
             return None
 
-        return WorkflowState(
-            id=workflow['id'],
-            status=workflow['status'],
-            current_task=workflow['current_task'],
-            extracted_entities=workflow['extracted_entities'] or {},
-            missing_fields=workflow['missing_fields'] or [],
-            active_preview_id=workflow['active_preview_id'],
-            active_approval_id=workflow['active_approval_id'],
-        )
+        return workflow_state_from_row(workflow)
 
     def get_conversation_by_workflow_id(
         self,
@@ -439,21 +324,8 @@ class EngineRepository:
             return None
 
         return (
-            ConversationDetail(
-                id=row['conversation_id'],
-                title=row['title'],
-                created_at=row['created_at'],
-                updated_at=row['updated_at'],
-            ),
-            WorkflowState(
-                id=row['id'],
-                status=row['status'],
-                current_task=row['current_task'],
-                extracted_entities=row['extracted_entities'] or {},
-                missing_fields=row['missing_fields'] or [],
-                active_preview_id=row['active_preview_id'],
-                active_approval_id=row['active_approval_id'],
-            ),
+            conversation_detail_from_row(row, id_field='conversation_id'),
+            workflow_state_from_row(row),
         )
 
     def update_workflow_status(
@@ -558,15 +430,7 @@ class EngineRepository:
         if workflow is None:
             return None
 
-        return WorkflowState(
-            id=workflow['id'],
-            status=workflow['status'],
-            current_task=workflow['current_task'],
-            extracted_entities=workflow['extracted_entities'] or {},
-            missing_fields=workflow['missing_fields'] or [],
-            active_preview_id=workflow['active_preview_id'],
-            active_approval_id=workflow['active_approval_id'],
-        )
+        return workflow_state_from_row(workflow)
 
     @staticmethod
     def build_pending_action(workflow: WorkflowState | None) -> PendingAction | None:
@@ -587,44 +451,79 @@ class EngineRepository:
                     actions=actions,
                     prompt=str(pending_prompt),
                 )
-        if workflow.status == WorkflowStatus.AWAITING_CONFIRMATION:
-            return PendingAction(
-                workflow_id=workflow.id,
-                actions=[
-                    PendingActionType.CONFIRM,
-                    PendingActionType.CANCEL,
-                    PendingActionType.EDIT,
-                    PendingActionType.SUBMIT_FOR_APPROVAL,
-                ],
-                prompt='Review the preview and confirm or cancel.',
-            )
-        if workflow.status == WorkflowStatus.AWAITING_APPROVAL:
-            return PendingAction(
-                workflow_id=workflow.id,
-                actions=[PendingActionType.CANCEL],
-                prompt='This workflow is waiting on approval handling.',
-            )
         return None
 
-    @staticmethod
-    def _preview_text(blocks: list[dict[str, object]]) -> str | None:
-        for block in blocks:
-            if isinstance(block, dict):
-                if isinstance(block.get('content'), str):
-                    return block['content']
-                if isinstance(block.get('message'), str):
-                    return block['message']
-                if isinstance(block.get('prompt'), str):
-                    return block['prompt']
-        return None
+    def create_run(self, *, tenant_id: str, conversation_id: UUID, workflow_id: UUID | None, user_message: str):
+        with self._connection() as conn:
+            return insert_run(
+                conn,
+                tenant_id=tenant_id,
+                conversation_id=conversation_id,
+                workflow_id=workflow_id,
+                user_message=user_message,
+            )
 
-    @staticmethod
-    def _message_from_row(row: dict[str, object]) -> ChatMessage:
-        return ChatMessage.model_validate(
-            {
-                'id': row['id'],
-                'role': row['role'],
-                'blocks': MESSAGE_BLOCKS_ADAPTER.validate_python(row['blocks']),
-                'createdAt': row['created_at'],
-            }
-        )
+    def finish_run(
+        self,
+        *,
+        tenant_id: str,
+        run_id: UUID,
+        status: str,
+        error_message: str | None = None,
+    ) -> None:
+        with self._connection() as conn:
+            update_run_status(
+                conn,
+                tenant_id=tenant_id,
+                run_id=run_id,
+                status=status,
+                error_message=error_message,
+            )
+
+    def append_run_event(self, *, tenant_id: str, run_id: UUID, conversation_id: UUID, workflow_id: UUID | None, sequence: int, event_type: str, payload: dict[str, object]):
+        with self._connection() as conn:
+            return insert_run_event(
+                conn,
+                tenant_id=tenant_id,
+                run_id=run_id,
+                conversation_id=conversation_id,
+                workflow_id=workflow_id,
+                sequence=sequence,
+                event_type=event_type,
+                payload=payload,
+            )
+
+    def record_trace(self, *, tenant_id: str, run_id: UUID, agent_role: str, provider_name: str, model_name: str, stage: str, payload: dict[str, object], redacted_payload: dict[str, object]):
+        with self._connection() as conn:
+            return insert_trace(
+                conn,
+                tenant_id=tenant_id,
+                run_id=run_id,
+                agent_role=agent_role,
+                provider_name=provider_name,
+                model_name=model_name,
+                stage=stage,
+                payload=payload,
+                redacted_payload=redacted_payload,
+            )
+
+    def list_recent_trace_examples(self, tenant_id: str, *, limit: int) -> list[dict[str, object]]:
+        with self._connection() as conn:
+            return fetch_recent_trace_examples(conn, tenant_id, limit=limit)
+
+    def create_training_dataset(
+        self,
+        *,
+        tenant_id: str,
+        name: str,
+        version: str,
+        status: str,
+    ) -> dict[str, object]:
+        with self._connection() as conn:
+            return insert_training_dataset(
+                conn,
+                tenant_id=tenant_id,
+                name=name,
+                version=version,
+                status=status,
+            )
