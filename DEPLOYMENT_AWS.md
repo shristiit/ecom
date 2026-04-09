@@ -27,6 +27,8 @@ Set these repository variables before running the workflows:
   Existing DynamoDB table for Terraform state locking.
 - `TF_STATE_KEY`
   Optional state key. Recommended: `prod/terraform.tfstate`.
+- `TF_STATE_REGION`
+  Region of the Terraform state bucket and lock table. This can differ from the production app region.
 - `AWS_RDS_SECURITY_GROUP_ID`
 - `AWS_ALARM_EMAIL`
 
@@ -66,17 +68,20 @@ Rotate the currently exposed AI provider keys before go-live.
 
 ## Workflow Split
 
-- `Deploy Production`: auto-runs on `dev` branch pushes and can also be started manually.
+- `Deploy Production`: auto-runs on `master` branch pushes and can also be started manually.
   It now registers a new task definition revision, runs one-off ECS migrations with that exact image, and only then updates the ECS service.
 - `Terraform Plan`: manual infrastructure plan.
 - `Terraform Apply`: manual infrastructure apply.
 
 ## Recommended Order
 
-1. Create the Terraform remote-state S3 bucket and DynamoDB lock table.
-2. Create or identify an AWS admin/bootstrap role and set `AWS_TERRAFORM_ROLE_ARN`.
-3. Run `Terraform Apply`.
-4. Populate Secrets Manager values.
-5. Copy Terraform outputs into GitHub repository variables.
-6. Run `Deploy Production` manually once.
-7. Point the domain DNS to the Route 53 hosted zone if not already delegated.
+1. Create the Route 53 public hosted zone for `stockaisle.com`.
+2. Copy all currently active DNS records from GoDaddy into Route 53 before changing nameservers.
+3. Create the Terraform remote-state S3 bucket and DynamoDB lock table.
+4. Create or identify an AWS admin/bootstrap role and set `AWS_TERRAFORM_ROLE_ARN`.
+5. Set the GitHub bootstrap variables, including `TF_STATE_REGION`.
+6. Point the domain nameservers in GoDaddy to the Route 53 hosted zone.
+7. Run `Terraform Apply`.
+8. Populate Secrets Manager values.
+9. Copy Terraform outputs into GitHub repository variables.
+10. Run `Deploy Production` manually once.
