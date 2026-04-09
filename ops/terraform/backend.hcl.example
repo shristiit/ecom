@@ -1,0 +1,5 @@
+bucket         = "stockaisle-terraform-state"
+key            = "prod/terraform.tfstate"
+region         = "us-east-1"
+dynamodb_table = "stockaisle-terraform-locks"
+encrypt        = true

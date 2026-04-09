@@ -1,15 +1,19 @@
 FROM node:22-bookworm-slim
 
-WORKDIR /app
+RUN corepack enable && corepack prepare pnpm@10.13.1 --activate
 
-COPY package*.json ./
-RUN npm ci
+WORKDIR /workspace
 
-COPY tsconfig.json ./
-COPY migrations ./migrations
-COPY src ./src
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY backend/package.json ./backend/package.json
 
-RUN npm run build:prod
+RUN pnpm install --filter backend... --frozen-lockfile
+
+COPY backend ./backend
+
+WORKDIR /workspace/backend
+
+RUN pnpm build:prod
 
 EXPOSE 4000
 

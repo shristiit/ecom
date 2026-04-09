@@ -131,6 +131,10 @@ dist
 
 # Serverless directories
 .serverless/
+**/.terraform/
+**/*.tfstate
+**/*.tfstate.*
+ops/terraform/backend.hcl
 
 # FuseBox cache
 .fusebox/
@@ -164,4 +168,3 @@ dist
 # Vite logs files
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
-
