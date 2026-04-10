@@ -59,6 +59,10 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
 
+      - name: Bootstrap missing ECS secrets
+        if: steps.vars.outputs.target == 'all' || steps.vars.outputs.target == 'backend' || steps.vars.outputs.target == 'engine'
+        run: bash scripts/aws-bootstrap-missing-secrets.sh
+
       - name: Setup pnpm
         if: steps.vars.outputs.target == 'all' || steps.vars.outputs.target == 'admin' || steps.vars.outputs.target == 'landing'
         uses: pnpm/action-setup@v4
