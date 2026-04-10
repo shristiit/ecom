@@ -70,3 +70,4 @@ terraform init -backend-config=backend.hcl
 - If you already have an RDS database inside an existing VPC, set `AWS_VPC_ID` and `AWS_PUBLIC_SUBNET_IDS` so Terraform reuses that network instead of creating a separate VPC.
 - Terraform plan/apply workflows assume a separate bootstrap/admin AWS role. The deploy role output by this stack is intentionally narrower and only meant for application releases.
 - For a fresh London deployment, create the database manually first in `eu-west-2`, then feed the VPC ID, public subnet IDs, and RDS security group ID into the GitHub repository variables before `Terraform Apply`.
+- This branch currently leaves existing RDS security-group ingress rules unmanaged by default. If the DB rules already exist and work, Terraform will not try to recreate them.

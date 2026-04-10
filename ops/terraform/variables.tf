@@ -104,6 +104,12 @@ variable "existing_rds_security_group_id" {
   default     = ""
 }
 
+variable "manage_rds_security_group_rules" {
+  description = "Whether Terraform should manage ingress rules on the existing RDS security group."
+  type        = bool
+  default     = false
+}
+
 variable "enable_landing_site" {
   description = "Whether to provision the landing site bucket, CloudFront distribution, and apex/www DNS records."
   type        = bool

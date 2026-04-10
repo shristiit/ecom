@@ -7,6 +7,7 @@ environment="${TF_VAR_environment:-prod}"
 domain_name="${TF_VAR_domain_name:-stockaisle.com}"
 vpc_id="${TF_VAR_existing_vpc_id:-}"
 rds_security_group_id="${TF_VAR_existing_rds_security_group_id:-}"
+manage_rds_security_group_rules="${TF_VAR_manage_rds_security_group_rules:-false}"
 enable_landing_site="${TF_VAR_enable_landing_site:-false}"
 account_id="$(aws sts get-caller-identity --query 'Account' --output text)"
 
@@ -315,7 +316,7 @@ if [[ -n "$vpc_id" ]]; then
   import_if_present 'aws_security_group.engine' "$(describe_security_group_id "${name_prefix}-engine")"
 fi
 
-if [[ -n "$rds_security_group_id" ]]; then
+if [[ -n "$rds_security_group_id" && "$manage_rds_security_group_rules" == "true" ]]; then
   backend_sg_id="$(describe_security_group_id "${name_prefix}-backend")"
   engine_sg_id="$(describe_security_group_id "${name_prefix}-engine")"
 
