@@ -35,41 +35,45 @@ resource "aws_cloudwatch_log_group" "engine" {
 }
 
 resource "aws_ssm_parameter" "backend" {
-  for_each = local.backend_parameters
+  for_each = local.backend_ssm_parameters
 
-  name  = "/${var.project}/${var.environment}/backend/${each.key}"
-  type  = "String"
-  value = each.value
+  name      = "/${var.project}/${var.environment}/backend/${each.key}"
+  type      = "String"
+  value     = each.value
+  overwrite = true
 
   tags = local.common_tags
 }
 
 resource "aws_ssm_parameter" "engine" {
-  for_each = local.engine_parameters
+  for_each = local.engine_ssm_parameters
 
-  name  = "/${var.project}/${var.environment}/engine/${each.key}"
-  type  = "String"
-  value = each.value
+  name      = "/${var.project}/${var.environment}/engine/${each.key}"
+  type      = "String"
+  value     = each.value
+  overwrite = true
 
   tags = local.common_tags
 }
 
 resource "aws_ssm_parameter" "admin" {
-  for_each = local.admin_parameters
+  for_each = local.admin_ssm_parameters
 
-  name  = "/${var.project}/${var.environment}/admin/${each.key}"
-  type  = "String"
-  value = each.value
+  name      = "/${var.project}/${var.environment}/admin/${each.key}"
+  type      = "String"
+  value     = each.value
+  overwrite = true
 
   tags = local.common_tags
 }
 
 resource "aws_ssm_parameter" "landing" {
-  for_each = local.landing_parameters
+  for_each = local.landing_ssm_parameters
 
-  name  = "/${var.project}/${var.environment}/landing/${each.key}"
-  type  = "String"
-  value = each.value
+  name      = "/${var.project}/${var.environment}/landing/${each.key}"
+  type      = "String"
+  value     = each.value
+  overwrite = true
 
   tags = local.common_tags
 }
@@ -154,7 +158,7 @@ resource "aws_ecs_task_definition" "backend" {
       ]
       secrets = concat(
         [
-          for key in sort(keys(local.backend_parameters)) : {
+          for key in sort(keys(aws_ssm_parameter.backend)) : {
             name      = key
             valueFrom = aws_ssm_parameter.backend[key].arn
           }
@@ -203,7 +207,7 @@ resource "aws_ecs_task_definition" "engine" {
       ]
       secrets = concat(
         [
-          for key in sort(keys(local.engine_parameters)) : {
+          for key in sort(keys(aws_ssm_parameter.engine)) : {
             name      = key
             valueFrom = aws_ssm_parameter.engine[key].arn
           }

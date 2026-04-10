@@ -81,6 +81,12 @@ locals {
     SENTRY_DSN                = ""
   }
 
+  backend_ssm_parameters = {
+    for key, value in local.backend_parameters :
+    key => value
+    if trimspace(value) != ""
+  }
+
   backend_secret_names = toset([
     "DATABASE_URL",
     "JWT_SECRET",
@@ -111,6 +117,12 @@ locals {
     CONVERSATIONAL_ENGINE_CORS_ORIGINS            = "https://${local.admin_domain}"
   }
 
+  engine_ssm_parameters = {
+    for key, value in local.engine_parameters :
+    key => value
+    if trimspace(value) != ""
+  }
+
   engine_secret_names = toset([
     "CONVERSATIONAL_ENGINE_DATABASE_URL",
     "CONVERSATIONAL_ENGINE_LLM_API_KEY",
@@ -126,8 +138,20 @@ locals {
     EXPO_PUBLIC_SSO_URL                   = ""
   }
 
+  admin_ssm_parameters = {
+    for key, value in local.admin_parameters :
+    key => value
+    if trimspace(value) != ""
+  }
+
   landing_parameters = {
     LOGIN_URL = "https://${local.admin_domain}/login"
+  }
+
+  landing_ssm_parameters = {
+    for key, value in local.landing_parameters :
+    key => value
+    if trimspace(value) != ""
   }
 
   production_domains = [
