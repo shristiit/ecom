@@ -5,6 +5,7 @@ set -euo pipefail
 project="${TF_VAR_project:-stockaisle}"
 environment="${TF_VAR_environment:-prod}"
 vpc_id="${TF_VAR_existing_vpc_id:-}"
+rds_security_group_id="${TF_VAR_existing_rds_security_group_id:-}"
 account_id="$(aws sts get-caller-identity --query 'Account' --output text)"
 
 name_prefix="${project}-${environment}"
@@ -159,6 +160,20 @@ describe_service_id() {
     --output text 2>/dev/null || true
 }
 
+describe_rds_ingress_rule_id() {
+  local referenced_group_id="$1"
+
+  aws ec2 describe-security-group-rules \
+    --filters \
+      "Name=group-id,Values=${rds_security_group_id}" \
+      "Name=is-egress,Values=false" \
+      "Name=ip-protocol,Values=tcp" \
+      "Name=from-port,Values=5432" \
+      "Name=to-port,Values=5432" \
+    --query "SecurityGroupRules[?ReferencedGroupInfo.GroupId=='${referenced_group_id}'].SecurityGroupRuleId | [0]" \
+    --output text 2>/dev/null || true
+}
+
 echo "Importing brownfield resources into Terraform state when they already exist in AWS"
 
 import_if_present 'aws_ecr_repository.backend' "$backend_repo"
@@ -183,6 +198,23 @@ if [[ -n "$vpc_id" ]]; then
   import_if_present 'aws_security_group.alb' "$(describe_security_group_id "${name_prefix}-alb")"
   import_if_present 'aws_security_group.backend' "$(describe_security_group_id "${name_prefix}-backend")"
   import_if_present 'aws_security_group.engine' "$(describe_security_group_id "${name_prefix}-engine")"
+fi
+
+if [[ -n "$rds_security_group_id" ]]; then
+  backend_sg_id="$(describe_security_group_id "${name_prefix}-backend")"
+  engine_sg_id="$(describe_security_group_id "${name_prefix}-engine")"
+
+  if normalize_id "$backend_sg_id" >/dev/null; then
+    import_if_present \
+      'aws_vpc_security_group_ingress_rule.rds_backend[0]' \
+      "$(describe_rds_ingress_rule_id "$backend_sg_id")"
+  fi
+
+  if normalize_id "$engine_sg_id" >/dev/null; then
+    import_if_present \
+      'aws_vpc_security_group_ingress_rule.rds_engine[0]' \
+      "$(describe_rds_ingress_rule_id "$engine_sg_id")"
+  fi
 fi
 
 import_if_present 'aws_lb.public' "$(describe_load_balancer_arn "$alb_name")"
