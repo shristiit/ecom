@@ -59,10 +59,6 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
 
-      - name: Bootstrap missing ECS secrets
-        if: steps.vars.outputs.target == 'all' || steps.vars.outputs.target == 'backend' || steps.vars.outputs.target == 'engine'
-        run: bash scripts/aws-bootstrap-missing-secrets.sh
-
       - name: Setup pnpm
         if: steps.vars.outputs.target == 'all' || steps.vars.outputs.target == 'admin' || steps.vars.outputs.target == 'landing'
         uses: pnpm/action-setup@v4
@@ -100,6 +96,12 @@ jobs:
         if: steps.vars.outputs.target == 'all' || steps.vars.outputs.target == 'backend'
         env:
           IMAGE_TAG: ${{ steps.vars.outputs.image_tag }}
+          BACKEND_DATABASE_URL: ${{ secrets.BACKEND_DATABASE_URL }}
+          BACKEND_JWT_SECRET: ${{ secrets.BACKEND_JWT_SECRET }}
+          BACKEND_OPENAI_API_KEY: ${{ secrets.BACKEND_OPENAI_API_KEY }}
+          BACKEND_AUTH0_CLIENT_SECRET: ${{ secrets.BACKEND_AUTH0_CLIENT_SECRET }}
+          BACKEND_SSO_GOOGLE_CLIENT_SECRET: ${{ secrets.BACKEND_SSO_GOOGLE_CLIENT_SECRET }}
+          BACKEND_SSO_AZUREAD_CLIENT_SECRET: ${{ secrets.BACKEND_SSO_AZUREAD_CLIENT_SECRET }}
         run: |
           TASK_DEFINITION_ARN="$(
             bash scripts/aws-register-ecs-task-def.sh \
@@ -141,6 +143,11 @@ jobs:
         if: steps.vars.outputs.target == 'all' || steps.vars.outputs.target == 'engine'
         env:
           IMAGE_TAG: ${{ steps.vars.outputs.image_tag }}
+          BACKEND_DATABASE_URL: ${{ secrets.BACKEND_DATABASE_URL }}
+          BACKEND_OPENAI_API_KEY: ${{ secrets.BACKEND_OPENAI_API_KEY }}
+          ENGINE_DATABASE_URL: ${{ secrets.ENGINE_DATABASE_URL }}
+          ENGINE_LLM_API_KEY: ${{ secrets.ENGINE_LLM_API_KEY }}
+          ENGINE_DEEPSEEK_API_KEY: ${{ secrets.ENGINE_DEEPSEEK_API_KEY }}
         run: |
           TASK_DEFINITION_ARN="$(
             bash scripts/aws-register-ecs-task-def.sh \
