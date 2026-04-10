@@ -270,13 +270,7 @@ describe_rds_ingress_rule_id() {
   local referenced_group_id="$1"
 
   aws ec2 describe-security-group-rules \
-    --filters \
-      "Name=group-id,Values=${rds_security_group_id}" \
-      "Name=is-egress,Values=false" \
-      "Name=ip-protocol,Values=tcp" \
-      "Name=from-port,Values=5432" \
-      "Name=to-port,Values=5432" \
-    --query "SecurityGroupRules[?ReferencedGroupInfo.GroupId=='${referenced_group_id}'].SecurityGroupRuleId | [0]" \
+    --query "SecurityGroupRules[?GroupId=='${rds_security_group_id}' && IsEgress==\`false\` && IpProtocol=='tcp' && FromPort==\`5432\` && ToPort==\`5432\` && ReferencedGroupInfo.GroupId=='${referenced_group_id}'].SecurityGroupRuleId | [0]" \
     --output text 2>/dev/null || true
 }
 
@@ -356,6 +350,7 @@ import_if_present 'aws_iam_role.backend_task' "$(describe_iam_role_name "${name_
 import_if_present 'aws_iam_role.engine_task' "$(describe_iam_role_name "${name_prefix}-engine-task")"
 import_if_present 'aws_iam_role.github_actions_deploy' "$(describe_iam_role_name "${name_prefix}-github-actions-deploy")"
 import_if_present 'aws_iam_policy.ecs_execution_config_access' "$(describe_iam_policy_arn "${name_prefix}-ecs-config-access")"
+import_if_present 'aws_iam_policy.github_actions_deploy' "$(describe_iam_policy_arn "${name_prefix}-github-actions-deploy")"
 
 namespace_id="$(describe_namespace_id)"
 namespace_import_id=""
