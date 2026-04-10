@@ -13,6 +13,8 @@ This directory provisions the production AWS footprint for StockAisle:
 - GitHub Actions OIDC deploy role
 - SNS alarms
 
+The intended primary app region is `eu-west-2` (London). CloudFront custom-domain certificates still need to be created in `us-east-1`, which Terraform handles separately.
+
 ## Usage
 
 ```bash
@@ -55,6 +57,7 @@ terraform init -backend-config=backend.hcl
    - `TF_STATE_REGION`
    - `AWS_VPC_ID`
    - `AWS_PUBLIC_SUBNET_IDS`
+   - `AWS_RDS_SECURITY_GROUP_ID`
 
 ## Notes
 
@@ -65,3 +68,4 @@ terraform init -backend-config=backend.hcl
 - The Terraform state bucket/table can live in a different region from the production app stack. Set `TF_STATE_REGION` in GitHub Actions to match the S3 bucket and DynamoDB table region.
 - If you already have an RDS database inside an existing VPC, set `AWS_VPC_ID` and `AWS_PUBLIC_SUBNET_IDS` so Terraform reuses that network instead of creating a separate VPC.
 - Terraform plan/apply workflows assume a separate bootstrap/admin AWS role. The deploy role output by this stack is intentionally narrower and only meant for application releases.
+- For a fresh London deployment, create the database manually first in `eu-west-2`, then feed the VPC ID, public subnet IDs, and RDS security group ID into the GitHub repository variables before `Terraform Apply`.

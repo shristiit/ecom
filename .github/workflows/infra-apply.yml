@@ -18,8 +18,8 @@ jobs:
       run:
         working-directory: ops/terraform
     env:
-      AWS_REGION: us-east-1
-      TF_VAR_aws_region: us-east-1
+      AWS_REGION: eu-west-2
+      TF_VAR_aws_region: eu-west-2
       TF_VAR_project: stockaisle
       TF_VAR_environment: prod
       TF_VAR_domain_name: stockaisle.com
@@ -50,7 +50,7 @@ jobs:
         run: |
           : "${TF_STATE_BUCKET:?Missing TF_STATE_BUCKET GitHub variable}"
           : "${TF_STATE_LOCK_TABLE:?Missing TF_STATE_LOCK_TABLE GitHub variable}"
-          : "${TF_STATE_REGION:=us-east-1}"
+          : "${TF_STATE_REGION:=eu-west-2}"
 
       - name: Terraform init
         run: |
