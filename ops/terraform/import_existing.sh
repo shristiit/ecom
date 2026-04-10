@@ -234,7 +234,13 @@ import_if_present 'aws_iam_role.github_actions_deploy' "${name_prefix}-github-ac
 import_if_present 'aws_iam_policy.ecs_execution_config_access' "$(describe_iam_policy_arn "${name_prefix}-ecs-config-access")"
 
 namespace_id="$(describe_namespace_id)"
-import_if_present 'aws_service_discovery_private_dns_namespace.main' "$namespace_id"
+namespace_import_id=""
+
+if normalize_id "$namespace_id" >/dev/null && normalize_id "$vpc_id" >/dev/null; then
+  namespace_import_id="${namespace_id}:${vpc_id}"
+fi
+
+import_if_present 'aws_service_discovery_private_dns_namespace.main' "$namespace_import_id"
 
 if normalize_id "$namespace_id" >/dev/null; then
   import_if_present \
