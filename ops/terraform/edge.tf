@@ -38,7 +38,7 @@ resource "aws_lb" "public" {
   internal                   = false
   load_balancer_type         = "application"
   security_groups            = [aws_security_group.alb.id]
-  subnets                    = [for subnet in aws_subnet.public : subnet.id]
+  subnets                    = local.public_subnet_ids
   drop_invalid_header_fields = true
 
   tags = local.common_tags
@@ -49,7 +49,7 @@ resource "aws_lb_target_group" "backend" {
   port        = 4000
   protocol    = "HTTP"
   target_type = "ip"
-  vpc_id      = aws_vpc.main.id
+  vpc_id      = local.vpc_id
 
   health_check {
     enabled             = true
@@ -70,7 +70,7 @@ resource "aws_lb_target_group" "engine" {
   port        = 8000
   protocol    = "HTTP"
   target_type = "ip"
-  vpc_id      = aws_vpc.main.id
+  vpc_id      = local.vpc_id
 
   health_check {
     enabled             = true

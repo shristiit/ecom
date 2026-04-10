@@ -94,7 +94,7 @@ resource "aws_secretsmanager_secret" "engine" {
 
 resource "aws_service_discovery_private_dns_namespace" "main" {
   name = local.namespace_name
-  vpc  = aws_vpc.main.id
+  vpc  = local.vpc_id
 
   tags = local.common_tags
 }
@@ -244,7 +244,7 @@ resource "aws_ecs_service" "backend" {
   network_configuration {
     assign_public_ip = true
     security_groups  = [aws_security_group.backend.id]
-    subnets          = [for subnet in aws_subnet.public : subnet.id]
+    subnets          = local.public_subnet_ids
   }
 
   load_balancer {
@@ -279,7 +279,7 @@ resource "aws_ecs_service" "engine" {
   network_configuration {
     assign_public_ip = true
     security_groups  = [aws_security_group.engine.id]
-    subnets          = [for subnet in aws_subnet.public : subnet.id]
+    subnets          = local.public_subnet_ids
   }
 
   load_balancer {

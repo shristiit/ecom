@@ -12,6 +12,14 @@ data "aws_route53_zone" "primary" {
 locals {
   name_prefix = "${var.project}-${var.environment}"
 
+  use_existing_network = var.existing_vpc_id != ""
+  existing_public_subnet_ids = [
+    for subnet_id in compact(split(",", replace(var.existing_public_subnet_ids_csv, " ", ""))) :
+    subnet_id
+  ]
+  vpc_id = local.use_existing_network ? var.existing_vpc_id : aws_vpc.main[0].id
+  public_subnet_ids = local.use_existing_network ? local.existing_public_subnet_ids : [for subnet in aws_subnet.public : subnet.id]
+
   common_tags = {
     Project     = var.project
     Environment = var.environment
