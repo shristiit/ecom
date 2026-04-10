@@ -13,6 +13,7 @@ name_prefix="${project}-${environment}"
 namespace_name="svc.stockaisle.internal"
 admin_domain="admin.${domain_name}"
 media_domain="media.${domain_name}"
+landing_www_domain="www.${domain_name}"
 
 backend_repo="${project}/backend"
 engine_repo="${project}/conversational-engine"
@@ -176,6 +177,22 @@ describe_distribution_id_by_alias() {
     --output text 2>/dev/null || true
 }
 
+describe_distribution_id_by_aliases() {
+  local alias=""
+  local distribution_id=""
+
+  for alias in "$@"; do
+    distribution_id="$(describe_distribution_id_by_alias "$alias")"
+
+    if normalize_id "$distribution_id" >/dev/null; then
+      printf '%s\n' "$distribution_id"
+      return 0
+    fi
+  done
+
+  return 0
+}
+
 describe_iam_policy_arn() {
   local policy_name="$1"
 
@@ -303,7 +320,7 @@ import_if_present 'aws_s3_bucket.admin' "$(describe_bucket_name "$admin_bucket")
 import_if_present 'aws_s3_bucket.media' "$(describe_bucket_name "$media_bucket")"
 
 import_if_present 'aws_cloudfront_origin_access_control.s3' "$(describe_oac_id)"
-import_if_present 'aws_cloudfront_distribution.landing' "$(describe_distribution_id_by_alias "$domain_name")"
+import_if_present 'aws_cloudfront_distribution.landing' "$(describe_distribution_id_by_aliases "$domain_name" "$landing_www_domain")"
 import_if_present 'aws_cloudfront_distribution.admin' "$(describe_distribution_id_by_alias "$admin_domain")"
 import_if_present 'aws_cloudfront_distribution.media' "$(describe_distribution_id_by_alias "$media_domain")"
 
