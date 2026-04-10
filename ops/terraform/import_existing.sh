@@ -4,12 +4,15 @@ set -euo pipefail
 
 project="${TF_VAR_project:-stockaisle}"
 environment="${TF_VAR_environment:-prod}"
+domain_name="${TF_VAR_domain_name:-stockaisle.com}"
 vpc_id="${TF_VAR_existing_vpc_id:-}"
 rds_security_group_id="${TF_VAR_existing_rds_security_group_id:-}"
 account_id="$(aws sts get-caller-identity --query 'Account' --output text)"
 
 name_prefix="${project}-${environment}"
 namespace_name="svc.stockaisle.internal"
+admin_domain="admin.${domain_name}"
+media_domain="media.${domain_name}"
 
 backend_repo="${project}/backend"
 engine_repo="${project}/conversational-engine"
@@ -104,6 +107,26 @@ describe_load_balancer_arn() {
     --output text 2>/dev/null || true
 }
 
+describe_listener_arn() {
+  local load_balancer_arn="$1"
+  local port="$2"
+
+  aws elbv2 describe-listeners \
+    --load-balancer-arn "$load_balancer_arn" \
+    --query "Listeners[?Port==\`${port}\`].ListenerArn | [0]" \
+    --output text 2>/dev/null || true
+}
+
+describe_listener_rule_arn() {
+  local listener_arn="$1"
+  local priority="$2"
+
+  aws elbv2 describe-rules \
+    --listener-arn "$listener_arn" \
+    --query "Rules[?Priority=='${priority}'].RuleArn | [0]" \
+    --output text 2>/dev/null || true
+}
+
 describe_target_group_arn() {
   local name="$1"
 
@@ -136,6 +159,14 @@ describe_oac_id() {
     --output text 2>/dev/null || true
 }
 
+describe_distribution_id_by_alias() {
+  local alias="$1"
+
+  aws cloudfront list-distributions \
+    --query "DistributionList.Items[?Aliases.Quantity > \`0\` && contains(Aliases.Items, '${alias}')].Id | [0]" \
+    --output text 2>/dev/null || true
+}
+
 describe_iam_policy_arn() {
   local policy_name="$1"
 
@@ -154,10 +185,23 @@ describe_namespace_id() {
 describe_service_id() {
   local namespace_id="$1"
   local service_name="$2"
+  local service_id=""
 
-  aws servicediscovery list-services \
-    --query "Services[?Name=='${service_name}' && NamespaceId=='${namespace_id}'].Id | [0]" \
-    --output text 2>/dev/null || true
+  service_id="$(
+    aws servicediscovery list-services \
+      --query "Services[?Name=='${service_name}' && NamespaceId=='${namespace_id}'].Id | [0]" \
+      --output text 2>/dev/null || true
+  )"
+
+  if ! normalize_id "$service_id" >/dev/null; then
+    service_id="$(
+      aws servicediscovery list-services \
+        --query "Services[?Name=='${service_name}'].Id | [0]" \
+        --output text 2>/dev/null || true
+    )"
+  fi
+
+  printf '%s\n' "$service_id"
 }
 
 describe_rds_ingress_rule_id() {
@@ -217,15 +261,33 @@ if [[ -n "$rds_security_group_id" ]]; then
   fi
 fi
 
-import_if_present 'aws_lb.public' "$(describe_load_balancer_arn "$alb_name")"
+alb_arn="$(describe_load_balancer_arn "$alb_name")"
+
+import_if_present 'aws_lb.public' "$alb_arn"
 import_if_present 'aws_lb_target_group.backend' "$(describe_target_group_arn "$backend_tg_name")"
 import_if_present 'aws_lb_target_group.engine' "$(describe_target_group_arn "$engine_tg_name")"
+
+if normalize_id "$alb_arn" >/dev/null; then
+  http_listener_arn="$(describe_listener_arn "$alb_arn" 80)"
+  https_listener_arn="$(describe_listener_arn "$alb_arn" 443)"
+
+  import_if_present 'aws_lb_listener.http' "$http_listener_arn"
+  import_if_present 'aws_lb_listener.https' "$https_listener_arn"
+
+  if normalize_id "$https_listener_arn" >/dev/null; then
+    import_if_present 'aws_lb_listener_rule.api' "$(describe_listener_rule_arn "$https_listener_arn" 100)"
+    import_if_present 'aws_lb_listener_rule.engine' "$(describe_listener_rule_arn "$https_listener_arn" 110)"
+  fi
+fi
 
 import_if_present 'aws_s3_bucket.landing' "$(describe_bucket_name "$landing_bucket")"
 import_if_present 'aws_s3_bucket.admin' "$(describe_bucket_name "$admin_bucket")"
 import_if_present 'aws_s3_bucket.media' "$(describe_bucket_name "$media_bucket")"
 
 import_if_present 'aws_cloudfront_origin_access_control.s3' "$(describe_oac_id)"
+import_if_present 'aws_cloudfront_distribution.landing' "$(describe_distribution_id_by_alias "$domain_name")"
+import_if_present 'aws_cloudfront_distribution.admin' "$(describe_distribution_id_by_alias "$admin_domain")"
+import_if_present 'aws_cloudfront_distribution.media' "$(describe_distribution_id_by_alias "$media_domain")"
 
 import_if_present 'aws_iam_role.ecs_task_execution' "${name_prefix}-ecs-execution"
 import_if_present 'aws_iam_role.backend_task' "${name_prefix}-backend-task"
