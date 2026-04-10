@@ -12,20 +12,28 @@ resource "aws_acm_certificate" "main" {
 
 resource "aws_route53_record" "certificate_validation" {
   for_each = {
-    for dvo in aws_acm_certificate.main.domain_validation_options :
-    dvo.domain_name => {
-      name   = dvo.resource_record_name
-      record = dvo.resource_record_value
-      type   = dvo.resource_record_type
-    }
+    for domain in local.production_domains :
+    domain => domain
   }
 
   allow_overwrite = true
-  name            = each.value.name
-  records         = [each.value.record]
-  ttl             = 60
-  type            = each.value.type
-  zone_id         = data.aws_route53_zone.primary.zone_id
+  name = one([
+    for dvo in aws_acm_certificate.main.domain_validation_options :
+    dvo.resource_record_name
+    if dvo.domain_name == each.key
+  ])
+  records = [one([
+    for dvo in aws_acm_certificate.main.domain_validation_options :
+    dvo.resource_record_value
+    if dvo.domain_name == each.key
+  ])]
+  ttl = 60
+  type = one([
+    for dvo in aws_acm_certificate.main.domain_validation_options :
+    dvo.resource_record_type
+    if dvo.domain_name == each.key
+  ])
+  zone_id = data.aws_route53_zone.primary.zone_id
 }
 
 resource "aws_acm_certificate_validation" "main" {
@@ -38,7 +46,7 @@ resource "aws_lb" "public" {
   internal                   = false
   load_balancer_type         = "application"
   security_groups            = [aws_security_group.alb.id]
-  subnets                    = [for subnet in aws_subnet.public : subnet.id]
+  subnets                    = local.public_subnet_ids
   drop_invalid_header_fields = true
 
   tags = local.common_tags
@@ -49,7 +57,7 @@ resource "aws_lb_target_group" "backend" {
   port        = 4000
   protocol    = "HTTP"
   target_type = "ip"
-  vpc_id      = aws_vpc.main.id
+  vpc_id      = local.vpc_id
 
   health_check {
     enabled             = true
@@ -70,7 +78,7 @@ resource "aws_lb_target_group" "engine" {
   port        = 8000
   protocol    = "HTTP"
   target_type = "ip"
-  vpc_id      = aws_vpc.main.id
+  vpc_id      = local.vpc_id
 
   health_check {
     enabled             = true

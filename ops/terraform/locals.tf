@@ -12,6 +12,17 @@ data "aws_route53_zone" "primary" {
 locals {
   name_prefix = "${var.project}-${var.environment}"
 
+  use_existing_network = var.existing_vpc_id != ""
+  existing_public_subnet_ids = [
+    for subnet_id in compact(split(",", replace(var.existing_public_subnet_ids_csv, " ", ""))) :
+    subnet_id
+  ]
+  vpc_id = local.use_existing_network ? var.existing_vpc_id : aws_vpc.main[0].id
+  public_subnet_ids = local.use_existing_network ? local.existing_public_subnet_ids : [
+    for subnet in aws_subnet.public :
+    subnet.id
+  ]
+
   common_tags = {
     Project     = var.project
     Environment = var.environment
@@ -38,36 +49,42 @@ locals {
   engine_family_name  = "${local.name_prefix}-engine"
   backend_service     = "${local.name_prefix}-backend"
   engine_service      = "${local.name_prefix}-engine"
-  namespace_name      = "stockaisle.local"
+  namespace_name      = "svc.stockaisle.internal"
 
   backend_container_name = "backend"
   engine_container_name  = "conversational-engine"
 
   backend_parameters = {
-    NODE_ENV                   = "production"
-    PORT                       = "4000"
-    ACCESS_TOKEN_TTL           = "15m"
-    REFRESH_TOKEN_TTL          = "7d"
-    CORS_ORIGIN                = "https://${local.admin_domain},https://${local.public_domain}"
-    CONVERSATIONAL_ENGINE_URL  = "http://conversational-engine.${local.namespace_name}:8000"
-    OPENAI_MODEL               = "gpt-4o-mini"
-    OPENAI_BASE_URL            = "https://api.openai.com/v1"
-    RESERVATION_TTL_MIN        = "30"
-    S3_REGION                  = var.aws_region
-    S3_BUCKET                  = local.media_bucket_name
-    S3_PUBLIC_BASE_URL         = "https://${local.media_domain}"
-    SSO_PROVIDERS              = ""
-    AUTH0_DOMAIN               = ""
-    AUTH0_CLIENT_ID            = ""
-    AUTH0_AUDIENCE             = ""
-    AUTH0_REDIRECT_URI         = "https://${local.api_domain}/api/auth/sso/auth0/callback"
-    DEFAULT_SSO_ROLE_NAME      = "staff"
-    SSO_GOOGLE_CLIENT_ID       = ""
-    SSO_GOOGLE_REDIRECT_URI    = "https://${local.api_domain}/api/auth/sso/google/callback"
-    SSO_AZUREAD_CLIENT_ID      = ""
-    SSO_AZUREAD_TENANT_ID      = ""
-    SSO_AZUREAD_REDIRECT_URI   = "https://${local.api_domain}/api/auth/sso/azuread/callback"
-    SENTRY_DSN                 = ""
+    NODE_ENV                  = "production"
+    PORT                      = "4000"
+    ACCESS_TOKEN_TTL          = "15m"
+    REFRESH_TOKEN_TTL         = "7d"
+    CORS_ORIGIN               = "https://${local.admin_domain},https://${local.public_domain}"
+    CONVERSATIONAL_ENGINE_URL = "http://conversational-engine.${local.namespace_name}:8000"
+    OPENAI_MODEL              = "gpt-4o-mini"
+    OPENAI_BASE_URL           = "https://api.openai.com/v1"
+    RESERVATION_TTL_MIN       = "30"
+    S3_REGION                 = var.aws_region
+    S3_BUCKET                 = local.media_bucket_name
+    S3_PUBLIC_BASE_URL        = "https://${local.media_domain}"
+    SSO_PROVIDERS             = ""
+    AUTH0_DOMAIN              = ""
+    AUTH0_CLIENT_ID           = ""
+    AUTH0_AUDIENCE            = ""
+    AUTH0_REDIRECT_URI        = "https://${local.api_domain}/api/auth/sso/auth0/callback"
+    DEFAULT_SSO_ROLE_NAME     = "staff"
+    SSO_GOOGLE_CLIENT_ID      = ""
+    SSO_GOOGLE_REDIRECT_URI   = "https://${local.api_domain}/api/auth/sso/google/callback"
+    SSO_AZUREAD_CLIENT_ID     = ""
+    SSO_AZUREAD_TENANT_ID     = ""
+    SSO_AZUREAD_REDIRECT_URI  = "https://${local.api_domain}/api/auth/sso/azuread/callback"
+    SENTRY_DSN                = ""
+  }
+
+  backend_ssm_parameters = {
+    for key, value in local.backend_parameters :
+    key => value
+    if trimspace(value) != ""
   }
 
   backend_secret_names = toset([
@@ -80,24 +97,30 @@ locals {
   ])
 
   engine_parameters = {
-    CONVERSATIONAL_ENGINE_ENV                    = "production"
-    CONVERSATIONAL_ENGINE_HOST                   = "0.0.0.0"
-    CONVERSATIONAL_ENGINE_PORT                   = "8000"
-    CONVERSATIONAL_ENGINE_LOG_LEVEL              = "INFO"
-    CONVERSATIONAL_ENGINE_BACKEND_BASE_URL       = "https://${local.api_domain}/api"
-    CONVERSATIONAL_ENGINE_LLM_BASE_URL           = "https://api.openai.com/v1"
-    CONVERSATIONAL_ENGINE_MODEL_BEST             = "gpt-4.1"
-    CONVERSATIONAL_ENGINE_MODEL_OK               = "gpt-4.1-mini"
-    CONVERSATIONAL_ENGINE_EMBEDDINGS_MODEL       = "text-embedding-3-small"
-    CONVERSATIONAL_ENGINE_AGENT_MODEL_TIERS      = "products:best,purchasing:best,inventory:ok,reporting:ok,help:ok,orchestrator_classifier:ok"
-    CONVERSATIONAL_ENGINE_PLANNER_PROVIDER_CHAIN = "openai,deepseek"
+    CONVERSATIONAL_ENGINE_ENV                     = "production"
+    CONVERSATIONAL_ENGINE_HOST                    = "0.0.0.0"
+    CONVERSATIONAL_ENGINE_PORT                    = "8000"
+    CONVERSATIONAL_ENGINE_LOG_LEVEL               = "INFO"
+    CONVERSATIONAL_ENGINE_BACKEND_BASE_URL        = "https://${local.api_domain}/api"
+    CONVERSATIONAL_ENGINE_LLM_BASE_URL            = "https://api.openai.com/v1"
+    CONVERSATIONAL_ENGINE_MODEL_BEST              = "gpt-4.1"
+    CONVERSATIONAL_ENGINE_MODEL_OK                = "gpt-4.1-mini"
+    CONVERSATIONAL_ENGINE_EMBEDDINGS_MODEL        = "text-embedding-3-small"
+    CONVERSATIONAL_ENGINE_AGENT_MODEL_TIERS       = "products:best,purchasing:best,inventory:ok,reporting:ok,help:ok,orchestrator_classifier:ok"
+    CONVERSATIONAL_ENGINE_PLANNER_PROVIDER_CHAIN  = "openai,deepseek"
     CONVERSATIONAL_ENGINE_EXECUTOR_PROVIDER_CHAIN = "openai,deepseek"
     CONVERSATIONAL_ENGINE_REVIEWER_PROVIDER_CHAIN = "openai,deepseek"
     CONVERSATIONAL_ENGINE_NARRATOR_PROVIDER_CHAIN = "openai,deepseek"
-    CONVERSATIONAL_ENGINE_FEATURE_ENABLED        = "true"
-    CONVERSATIONAL_ENGINE_MUTATIONS_ENABLED      = "false"
-    CONVERSATIONAL_ENGINE_RETRIEVAL_ENABLED      = "false"
-    CONVERSATIONAL_ENGINE_CORS_ORIGINS           = "https://${local.admin_domain}"
+    CONVERSATIONAL_ENGINE_FEATURE_ENABLED         = "true"
+    CONVERSATIONAL_ENGINE_MUTATIONS_ENABLED       = "false"
+    CONVERSATIONAL_ENGINE_RETRIEVAL_ENABLED       = "false"
+    CONVERSATIONAL_ENGINE_CORS_ORIGINS            = "https://${local.admin_domain}"
+  }
+
+  engine_ssm_parameters = {
+    for key, value in local.engine_parameters :
+    key => value
+    if trimspace(value) != ""
   }
 
   engine_secret_names = toset([
@@ -115,8 +138,20 @@ locals {
     EXPO_PUBLIC_SSO_URL                   = ""
   }
 
+  admin_ssm_parameters = {
+    for key, value in local.admin_parameters :
+    key => value
+    if trimspace(value) != ""
+  }
+
   landing_parameters = {
     LOGIN_URL = "https://${local.admin_domain}/login"
+  }
+
+  landing_ssm_parameters = {
+    for key, value in local.landing_parameters :
+    key => value
+    if trimspace(value) != ""
   }
 
   production_domains = [
