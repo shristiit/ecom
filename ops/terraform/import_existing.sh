@@ -29,6 +29,9 @@ alb_name="${name_prefix}-alb"
 backend_tg_name="${name_prefix}-backend"
 engine_tg_name="${name_prefix}-engine"
 oac_name="${name_prefix}-s3"
+ecs_cluster_name="${name_prefix}-cluster"
+backend_service_name="${name_prefix}-backend"
+engine_service_name="${name_prefix}-engine"
 
 backend_secret_names=(
   "DATABASE_URL"
@@ -217,6 +220,30 @@ describe_namespace_id() {
     --output text 2>/dev/null || true
 }
 
+describe_ecs_cluster_name() {
+  aws ecs describe-clusters \
+    --clusters "$ecs_cluster_name" \
+    --query "clusters[?status!='INACTIVE'].clusterName | [0]" \
+    --output text 2>/dev/null || true
+}
+
+describe_ecs_service_import_id() {
+  local service_name="$1"
+  local service_status=""
+
+  service_status="$(
+    aws ecs describe-services \
+      --cluster "$ecs_cluster_name" \
+      --services "$service_name" \
+      --query 'services[0].status' \
+      --output text 2>/dev/null || true
+  )"
+
+  if [[ "$service_status" == "ACTIVE" || "$service_status" == "DRAINING" ]]; then
+    printf '%s/%s\n' "$ecs_cluster_name" "$service_name"
+  fi
+}
+
 describe_service_id() {
   local namespace_id="$1"
   local service_name="$2"
@@ -344,3 +371,7 @@ if normalize_id "$namespace_id" >/dev/null; then
     'aws_service_discovery_service.engine' \
     "$(describe_service_id "$namespace_id" "conversational-engine")"
 fi
+
+import_if_present 'aws_ecs_cluster.main' "$(describe_ecs_cluster_name)"
+import_if_present 'aws_ecs_service.backend' "$(describe_ecs_service_import_id "$backend_service_name")"
+import_if_present 'aws_ecs_service.engine' "$(describe_ecs_service_import_id "$engine_service_name")"

@@ -538,9 +538,10 @@ resource "aws_s3_bucket_policy" "media" {
 }
 
 resource "aws_route53_record" "landing_root" {
-  zone_id = data.aws_route53_zone.primary.zone_id
-  name    = local.public_domain
-  type    = "A"
+  allow_overwrite = true
+  zone_id         = data.aws_route53_zone.primary.zone_id
+  name            = local.public_domain
+  type            = "A"
 
   alias {
     evaluate_target_health = false
@@ -550,9 +551,10 @@ resource "aws_route53_record" "landing_root" {
 }
 
 resource "aws_route53_record" "landing_www" {
-  zone_id = data.aws_route53_zone.primary.zone_id
-  name    = local.www_domain
-  type    = "A"
+  allow_overwrite = true
+  zone_id         = data.aws_route53_zone.primary.zone_id
+  name            = local.www_domain
+  type            = "A"
 
   alias {
     evaluate_target_health = false
@@ -562,9 +564,10 @@ resource "aws_route53_record" "landing_www" {
 }
 
 resource "aws_route53_record" "admin" {
-  zone_id = data.aws_route53_zone.primary.zone_id
-  name    = local.admin_domain
-  type    = "A"
+  allow_overwrite = true
+  zone_id         = data.aws_route53_zone.primary.zone_id
+  name            = local.admin_domain
+  type            = "A"
 
   alias {
     evaluate_target_health = false
@@ -574,9 +577,10 @@ resource "aws_route53_record" "admin" {
 }
 
 resource "aws_route53_record" "media" {
-  zone_id = data.aws_route53_zone.primary.zone_id
-  name    = local.media_domain
-  type    = "A"
+  allow_overwrite = true
+  zone_id         = data.aws_route53_zone.primary.zone_id
+  name            = local.media_domain
+  type            = "A"
 
   alias {
     evaluate_target_health = false
@@ -586,9 +590,10 @@ resource "aws_route53_record" "media" {
 }
 
 resource "aws_route53_record" "api" {
-  zone_id = data.aws_route53_zone.primary.zone_id
-  name    = local.api_domain
-  type    = "A"
+  allow_overwrite = true
+  zone_id         = data.aws_route53_zone.primary.zone_id
+  name            = local.api_domain
+  type            = "A"
 
   alias {
     evaluate_target_health = true
@@ -598,9 +603,10 @@ resource "aws_route53_record" "api" {
 }
 
 resource "aws_route53_record" "engine" {
-  zone_id = data.aws_route53_zone.primary.zone_id
-  name    = local.engine_domain
-  type    = "A"
+  allow_overwrite = true
+  zone_id         = data.aws_route53_zone.primary.zone_id
+  name            = local.engine_domain
+  type            = "A"
 
   alias {
     evaluate_target_health = true
