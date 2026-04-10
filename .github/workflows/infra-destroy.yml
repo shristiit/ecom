@@ -1,0 +1,63 @@
+name: Infrastructure Teardown
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type DELETE STOCKAISLE INFRA to proceed
+        required: true
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: terraform-prod-destroy
+  cancel-in-progress: false
+
+jobs:
+  destroy:
+    if: ${{ github.event.inputs.confirmation == 'DELETE STOCKAISLE INFRA' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    defaults:
+      run:
+        working-directory: ops/terraform
+    env:
+      AWS_REGION: us-east-1
+      AWS_DEFAULT_REGION: us-east-1
+      TF_VAR_aws_region: us-east-1
+      TF_VAR_project: stockaisle
+      TF_VAR_environment: prod
+      TF_VAR_domain_name: stockaisle.com
+      TF_VAR_route53_zone_name: stockaisle.com
+      TF_VAR_github_repository: ${{ github.repository }}
+      TF_VAR_existing_vpc_id: ${{ vars.AWS_VPC_ID }}
+      TF_VAR_existing_public_subnet_ids_csv: ${{ vars.AWS_PUBLIC_SUBNET_IDS }}
+      TF_VAR_existing_rds_security_group_id: ${{ vars.AWS_RDS_SECURITY_GROUP_ID }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ vars.AWS_TERRAFORM_ROLE_ARN }}
+
+      - name: Verify confirmation
+        run: |
+          : "${TF_VAR_existing_vpc_id:?Missing AWS_VPC_ID GitHub variable}"
+          echo "Confirmed destructive teardown of stockaisle infrastructure except Route53"
+
+      - name: Teardown infrastructure
+        run: bash ./destroy_all_except_route53.sh
+
+      - name: Summary
+        run: |
+          {
+            echo "## Infrastructure teardown"
+            echo
+            echo "Attempted full deletion of stockaisle infrastructure except Route53 hosted zone and records."
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -29,6 +29,10 @@ Set these repository variables before running the workflows:
   Optional state key. Recommended: `prod/terraform.tfstate`.
 - `TF_STATE_REGION`
   Region of the Terraform state bucket and lock table. This can differ from the production app region.
+- `AWS_VPC_ID`
+  Existing VPC ID to reuse for ECS, ALB, and service discovery when RDS already lives inside that VPC.
+- `AWS_PUBLIC_SUBNET_IDS`
+  Comma-separated subnet IDs in that VPC for the public ALB and ECS tasks.
 - `AWS_RDS_SECURITY_GROUP_ID`
 - `AWS_ALARM_EMAIL`
 

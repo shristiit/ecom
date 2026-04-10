@@ -56,6 +56,7 @@ resource "aws_iam_role" "backend_task" {
 data "aws_iam_policy_document" "backend_task" {
   statement {
     sid = "MediaBucketAccess"
+
     actions = [
       "s3:GetObject",
       "s3:PutObject",
@@ -84,21 +85,13 @@ resource "aws_iam_role" "engine_task" {
   tags = local.common_tags
 }
 
-resource "aws_iam_openid_connect_provider" "github" {
-  url             = "https://token.actions.githubusercontent.com"
-  client_id_list  = ["sts.amazonaws.com"]
-  thumbprint_list = ["6938fd4d98bab03faadb97b34396831e3780aea1"]
-
-  tags = local.common_tags
-}
-
 data "aws_iam_policy_document" "github_actions_assume_role" {
   statement {
     actions = ["sts:AssumeRoleWithWebIdentity"]
 
     principals {
       type        = "Federated"
-      identifiers = [aws_iam_openid_connect_provider.github.arn]
+      identifiers = ["arn:aws:iam::${data.aws_caller_identity.current.account_id}:oidc-provider/token.actions.githubusercontent.com"]
     }
 
     condition {
@@ -124,13 +117,14 @@ resource "aws_iam_role" "github_actions_deploy" {
 
 data "aws_iam_policy_document" "github_actions_deploy" {
   statement {
-    sid     = "EcrAuth"
-    actions = ["ecr:GetAuthorizationToken"]
+    sid       = "EcrAuth"
+    actions   = ["ecr:GetAuthorizationToken"]
     resources = ["*"]
   }
 
   statement {
     sid = "EcrPushPull"
+
     actions = [
       "ecr:BatchCheckLayerAvailability",
       "ecr:CompleteLayerUpload",
@@ -149,19 +143,23 @@ data "aws_iam_policy_document" "github_actions_deploy" {
 
   statement {
     sid = "EcsDeploy"
+
     actions = [
       "ecs:DescribeClusters",
       "ecs:DescribeServices",
+      "ecs:DescribeTasks",
       "ecs:DescribeTaskDefinition",
       "ecs:RegisterTaskDefinition",
+      "ecs:RunTask",
       "ecs:UpdateService",
     ]
     resources = ["*"]
   }
 
   statement {
-    sid = "PassTaskRoles"
+    sid     = "PassTaskRoles"
     actions = ["iam:PassRole"]
+
     resources = [
       aws_iam_role.ecs_task_execution.arn,
       aws_iam_role.backend_task.arn,
@@ -171,6 +169,7 @@ data "aws_iam_policy_document" "github_actions_deploy" {
 
   statement {
     sid = "StaticAssetDeploy"
+
     actions = [
       "s3:DeleteObject",
       "s3:GetObject",
@@ -187,6 +186,7 @@ data "aws_iam_policy_document" "github_actions_deploy" {
 
   statement {
     sid = "CloudFrontInvalidation"
+
     actions = [
       "cloudfront:CreateInvalidation",
       "cloudfront:GetDistribution",

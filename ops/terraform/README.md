@@ -53,6 +53,8 @@ terraform init -backend-config=backend.hcl
    - `TF_STATE_LOCK_TABLE`
    - `TF_STATE_KEY`
    - `TF_STATE_REGION`
+   - `AWS_VPC_ID`
+   - `AWS_PUBLIC_SUBNET_IDS`
 
 ## Notes
 
@@ -61,4 +63,5 @@ terraform init -backend-config=backend.hcl
 - Static build-time config for landing and admin is stored in SSM for reference, but GitHub Actions still injects the expected public URLs explicitly during build.
 - Add a real `backend.hcl` from the example below before the first shared/team apply so Terraform state is stored in S3 with a DynamoDB lock table.
 - The Terraform state bucket/table can live in a different region from the production app stack. Set `TF_STATE_REGION` in GitHub Actions to match the S3 bucket and DynamoDB table region.
+- If you already have an RDS database inside an existing VPC, set `AWS_VPC_ID` and `AWS_PUBLIC_SUBNET_IDS` so Terraform reuses that network instead of creating a separate VPC.
 - Terraform plan/apply workflows assume a separate bootstrap/admin AWS role. The deploy role output by this stack is intentionally narrower and only meant for application releases.

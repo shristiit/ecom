@@ -40,6 +40,28 @@ variable "vpc_cidr" {
   default     = "10.42.0.0/16"
 }
 
+variable "existing_vpc_id" {
+  description = "Optional existing VPC ID to reuse for the production stack."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.existing_vpc_id != "" || var.existing_public_subnet_ids_csv == ""
+    error_message = "existing_public_subnet_ids_csv can only be set when existing_vpc_id is also provided."
+  }
+
+  validation {
+    condition     = var.existing_vpc_id == "" || length(compact(split(",", replace(var.existing_public_subnet_ids_csv, " ", "")))) >= 2
+    error_message = "When existing_vpc_id is set, existing_public_subnet_ids_csv must contain at least two comma-separated subnet IDs."
+  }
+}
+
+variable "existing_public_subnet_ids_csv" {
+  description = "Optional comma-separated subnet IDs to reuse for the ALB and ECS services."
+  type        = string
+  default     = ""
+}
+
 variable "public_subnet_cidrs" {
   description = "CIDR blocks for the public subnets used by ALB and ECS tasks."
   type        = list(string)

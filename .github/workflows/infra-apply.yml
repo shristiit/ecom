@@ -25,6 +25,8 @@ jobs:
       TF_VAR_domain_name: stockaisle.com
       TF_VAR_route53_zone_name: stockaisle.com
       TF_VAR_github_repository: ${{ github.repository }}
+      TF_VAR_existing_vpc_id: ${{ vars.AWS_VPC_ID }}
+      TF_VAR_existing_public_subnet_ids_csv: ${{ vars.AWS_PUBLIC_SUBNET_IDS }}
       TF_VAR_existing_rds_security_group_id: ${{ vars.AWS_RDS_SECURITY_GROUP_ID }}
       TF_VAR_alarm_email: ${{ vars.AWS_ALARM_EMAIL }}
       TF_STATE_BUCKET: ${{ vars.TF_STATE_BUCKET }}
@@ -58,6 +60,9 @@ jobs:
             -backend-config="region=${TF_STATE_REGION}" \
             -backend-config="dynamodb_table=${TF_STATE_LOCK_TABLE}" \
             -backend-config="encrypt=true"
+
+      - name: Import existing AWS resources
+        run: ./import_existing.sh
 
       - name: Terraform apply
         run: terraform apply -input=false -auto-approve
