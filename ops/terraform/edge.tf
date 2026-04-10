@@ -316,7 +316,7 @@ resource "aws_cloudfront_distribution" "landing" {
   price_class         = "PriceClass_100"
 
   origin {
-    domain_name              = aws_s3_bucket.landing[0].bucket_regional_domain_name
+    domain_name              = aws_s3_bucket.landing.bucket_regional_domain_name
     origin_access_control_id = aws_cloudfront_origin_access_control.s3.id
     origin_id                = "landing-origin"
   }
@@ -474,7 +474,7 @@ data "aws_iam_policy_document" "landing_bucket" {
 
   statement {
     actions   = ["s3:GetObject"]
-    resources = ["${aws_s3_bucket.landing[0].arn}/*"]
+    resources = ["${aws_s3_bucket.landing.arn}/*"]
 
     principals {
       type        = "Service"
@@ -491,7 +491,7 @@ data "aws_iam_policy_document" "landing_bucket" {
 
 resource "aws_s3_bucket_policy" "landing" {
   count  = var.enable_landing_site ? 1 : 0
-  bucket = aws_s3_bucket.landing[0].id
+  bucket = aws_s3_bucket.landing.id
   policy = data.aws_iam_policy_document.landing_bucket[0].json
 }
 
