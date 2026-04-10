@@ -89,6 +89,15 @@ describe_secret_arn() {
     --output text 2>/dev/null || true
 }
 
+describe_ecr_repository_name() {
+  local repository_name="$1"
+
+  aws ecr describe-repositories \
+    --repository-names "$repository_name" \
+    --query 'repositories[0].repositoryName' \
+    --output text 2>/dev/null || true
+}
+
 describe_security_group_id() {
   local group_name="$1"
 
@@ -176,6 +185,15 @@ describe_iam_policy_arn() {
     --output text 2>/dev/null || true
 }
 
+describe_iam_role_name() {
+  local role_name="$1"
+
+  aws iam get-role \
+    --role-name "$role_name" \
+    --query 'Role.RoleName' \
+    --output text 2>/dev/null || true
+}
+
 describe_namespace_id() {
   aws servicediscovery list-namespaces \
     --query "Namespaces[?Name=='${namespace_name}'].Id | [0]" \
@@ -220,8 +238,8 @@ describe_rds_ingress_rule_id() {
 
 echo "Importing brownfield resources into Terraform state when they already exist in AWS"
 
-import_if_present 'aws_ecr_repository.backend' "$backend_repo"
-import_if_present 'aws_ecr_repository.engine' "$engine_repo"
+import_if_present 'aws_ecr_repository.backend' "$(describe_ecr_repository_name "$backend_repo")"
+import_if_present 'aws_ecr_repository.engine' "$(describe_ecr_repository_name "$engine_repo")"
 
 import_if_present 'aws_cloudwatch_log_group.backend' "$(describe_log_group_name "$backend_log_group")"
 import_if_present 'aws_cloudwatch_log_group.engine' "$(describe_log_group_name "$engine_log_group")"
@@ -289,10 +307,10 @@ import_if_present 'aws_cloudfront_distribution.landing' "$(describe_distribution
 import_if_present 'aws_cloudfront_distribution.admin' "$(describe_distribution_id_by_alias "$admin_domain")"
 import_if_present 'aws_cloudfront_distribution.media' "$(describe_distribution_id_by_alias "$media_domain")"
 
-import_if_present 'aws_iam_role.ecs_task_execution' "${name_prefix}-ecs-execution"
-import_if_present 'aws_iam_role.backend_task' "${name_prefix}-backend-task"
-import_if_present 'aws_iam_role.engine_task' "${name_prefix}-engine-task"
-import_if_present 'aws_iam_role.github_actions_deploy' "${name_prefix}-github-actions-deploy"
+import_if_present 'aws_iam_role.ecs_task_execution' "$(describe_iam_role_name "${name_prefix}-ecs-execution")"
+import_if_present 'aws_iam_role.backend_task' "$(describe_iam_role_name "${name_prefix}-backend-task")"
+import_if_present 'aws_iam_role.engine_task' "$(describe_iam_role_name "${name_prefix}-engine-task")"
+import_if_present 'aws_iam_role.github_actions_deploy' "$(describe_iam_role_name "${name_prefix}-github-actions-deploy")"
 import_if_present 'aws_iam_policy.ecs_execution_config_access' "$(describe_iam_policy_arn "${name_prefix}-ecs-config-access")"
 
 namespace_id="$(describe_namespace_id)"
