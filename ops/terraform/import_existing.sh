@@ -269,10 +269,24 @@ describe_service_id() {
 
 describe_rds_ingress_rule_id() {
   local referenced_group_id="$1"
+  local rule_ids=""
+  local rule_id=""
 
-  aws ec2 describe-security-group-rules \
-    --query "SecurityGroupRules[?GroupId=='${rds_security_group_id}' && IsEgress==\`false\` && IpProtocol=='tcp' && FromPort==\`5432\` && ToPort==\`5432\` && ReferencedGroupInfo.GroupId=='${referenced_group_id}'].SecurityGroupRuleId | [0]" \
-    --output text 2>/dev/null || true
+  rule_ids="$(
+    aws ec2 describe-security-group-rules \
+      --filters \
+        "Name=group-id,Values=${rds_security_group_id}" \
+        "Name=referenced-group-id,Values=${referenced_group_id}" \
+      --query "SecurityGroupRules[?IsEgress==\`false\` && IpProtocol=='tcp' && FromPort==\`5432\` && ToPort==\`5432\`].SecurityGroupRuleId" \
+      --output text 2>/dev/null || true
+  )"
+
+  while IFS= read -r rule_id; do
+    if [[ -n "$rule_id" && "$rule_id" != "None" ]]; then
+      printf '%s\n' "$rule_id"
+      return 0
+    fi
+  done <<< "$rule_ids"
 }
 
 echo "Importing brownfield resources into Terraform state when they already exist in AWS"
