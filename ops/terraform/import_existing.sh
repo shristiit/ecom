@@ -8,7 +8,7 @@ vpc_id="${TF_VAR_existing_vpc_id:-}"
 account_id="$(aws sts get-caller-identity --query 'Account' --output text)"
 
 name_prefix="${project}-${environment}"
-namespace_name="stockaisle.local"
+namespace_name="svc.stockaisle.internal"
 
 backend_repo="${project}/backend"
 engine_repo="${project}/conversational-engine"

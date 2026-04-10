@@ -49,7 +49,7 @@ locals {
   engine_family_name  = "${local.name_prefix}-engine"
   backend_service     = "${local.name_prefix}-backend"
   engine_service      = "${local.name_prefix}-engine"
-  namespace_name      = "stockaisle.local"
+  namespace_name      = "svc.stockaisle.internal"
 
   backend_container_name = "backend"
   engine_container_name  = "conversational-engine"

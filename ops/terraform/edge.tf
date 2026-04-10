@@ -17,18 +17,18 @@ resource "aws_route53_record" "certificate_validation" {
   }
 
   allow_overwrite = true
-  name = one([
+  name            = one([
     for dvo in aws_acm_certificate.main.domain_validation_options :
     dvo.resource_record_name
     if dvo.domain_name == each.key
   ])
-  records = [one([
+  records         = [one([
     for dvo in aws_acm_certificate.main.domain_validation_options :
     dvo.resource_record_value
     if dvo.domain_name == each.key
   ])]
   ttl             = 60
-  type = one([
+  type            = one([
     for dvo in aws_acm_certificate.main.domain_validation_options :
     dvo.resource_record_type
     if dvo.domain_name == each.key
