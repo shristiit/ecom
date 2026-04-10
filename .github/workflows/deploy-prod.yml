@@ -180,13 +180,13 @@ jobs:
         run: bash scripts/aws-deploy-static.sh admin/dist "${{ vars.AWS_ADMIN_BUCKET }}" "${{ vars.AWS_ADMIN_DISTRIBUTION_ID }}"
 
       - name: Build landing site
-        if: steps.vars.outputs.target == 'all' || steps.vars.outputs.target == 'landing'
+        if: (steps.vars.outputs.target == 'all' || steps.vars.outputs.target == 'landing') && vars.AWS_LANDING_BUCKET != '' && vars.AWS_LANDING_DISTRIBUTION_ID != ''
         env:
           LOGIN_URL: https://admin.stockaisle.com/login
         run: pnpm --filter landing build
 
       - name: Deploy landing static assets
-        if: steps.vars.outputs.target == 'all' || steps.vars.outputs.target == 'landing'
+        if: (steps.vars.outputs.target == 'all' || steps.vars.outputs.target == 'landing') && vars.AWS_LANDING_BUCKET != '' && vars.AWS_LANDING_DISTRIBUTION_ID != ''
         run: bash scripts/aws-deploy-static.sh landing/dist "${{ vars.AWS_LANDING_BUCKET }}" "${{ vars.AWS_LANDING_DISTRIBUTION_ID }}"
 
       - name: Write deployment summary

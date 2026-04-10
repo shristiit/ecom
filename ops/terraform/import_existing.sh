@@ -7,6 +7,7 @@ environment="${TF_VAR_environment:-prod}"
 domain_name="${TF_VAR_domain_name:-stockaisle.com}"
 vpc_id="${TF_VAR_existing_vpc_id:-}"
 rds_security_group_id="${TF_VAR_existing_rds_security_group_id:-}"
+enable_landing_site="${TF_VAR_enable_landing_site:-false}"
 account_id="$(aws sts get-caller-identity --query 'Account' --output text)"
 
 name_prefix="${project}-${environment}"
@@ -336,12 +337,14 @@ if normalize_id "$alb_arn" >/dev/null; then
   fi
 fi
 
-import_if_present 'aws_s3_bucket.landing' "$(describe_bucket_name "$landing_bucket")"
 import_if_present 'aws_s3_bucket.admin' "$(describe_bucket_name "$admin_bucket")"
 import_if_present 'aws_s3_bucket.media' "$(describe_bucket_name "$media_bucket")"
 
 import_if_present 'aws_cloudfront_origin_access_control.s3' "$(describe_oac_id)"
-import_if_present 'aws_cloudfront_distribution.landing' "$(describe_distribution_id_by_aliases "$domain_name" "$landing_www_domain")"
+import_if_present 'aws_s3_bucket.landing' "$(describe_bucket_name "$landing_bucket")"
+if [[ "$enable_landing_site" == "true" ]]; then
+  import_if_present 'aws_cloudfront_distribution.landing' "$(describe_distribution_id_by_aliases "$domain_name" "$landing_www_domain")"
+fi
 import_if_present 'aws_cloudfront_distribution.admin' "$(describe_distribution_id_by_alias "$admin_domain")"
 import_if_present 'aws_cloudfront_distribution.media' "$(describe_distribution_id_by_alias "$media_domain")"
 

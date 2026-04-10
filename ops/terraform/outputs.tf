@@ -55,7 +55,7 @@ output "media_bucket_name" {
 
 output "landing_distribution_id" {
   description = "CloudFront distribution ID for stockaisle.com."
-  value       = aws_cloudfront_distribution.landing.id
+  value       = try(aws_cloudfront_distribution.landing[0].id, null)
 }
 
 output "admin_distribution_id" {

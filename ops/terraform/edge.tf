@@ -307,6 +307,7 @@ resource "aws_cloudfront_origin_access_control" "s3" {
 }
 
 resource "aws_cloudfront_distribution" "landing" {
+  count               = var.enable_landing_site ? 1 : 0
   enabled             = true
   is_ipv6_enabled     = true
   comment             = "Landing site for ${local.public_domain}"
@@ -315,7 +316,7 @@ resource "aws_cloudfront_distribution" "landing" {
   price_class         = "PriceClass_100"
 
   origin {
-    domain_name              = aws_s3_bucket.landing.bucket_regional_domain_name
+    domain_name              = aws_s3_bucket.landing[0].bucket_regional_domain_name
     origin_access_control_id = aws_cloudfront_origin_access_control.s3.id
     origin_id                = "landing-origin"
   }
@@ -469,9 +470,11 @@ resource "aws_cloudfront_distribution" "media" {
 }
 
 data "aws_iam_policy_document" "landing_bucket" {
+  count = var.enable_landing_site ? 1 : 0
+
   statement {
     actions   = ["s3:GetObject"]
-    resources = ["${aws_s3_bucket.landing.arn}/*"]
+    resources = ["${aws_s3_bucket.landing[0].arn}/*"]
 
     principals {
       type        = "Service"
@@ -481,14 +484,15 @@ data "aws_iam_policy_document" "landing_bucket" {
     condition {
       test     = "StringEquals"
       variable = "AWS:SourceArn"
-      values   = [aws_cloudfront_distribution.landing.arn]
+      values   = [aws_cloudfront_distribution.landing[0].arn]
     }
   }
 }
 
 resource "aws_s3_bucket_policy" "landing" {
-  bucket = aws_s3_bucket.landing.id
-  policy = data.aws_iam_policy_document.landing_bucket.json
+  count  = var.enable_landing_site ? 1 : 0
+  bucket = aws_s3_bucket.landing[0].id
+  policy = data.aws_iam_policy_document.landing_bucket[0].json
 }
 
 data "aws_iam_policy_document" "admin_bucket" {
@@ -538,6 +542,7 @@ resource "aws_s3_bucket_policy" "media" {
 }
 
 resource "aws_route53_record" "landing_root" {
+  count           = var.enable_landing_site ? 1 : 0
   allow_overwrite = true
   zone_id         = data.aws_route53_zone.primary.zone_id
   name            = local.public_domain
@@ -545,12 +550,13 @@ resource "aws_route53_record" "landing_root" {
 
   alias {
     evaluate_target_health = false
-    name                   = aws_cloudfront_distribution.landing.domain_name
-    zone_id                = aws_cloudfront_distribution.landing.hosted_zone_id
+    name                   = aws_cloudfront_distribution.landing[0].domain_name
+    zone_id                = aws_cloudfront_distribution.landing[0].hosted_zone_id
   }
 }
 
 resource "aws_route53_record" "landing_www" {
+  count           = var.enable_landing_site ? 1 : 0
   allow_overwrite = true
   zone_id         = data.aws_route53_zone.primary.zone_id
   name            = local.www_domain
@@ -558,8 +564,8 @@ resource "aws_route53_record" "landing_www" {
 
   alias {
     evaluate_target_health = false
-    name                   = aws_cloudfront_distribution.landing.domain_name
-    zone_id                = aws_cloudfront_distribution.landing.hosted_zone_id
+    name                   = aws_cloudfront_distribution.landing[0].domain_name
+    zone_id                = aws_cloudfront_distribution.landing[0].hosted_zone_id
   }
 }
 

@@ -103,3 +103,9 @@ variable "existing_rds_security_group_id" {
   type        = string
   default     = ""
 }
+
+variable "enable_landing_site" {
+  description = "Whether to provision the landing site bucket, CloudFront distribution, and apex/www DNS records."
+  type        = bool
+  default     = false
+}
