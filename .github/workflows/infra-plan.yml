@@ -64,6 +64,9 @@ jobs:
             -backend-config="dynamodb_table=${TF_STATE_LOCK_TABLE}" \
             -backend-config="encrypt=true"
 
+      - name: Import existing AWS resources
+        run: ./import_existing.sh
+
       - name: Terraform validate
         run: terraform validate
 
