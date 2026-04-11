@@ -165,7 +165,7 @@ jobs:
             "${{ vars.AWS_ENGINE_SERVICE }}" \
             "${{ steps.engine_task_def.outputs.task_definition_arn }}" \
             "conversational-engine" \
-            sh -lc "uv run python -m conversational_engine.scripts.ensure_db && uv run alembic upgrade head"
+            sh -lc "PYTHONPATH=src uv run python -m conversational_engine.scripts.ensure_db && uv run alembic upgrade head"
 
       - name: Deploy conversational-engine ECS service
         if: steps.vars.outputs.target == 'all' || steps.vars.outputs.target == 'engine'
