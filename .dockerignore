@@ -6,6 +6,9 @@ dist
 build
 # Local env & logs
 .env
+**/.env
+**/.env.local
+**/.env.*.local
 *.log
 # VCS & editor cruft
 .git
