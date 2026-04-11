@@ -18,6 +18,7 @@ print_task_logs() {
   local log_group
   local log_prefix
   local log_stream
+  local stream_names
   local attempt
 
   task_id="$(jq -r '.tasks[0].taskArn // ""' <<<"$task_output" | awk -F'/' '{print $NF}')"
@@ -43,23 +44,41 @@ print_task_logs() {
   fi
 
   log_stream="${log_prefix}/${CONTAINER_NAME}/${task_id}"
+  stream_names=""
 
   for attempt in 1 2 3 4 5; do
-    if aws logs get-log-events \
-      --log-group-name "$log_group" \
-      --log-stream-name "$log_stream" \
-      --limit 200 \
-      --query 'events[].message' \
-      --output text \
-      > /tmp/aws-task-log-events.txt 2>/dev/null; then
+    stream_names="$(
+      aws logs describe-log-streams \
+        --log-group-name "$log_group" \
+        --log-stream-name-prefix "${log_prefix}/" \
+        --query "logStreams[?contains(logStreamName, '${task_id}')].logStreamName" \
+        --output text 2>/dev/null || true
+    )"
+    if [ -n "$stream_names" ] && [ "$stream_names" != "None" ]; then
       break
     fi
     sleep 3
   done
 
-  echo "--- CloudWatch logs: ${log_group} / ${log_stream} ---" >&2
-  cat /tmp/aws-task-log-events.txt >&2 2>/dev/null || true
-  echo "--- end logs ---" >&2
+  if [ -z "$stream_names" ] || [ "$stream_names" = "None" ]; then
+    stream_names="$log_stream"
+  fi
+
+  while IFS= read -r log_stream_name; do
+    [ -n "$log_stream_name" ] || continue
+
+    aws logs get-log-events \
+      --log-group-name "$log_group" \
+      --log-stream-name "$log_stream_name" \
+      --limit 200 \
+      --query 'events[].message' \
+      --output text \
+      > /tmp/aws-task-log-events.txt 2>/dev/null || true
+
+    echo "--- CloudWatch logs: ${log_group} / ${log_stream_name} ---" >&2
+    cat /tmp/aws-task-log-events.txt >&2 2>/dev/null || true
+    echo "--- end logs ---" >&2
+  done <<<"$(printf '%s\n' "$stream_names" | tr '\t' '\n')"
 }
 
 SERVICE_JSON="$(aws ecs describe-services --cluster "$CLUSTER" --services "$SERVICE")"
