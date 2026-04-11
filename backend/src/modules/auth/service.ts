@@ -1,5 +1,4 @@
 import { Request, Response } from 'express';
-import bcrypt from 'bcrypt';
 import { z } from 'zod';
 import { query } from '@backend/db/pool.js';
 import { signAccessToken, signRefreshToken } from '@backend/utils/jwt.js';
@@ -8,6 +7,16 @@ import jwt from 'jsonwebtoken';
 import { JWT_SECRET } from '@backend/config/env.js';
 import fetch from 'node-fetch';
 import crypto from 'node:crypto';
+import { logger } from '@backend/utils/logger.js';
+
+let bcryptModulePromise: Promise<typeof import('bcrypt')> | null = null;
+
+async function getBcrypt() {
+  if (!bcryptModulePromise) {
+    bcryptModulePromise = import('bcrypt');
+  }
+  return bcryptModulePromise;
+}
 
 const registerSchema = z.object({
   tenantId: z.string().uuid(),
@@ -36,6 +45,7 @@ export async function register(req: Request, res: Response) {
   const parsed = registerSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ message: 'Invalid payload' });
   const { tenantId, email, username, password, roleId } = parsed.data;
+  const bcrypt = await getBcrypt();
   const passwordHash = await bcrypt.hash(password, 12);
 
   const result = await query(
@@ -55,20 +65,25 @@ export async function login(req: Request, res: Response) {
   const parsed = loginSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ message: 'Invalid payload' });
   const { email, password } = parsed.data;
+  try {
+    const bcrypt = await getBcrypt();
+    const result = await query(
+      `SELECT id, tenant_id, role_id, email, password_hash FROM users WHERE email = $1 AND status = 'active'`,
+      [email.toLowerCase()]
+    );
+    if (result.rowCount === 0) return res.status(401).json({ message: 'Invalid credentials' });
 
-  const result = await query(
-    `SELECT id, tenant_id, role_id, email, password_hash FROM users WHERE email = $1 AND status = 'active'`,
-    [email.toLowerCase()]
-  );
-  if (result.rowCount === 0) return res.status(401).json({ message: 'Invalid credentials' });
+    const user = result.rows[0];
+    const ok = await bcrypt.compare(password, user.password_hash);
+    if (!ok) return res.status(401).json({ message: 'Invalid credentials' });
 
-  const user = result.rows[0];
-  const ok = await bcrypt.compare(password, user.password_hash);
-  if (!ok) return res.status(401).json({ message: 'Invalid credentials' });
-
-  const accessToken = signAccessToken({ sub: user.id, tenantId: user.tenant_id, roleId: user.role_id });
-  const refreshToken = signRefreshToken({ sub: user.id, tenantId: user.tenant_id, roleId: user.role_id });
-  res.json({ accessToken, refreshToken });
+    const accessToken = signAccessToken({ sub: user.id, tenantId: user.tenant_id, roleId: user.role_id });
+    const refreshToken = signRefreshToken({ sub: user.id, tenantId: user.tenant_id, roleId: user.role_id });
+    res.json({ accessToken, refreshToken });
+  } catch (err) {
+    logger.error({ err }, 'login failed');
+    res.status(500).json({ message: 'Login failed' });
+  }
 }
 
 export async function refresh(req: Request, res: Response) {
@@ -97,6 +112,7 @@ export async function resetPassword(req: Request, res: Response) {
   if (!parsed.success) return res.status(400).json({ message: 'Invalid payload' });
 
   const { email, newPassword } = parsed.data;
+  const bcrypt = await getBcrypt();
   const passwordHash = await bcrypt.hash(newPassword, 12);
 
   await query(
