@@ -37,10 +37,32 @@ if (process.env.SENTRY_DSN) {
 
 app.use(helmet());
 const allowedOrigins = new Set(CORS_ORIGINS);
+
+function isAllowedOrigin(origin: string): boolean {
+  if (allowedOrigins.has(origin)) return true;
+
+  try {
+    const url = new URL(origin);
+    const hostname = url.hostname.toLowerCase();
+
+    if (url.protocol === 'https:' && (hostname === 'stockaisle.com' || hostname.endsWith('.stockaisle.com'))) {
+      return true;
+    }
+
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      return true;
+    }
+  } catch {
+    return false;
+  }
+
+  return false;
+}
+
 app.use(
   cors({
     origin(origin, callback) {
-      if (!origin || allowedOrigins.has(origin)) {
+      if (!origin || isAllowedOrigin(origin)) {
         callback(null, true);
         return;
       }
