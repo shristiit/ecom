@@ -9,7 +9,8 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY backend/package.json ./backend/package.json
 
 RUN pnpm install --filter backend... --frozen-lockfile
-RUN cd backend && npm rebuild bcrypt --build-from-source
+RUN npm rebuild bcrypt --build-from-source \
+  && test -f /workspace/node_modules/bcrypt/lib/binding/napi-v3/bcrypt_lib.node
 
 COPY backend ./backend
 
