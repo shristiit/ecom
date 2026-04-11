@@ -1,19 +1,8 @@
 import { Client, type ClientConfig } from 'pg';
+import { buildPgClientConfig } from '@backend/db/connection.js';
 
 function buildClientConfig(connectionString: string): ClientConfig {
-  const url = new URL(connectionString);
-  const sslMode = url.searchParams.get('sslmode');
-  const shouldUseSsl = (process.env.NODE_ENV ?? 'development') === 'production'
-    || (sslMode !== null && sslMode !== 'disable');
-
-  if (!shouldUseSsl) {
-    return { connectionString };
-  }
-
-  return {
-    connectionString,
-    ssl: { rejectUnauthorized: false },
-  };
+  return buildPgClientConfig(connectionString);
 }
 
 function getDatabaseUrl(): URL {
