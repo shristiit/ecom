@@ -11,6 +11,7 @@
     "start": "node dist/server.js",
     "start:prod": "node dist/server.js",
     "prod": "npm run build:prod && npm run start:prod",
+    "db:ensure:runtime": "node dist/scripts/ensure-db.js",
     "migrate": "node-pg-migrate --envPath .env.local --tsx --tsconfig tsconfig.json --check-order false",
     "migrate:up": "node-pg-migrate up --envPath .env.local --tsx --tsconfig tsconfig.json --check-order false",
     "migrate:up:runtime": "node-pg-migrate up --tsx --tsconfig tsconfig.json --check-order false",
