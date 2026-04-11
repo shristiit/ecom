@@ -12,6 +12,48 @@ TASK_DEFINITION_ARN="$3"
 CONTAINER_NAME="$4"
 shift 4
 
+print_task_logs() {
+  local task_output="$1"
+  local task_id
+  local log_group
+  local log_prefix
+  local log_stream
+
+  task_id="$(jq -r '.tasks[0].taskArn // ""' <<<"$task_output" | awk -F'/' '{print $NF}')"
+  if [ -z "$task_id" ]; then
+    return 0
+  fi
+
+  log_group="$(
+    aws ecs describe-task-definition \
+      --task-definition "$TASK_DEFINITION_ARN" \
+      --query "taskDefinition.containerDefinitions[?name=='${CONTAINER_NAME}'].logConfiguration.options.\"awslogs-group\" | [0]" \
+      --output text 2>/dev/null || true
+  )"
+  log_prefix="$(
+    aws ecs describe-task-definition \
+      --task-definition "$TASK_DEFINITION_ARN" \
+      --query "taskDefinition.containerDefinitions[?name=='${CONTAINER_NAME}'].logConfiguration.options.\"awslogs-stream-prefix\" | [0]" \
+      --output text 2>/dev/null || true
+  )"
+
+  if [ -z "$log_group" ] || [ "$log_group" = "None" ] || [ -z "$log_prefix" ] || [ "$log_prefix" = "None" ]; then
+    return 0
+  fi
+
+  log_stream="${log_prefix}/${CONTAINER_NAME}/${task_id}"
+
+  echo "--- CloudWatch logs: ${log_group} / ${log_stream} ---" >&2
+  aws logs get-log-events \
+    --log-group-name "$log_group" \
+    --log-stream-name "$log_stream" \
+    --limit 200 \
+    --query 'events[].message' \
+    --output text \
+    2>/dev/null >&2 || true
+  echo "--- end logs ---" >&2
+}
+
 SERVICE_JSON="$(aws ecs describe-services --cluster "$CLUSTER" --services "$SERVICE")"
 FAILURE_COUNT="$(jq -r '.failures | length' <<<"$SERVICE_JSON")"
 if [ "$FAILURE_COUNT" != "0" ]; then
@@ -82,6 +124,7 @@ CONTAINER_REASON="$(
 )"
 
 if [ -z "$EXIT_CODE" ] || [ "$EXIT_CODE" != "0" ]; then
+  print_task_logs "$TASK_OUTPUT"
   echo "Task ${TASK_ARN} failed. stoppedReason=${STOPPED_REASON} containerReason=${CONTAINER_REASON} exitCode=${EXIT_CODE}" >&2
   exit 1
 fi
