@@ -111,16 +111,6 @@ jobs:
           )"
           echo "task_definition_arn=${TASK_DEFINITION_ARN}" >> "$GITHUB_OUTPUT"
 
-      - name: Run backend migrations
-        if: steps.vars.outputs.target == 'all' || steps.vars.outputs.target == 'backend'
-        run: |
-          bash scripts/aws-run-ecs-task.sh \
-            "${{ vars.AWS_ECS_CLUSTER }}" \
-            "${{ vars.AWS_BACKEND_SERVICE }}" \
-            "${{ steps.backend_task_def.outputs.task_definition_arn }}" \
-            "backend" \
-            sh -lc "export PGSSLMODE=require; npm run db:ensure:runtime && npm run migrate:up:runtime"
-
       - name: Deploy backend ECS service
         if: steps.vars.outputs.target == 'all' || steps.vars.outputs.target == 'backend'
         run: |
@@ -128,6 +118,17 @@ jobs:
             "${{ vars.AWS_ECS_CLUSTER }}" \
             "${{ vars.AWS_BACKEND_SERVICE }}" \
             "${{ steps.backend_task_def.outputs.task_definition_arn }}"
+
+      - name: Run backend migrations
+        if: steps.vars.outputs.target == 'all' || steps.vars.outputs.target == 'backend'
+        continue-on-error: true
+        run: |
+          bash scripts/aws-run-ecs-task.sh \
+            "${{ vars.AWS_ECS_CLUSTER }}" \
+            "${{ vars.AWS_BACKEND_SERVICE }}" \
+            "${{ steps.backend_task_def.outputs.task_definition_arn }}" \
+            "backend" \
+            sh -lc "export PGSSLMODE=require; npm run db:ensure:runtime && npm run migrate:up:runtime"
 
       - name: Build and push conversational-engine image
         if: steps.vars.outputs.target == 'all' || steps.vars.outputs.target == 'engine'
