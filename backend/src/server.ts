@@ -1,6 +1,6 @@
 import './middlewares/async-errors.js';
 import express from 'express';
-import cors from 'cors';
+import cors, { type CorsOptions } from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import pinoHttp from 'pino-http';
@@ -59,7 +59,7 @@ function isAllowedOrigin(origin: string): boolean {
   return false;
 }
 
-const corsOptions = {
+const corsOptions: CorsOptions = {
   origin(origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) {
     if (!origin || isAllowedOrigin(origin)) {
       callback(null, true);
@@ -72,7 +72,7 @@ const corsOptions = {
   exposedHeaders: ['Content-Type'],
   optionsSuccessStatus: 204,
   credentials: true,
-} as const;
+};
 
 app.use(cors(corsOptions));
 app.options(/.*/, cors(corsOptions));
