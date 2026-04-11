@@ -78,24 +78,6 @@ resource "aws_ssm_parameter" "landing" {
   tags = local.common_tags
 }
 
-resource "aws_secretsmanager_secret" "backend" {
-  for_each = local.backend_secret_names
-
-  name                    = "${var.project}/${var.environment}/backend/${each.value}"
-  recovery_window_in_days = 7
-
-  tags = local.common_tags
-}
-
-resource "aws_secretsmanager_secret" "engine" {
-  for_each = local.engine_secret_names
-
-  name                    = "${var.project}/${var.environment}/engine/${each.value}"
-  recovery_window_in_days = 7
-
-  tags = local.common_tags
-}
-
 resource "aws_service_discovery_private_dns_namespace" "main" {
   name = local.namespace_name
   vpc  = local.vpc_id
@@ -162,12 +144,6 @@ resource "aws_ecs_task_definition" "backend" {
             name      = key
             valueFrom = aws_ssm_parameter.backend[key].arn
           }
-        ],
-        [
-          for key in sort(tolist(local.backend_secret_names)) : {
-            name      = key
-            valueFrom = aws_secretsmanager_secret.backend[key].arn
-          }
         ]
       )
       logConfiguration = {
@@ -210,12 +186,6 @@ resource "aws_ecs_task_definition" "engine" {
           for key in sort(keys(aws_ssm_parameter.engine)) : {
             name      = key
             valueFrom = aws_ssm_parameter.engine[key].arn
-          }
-        ],
-        [
-          for key in sort(tolist(local.engine_secret_names)) : {
-            name      = key
-            valueFrom = aws_secretsmanager_secret.engine[key].arn
           }
         ]
       )

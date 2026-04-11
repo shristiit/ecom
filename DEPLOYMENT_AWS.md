@@ -7,6 +7,8 @@ This repository now includes:
 - a static landing site package under [`landing`](/Users/Apple/Desktop/ecom/landing)
 - a production Docker image for the conversational engine under [`conversational-engine/Dockerfile`](/Users/Apple/Desktop/ecom/conversational-engine/Dockerfile)
 
+The intended app region is `eu-west-2` (London). One AWS exception still applies: the ACM certificate used by `CloudFront` must remain in `us-east-1`.
+
 ## What Gets Deployed
 
 - `stockaisle.com` and `www.stockaisle.com`: landing site on S3 + CloudFront
@@ -85,7 +87,9 @@ Rotate the currently exposed AI provider keys before go-live.
 4. Create or identify an AWS admin/bootstrap role and set `AWS_TERRAFORM_ROLE_ARN`.
 5. Set the GitHub bootstrap variables, including `TF_STATE_REGION`.
 6. Point the domain nameservers in GoDaddy to the Route 53 hosted zone.
-7. Run `Terraform Apply`.
-8. Populate Secrets Manager values.
-9. Copy Terraform outputs into GitHub repository variables.
-10. Run `Deploy Production` manually once.
+7. Create a fresh PostgreSQL database in `eu-west-2` and note the VPC ID, at least 2 subnet IDs, the RDS security group ID, endpoint, port, database name, username, and password.
+8. Set `AWS_VPC_ID`, `AWS_PUBLIC_SUBNET_IDS`, and `AWS_RDS_SECURITY_GROUP_ID` in GitHub repository variables.
+9. Run `Terraform Apply`.
+10. Populate Secrets Manager values.
+11. Copy Terraform outputs into GitHub repository variables.
+12. Run `Deploy Production` manually once.

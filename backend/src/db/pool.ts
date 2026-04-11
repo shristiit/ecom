@@ -1,17 +1,11 @@
 import pg from 'pg';
 import type { QueryResultRow } from 'pg';
-import { DATABASE_URL, NODE_ENV } from '@backend/config/env.js';
+import { DATABASE_URL } from '@backend/config/env.js';
+import { buildPgClientConfig } from '@backend/db/connection.js';
 
 const { Pool } = pg;
-const useSsl =
-  NODE_ENV === 'production' ||
-  process.env.DATABASE_SSL === 'true' ||
-  process.env.PGSSLMODE === 'require';
 
-export const pool = new Pool({
-  connectionString: DATABASE_URL,
-  ssl: useSsl ? { rejectUnauthorized: false } : undefined,
-});
+export const pool = new Pool(buildPgClientConfig(DATABASE_URL));
 
 export async function query<T extends QueryResultRow = QueryResultRow>(text: string, params?: any[]) {
   const res = await pool.query<T>(text, params);

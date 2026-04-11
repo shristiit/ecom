@@ -1,8 +1,24 @@
 import dotenv from 'dotenv';
+import fs from 'node:fs';
+import path from 'node:path';
 import process from 'node:process';
 
-dotenv.config({ path: '.env' });
-dotenv.config({ path: '.env.local', override: true });
+const externallyDefined = new Set(Object.keys(process.env));
+
+function loadFile(filename: string) {
+  const filepath = path.resolve(filename);
+  if (!fs.existsSync(filepath)) return;
+
+  const parsed = dotenv.parse(fs.readFileSync(filepath));
+  for (const [key, value] of Object.entries(parsed)) {
+    if (externallyDefined.has(key)) continue;
+    process.env[key] = value;
+  }
+}
+
+for (const filename of ['.env', '.env.local']) {
+  loadFile(filename);
+}
 
 function required(key: string, fallback?: string): string {
   const v = process.env[key] ?? fallback;

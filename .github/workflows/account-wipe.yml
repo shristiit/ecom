@@ -1,0 +1,57 @@
+name: Account Wipe Except Route53
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type DELETE ALL AWS RESOURCES IN us-east-1 eu-west-1 eu-west-2 EXCEPT ROUTE53
+        required: true
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: aws-account-wipe
+  cancel-in-progress: false
+
+jobs:
+  wipe:
+    if: ${{ github.event.inputs.confirmation == 'DELETE ALL AWS RESOURCES IN us-east-1 eu-west-1 eu-west-2 EXCEPT ROUTE53' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    defaults:
+      run:
+        working-directory: ops/terraform
+    env:
+      AWS_REGION: us-east-1
+      AWS_DEFAULT_REGION: us-east-1
+      NUKE_REGIONS: us-east-1 eu-west-1 eu-west-2
+      CONFIRMATION_STRING: DELETE ALL AWS RESOURCES IN us-east-1 eu-west-1 eu-west-2 EXCEPT ROUTE53
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ vars.AWS_TERRAFORM_ROLE_ARN }}
+
+      - name: Show caller identity
+        run: aws sts get-caller-identity
+
+      - name: Run account wipe
+        run: bash ./wipe_account_except_route53.sh
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## Account wipe"
+            echo
+            echo "Attempted deletion of all AWS resources in us-east-1, eu-west-1, and eu-west-2 except public Route53 DNS resources."
+            echo
+            echo "This workflow may remove IAM resources used by deployment after the run starts."
+          } >> "$GITHUB_STEP_SUMMARY"

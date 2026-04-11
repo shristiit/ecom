@@ -1,4 +1,4 @@
-resource "aws_acm_certificate" "main" {
+resource "aws_acm_certificate" "alb" {
   domain_name               = local.public_domain
   subject_alternative_names = [for domain in local.production_domains : domain if domain != local.public_domain]
   validation_method         = "DNS"
@@ -10,7 +10,20 @@ resource "aws_acm_certificate" "main" {
   tags = local.common_tags
 }
 
-resource "aws_route53_record" "certificate_validation" {
+resource "aws_acm_certificate" "cloudfront" {
+  provider                  = aws.us_east_1
+  domain_name               = local.public_domain
+  subject_alternative_names = [for domain in local.production_domains : domain if domain != local.public_domain]
+  validation_method         = "DNS"
+
+  lifecycle {
+    create_before_destroy = true
+  }
+
+  tags = local.common_tags
+}
+
+resource "aws_route53_record" "alb_certificate_validation" {
   for_each = {
     for domain in local.production_domains :
     domain => domain
@@ -18,27 +31,59 @@ resource "aws_route53_record" "certificate_validation" {
 
   allow_overwrite = true
   name = one([
-    for dvo in aws_acm_certificate.main.domain_validation_options :
+    for dvo in aws_acm_certificate.alb.domain_validation_options :
     dvo.resource_record_name
     if dvo.domain_name == each.key
   ])
   records = [one([
-    for dvo in aws_acm_certificate.main.domain_validation_options :
+    for dvo in aws_acm_certificate.alb.domain_validation_options :
     dvo.resource_record_value
     if dvo.domain_name == each.key
   ])]
   ttl = 60
   type = one([
-    for dvo in aws_acm_certificate.main.domain_validation_options :
+    for dvo in aws_acm_certificate.alb.domain_validation_options :
     dvo.resource_record_type
     if dvo.domain_name == each.key
   ])
   zone_id = data.aws_route53_zone.primary.zone_id
 }
 
-resource "aws_acm_certificate_validation" "main" {
-  certificate_arn         = aws_acm_certificate.main.arn
-  validation_record_fqdns = [for record in aws_route53_record.certificate_validation : record.fqdn]
+resource "aws_route53_record" "cloudfront_certificate_validation" {
+  for_each = {
+    for domain in local.production_domains :
+    domain => domain
+  }
+
+  allow_overwrite = true
+  name = one([
+    for dvo in aws_acm_certificate.cloudfront.domain_validation_options :
+    dvo.resource_record_name
+    if dvo.domain_name == each.key
+  ])
+  records = [one([
+    for dvo in aws_acm_certificate.cloudfront.domain_validation_options :
+    dvo.resource_record_value
+    if dvo.domain_name == each.key
+  ])]
+  ttl = 60
+  type = one([
+    for dvo in aws_acm_certificate.cloudfront.domain_validation_options :
+    dvo.resource_record_type
+    if dvo.domain_name == each.key
+  ])
+  zone_id = data.aws_route53_zone.primary.zone_id
+}
+
+resource "aws_acm_certificate_validation" "alb" {
+  certificate_arn         = aws_acm_certificate.alb.arn
+  validation_record_fqdns = [for record in aws_route53_record.alb_certificate_validation : record.fqdn]
+}
+
+resource "aws_acm_certificate_validation" "cloudfront" {
+  provider                = aws.us_east_1
+  certificate_arn         = aws_acm_certificate.cloudfront.arn
+  validation_record_fqdns = [for record in aws_route53_record.cloudfront_certificate_validation : record.fqdn]
 }
 
 resource "aws_lb" "public" {
@@ -114,7 +159,7 @@ resource "aws_lb_listener" "https" {
   load_balancer_arn = aws_lb.public.arn
   port              = 443
   protocol          = "HTTPS"
-  certificate_arn   = aws_acm_certificate_validation.main.certificate_arn
+  certificate_arn   = aws_acm_certificate_validation.alb.certificate_arn
   ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"
 
   default_action {
@@ -262,6 +307,7 @@ resource "aws_cloudfront_origin_access_control" "s3" {
 }
 
 resource "aws_cloudfront_distribution" "landing" {
+  count               = var.enable_landing_site ? 1 : 0
   enabled             = true
   is_ipv6_enabled     = true
   comment             = "Landing site for ${local.public_domain}"
@@ -312,7 +358,7 @@ resource "aws_cloudfront_distribution" "landing" {
   }
 
   viewer_certificate {
-    acm_certificate_arn      = aws_acm_certificate_validation.main.certificate_arn
+    acm_certificate_arn      = aws_acm_certificate_validation.cloudfront.certificate_arn
     minimum_protocol_version = "TLSv1.2_2021"
     ssl_support_method       = "sni-only"
   }
@@ -371,7 +417,7 @@ resource "aws_cloudfront_distribution" "admin" {
   }
 
   viewer_certificate {
-    acm_certificate_arn      = aws_acm_certificate_validation.main.certificate_arn
+    acm_certificate_arn      = aws_acm_certificate_validation.cloudfront.certificate_arn
     minimum_protocol_version = "TLSv1.2_2021"
     ssl_support_method       = "sni-only"
   }
@@ -415,7 +461,7 @@ resource "aws_cloudfront_distribution" "media" {
   }
 
   viewer_certificate {
-    acm_certificate_arn      = aws_acm_certificate_validation.main.certificate_arn
+    acm_certificate_arn      = aws_acm_certificate_validation.cloudfront.certificate_arn
     minimum_protocol_version = "TLSv1.2_2021"
     ssl_support_method       = "sni-only"
   }
@@ -424,6 +470,8 @@ resource "aws_cloudfront_distribution" "media" {
 }
 
 data "aws_iam_policy_document" "landing_bucket" {
+  count = var.enable_landing_site ? 1 : 0
+
   statement {
     actions   = ["s3:GetObject"]
     resources = ["${aws_s3_bucket.landing.arn}/*"]
@@ -436,14 +484,15 @@ data "aws_iam_policy_document" "landing_bucket" {
     condition {
       test     = "StringEquals"
       variable = "AWS:SourceArn"
-      values   = [aws_cloudfront_distribution.landing.arn]
+      values   = [aws_cloudfront_distribution.landing[0].arn]
     }
   }
 }
 
 resource "aws_s3_bucket_policy" "landing" {
+  count  = var.enable_landing_site ? 1 : 0
   bucket = aws_s3_bucket.landing.id
-  policy = data.aws_iam_policy_document.landing_bucket.json
+  policy = data.aws_iam_policy_document.landing_bucket[0].json
 }
 
 data "aws_iam_policy_document" "admin_bucket" {
@@ -493,33 +542,38 @@ resource "aws_s3_bucket_policy" "media" {
 }
 
 resource "aws_route53_record" "landing_root" {
-  zone_id = data.aws_route53_zone.primary.zone_id
-  name    = local.public_domain
-  type    = "A"
+  count           = var.enable_landing_site ? 1 : 0
+  allow_overwrite = true
+  zone_id         = data.aws_route53_zone.primary.zone_id
+  name            = local.public_domain
+  type            = "A"
 
   alias {
     evaluate_target_health = false
-    name                   = aws_cloudfront_distribution.landing.domain_name
-    zone_id                = aws_cloudfront_distribution.landing.hosted_zone_id
+    name                   = aws_cloudfront_distribution.landing[0].domain_name
+    zone_id                = aws_cloudfront_distribution.landing[0].hosted_zone_id
   }
 }
 
 resource "aws_route53_record" "landing_www" {
-  zone_id = data.aws_route53_zone.primary.zone_id
-  name    = local.www_domain
-  type    = "A"
+  count           = var.enable_landing_site ? 1 : 0
+  allow_overwrite = true
+  zone_id         = data.aws_route53_zone.primary.zone_id
+  name            = local.www_domain
+  type            = "A"
 
   alias {
     evaluate_target_health = false
-    name                   = aws_cloudfront_distribution.landing.domain_name
-    zone_id                = aws_cloudfront_distribution.landing.hosted_zone_id
+    name                   = aws_cloudfront_distribution.landing[0].domain_name
+    zone_id                = aws_cloudfront_distribution.landing[0].hosted_zone_id
   }
 }
 
 resource "aws_route53_record" "admin" {
-  zone_id = data.aws_route53_zone.primary.zone_id
-  name    = local.admin_domain
-  type    = "A"
+  allow_overwrite = true
+  zone_id         = data.aws_route53_zone.primary.zone_id
+  name            = local.admin_domain
+  type            = "A"
 
   alias {
     evaluate_target_health = false
@@ -529,9 +583,10 @@ resource "aws_route53_record" "admin" {
 }
 
 resource "aws_route53_record" "media" {
-  zone_id = data.aws_route53_zone.primary.zone_id
-  name    = local.media_domain
-  type    = "A"
+  allow_overwrite = true
+  zone_id         = data.aws_route53_zone.primary.zone_id
+  name            = local.media_domain
+  type            = "A"
 
   alias {
     evaluate_target_health = false
@@ -541,9 +596,10 @@ resource "aws_route53_record" "media" {
 }
 
 resource "aws_route53_record" "api" {
-  zone_id = data.aws_route53_zone.primary.zone_id
-  name    = local.api_domain
-  type    = "A"
+  allow_overwrite = true
+  zone_id         = data.aws_route53_zone.primary.zone_id
+  name            = local.api_domain
+  type            = "A"
 
   alias {
     evaluate_target_health = true
@@ -553,9 +609,10 @@ resource "aws_route53_record" "api" {
 }
 
 resource "aws_route53_record" "engine" {
-  zone_id = data.aws_route53_zone.primary.zone_id
-  name    = local.engine_domain
-  type    = "A"
+  allow_overwrite = true
+  zone_id         = data.aws_route53_zone.primary.zone_id
+  name            = local.engine_domain
+  type            = "A"
 
   alias {
     evaluate_target_health = true
