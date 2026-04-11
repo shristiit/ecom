@@ -93,7 +93,7 @@ jq \
   '
   ($runtime_env[0] // []) as $runtime_env
   | ($runtime_env | map(.name)) as $runtime_names
-  del(
+  | del(
     .compatibilities,
     .taskDefinitionArn,
     .requiresAttributes,
