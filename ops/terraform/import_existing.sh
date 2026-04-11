@@ -35,21 +35,6 @@ ecs_cluster_name="${name_prefix}-cluster"
 backend_service_name="${name_prefix}-backend"
 engine_service_name="${name_prefix}-engine"
 
-backend_secret_names=(
-  "DATABASE_URL"
-  "JWT_SECRET"
-  "OPENAI_API_KEY"
-  "AUTH0_CLIENT_SECRET"
-  "SSO_GOOGLE_CLIENT_SECRET"
-  "SSO_AZUREAD_CLIENT_SECRET"
-)
-
-engine_secret_names=(
-  "CONVERSATIONAL_ENGINE_DATABASE_URL"
-  "CONVERSATIONAL_ENGINE_LLM_API_KEY"
-  "CONVERSATIONAL_ENGINE_DEEPSEEK_API_KEY"
-)
-
 normalize_id() {
   local value="${1:-}"
 
@@ -85,14 +70,6 @@ import_if_present() {
 
   echo "Importing ${address}"
   terraform import -input=false "$address" "$import_id"
-}
-
-describe_secret_arn() {
-  local secret_name="$1"
-  aws secretsmanager describe-secret \
-    --secret-id "$secret_name" \
-    --query 'ARN' \
-    --output text 2>/dev/null || true
 }
 
 describe_ecr_repository_name() {
@@ -297,18 +274,6 @@ import_if_present 'aws_ecr_repository.engine' "$(describe_ecr_repository_name "$
 
 import_if_present 'aws_cloudwatch_log_group.backend' "$(describe_log_group_name "$backend_log_group")"
 import_if_present 'aws_cloudwatch_log_group.engine' "$(describe_log_group_name "$engine_log_group")"
-
-for secret_name in "${backend_secret_names[@]}"; do
-  import_if_present \
-    "aws_secretsmanager_secret.backend[\"${secret_name}\"]" \
-    "$(describe_secret_arn "${project}/${environment}/backend/${secret_name}")"
-done
-
-for secret_name in "${engine_secret_names[@]}"; do
-  import_if_present \
-    "aws_secretsmanager_secret.engine[\"${secret_name}\"]" \
-    "$(describe_secret_arn "${project}/${environment}/engine/${secret_name}")"
-done
 
 if [[ -n "$vpc_id" ]]; then
   import_if_present 'aws_security_group.alb' "$(describe_security_group_id "${name_prefix}-alb")"
