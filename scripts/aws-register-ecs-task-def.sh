@@ -10,6 +10,27 @@ TASK_FAMILY="$1"
 CONTAINER_NAME="$2"
 IMAGE_URI="$3"
 
+ensure_sslmode_require() {
+  local database_url="$1"
+
+  if [ -z "$database_url" ]; then
+    printf '%s' "$database_url"
+    return 0
+  fi
+
+  case "$database_url" in
+    *sslmode=*)
+      printf '%s' "$database_url"
+      ;;
+    *\?*)
+      printf '%s' "${database_url}&sslmode=require"
+      ;;
+    *)
+      printf '%s' "${database_url}?sslmode=require"
+      ;;
+  esac
+}
+
 build_runtime_env_json() {
   case "$CONTAINER_NAME" in
     backend)
@@ -29,6 +50,8 @@ build_runtime_env_json() {
         echo "Missing BACKEND_JWT_SECRET or JWT_SECRET for backend task definition" >&2
         exit 1
       fi
+
+      database_url="$(ensure_sslmode_require "$database_url")"
 
       jq -nc \
         --arg database_url "$database_url" \
@@ -55,6 +78,8 @@ build_runtime_env_json() {
         echo "Missing ENGINE_DATABASE_URL, CONVERSATIONAL_ENGINE_DATABASE_URL, BACKEND_DATABASE_URL, or DATABASE_URL for engine task definition" >&2
         exit 1
       fi
+
+      database_url="$(ensure_sslmode_require "$database_url")"
 
       jq -nc \
         --arg database_url "$database_url" \

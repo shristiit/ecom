@@ -18,6 +18,7 @@ print_task_logs() {
   local log_group
   local log_prefix
   local log_stream
+  local attempt
 
   task_id="$(jq -r '.tasks[0].taskArn // ""' <<<"$task_output" | awk -F'/' '{print $NF}')"
   if [ -z "$task_id" ]; then
@@ -43,14 +44,21 @@ print_task_logs() {
 
   log_stream="${log_prefix}/${CONTAINER_NAME}/${task_id}"
 
+  for attempt in 1 2 3 4 5; do
+    if aws logs get-log-events \
+      --log-group-name "$log_group" \
+      --log-stream-name "$log_stream" \
+      --limit 200 \
+      --query 'events[].message' \
+      --output text \
+      > /tmp/aws-task-log-events.txt 2>/dev/null; then
+      break
+    fi
+    sleep 3
+  done
+
   echo "--- CloudWatch logs: ${log_group} / ${log_stream} ---" >&2
-  aws logs get-log-events \
-    --log-group-name "$log_group" \
-    --log-stream-name "$log_stream" \
-    --limit 200 \
-    --query 'events[].message' \
-    --output text \
-    2>/dev/null >&2 || true
+  cat /tmp/aws-task-log-events.txt >&2 2>/dev/null || true
   echo "--- end logs ---" >&2
 }
 
