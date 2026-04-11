@@ -61,13 +61,32 @@ class ExecutorAgent:
             trace_callback=trace_callback,
         )
         parsed = response.parsed or {}
-        if 'toolArgumentsJson' in parsed and 'toolArguments' not in parsed:
-            raw_arguments = parsed.get('toolArgumentsJson')
-            if raw_arguments is None:
-                parsed['toolArguments'] = None
-            elif isinstance(raw_arguments, str):
-                parsed['toolArguments'] = json.loads(raw_arguments)
-            else:
-                raise RuntimeError('Executor returned a non-string toolArgumentsJson payload')
-        parsed.pop('toolArgumentsJson', None)
+        parsed = _normalize_executor_payload(parsed)
         return parsed
+
+
+def _normalize_executor_payload(parsed: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(parsed)
+
+    if not normalized.get('toolName'):
+        fallback_tool_name = normalized.get('tool') or normalized.get('tool_name')
+        if isinstance(fallback_tool_name, str) and fallback_tool_name.strip():
+            normalized['toolName'] = fallback_tool_name
+
+    if 'toolArguments' not in normalized:
+        raw_arguments = (
+            normalized.get('toolArgumentsJson')
+            if 'toolArgumentsJson' in normalized
+            else normalized.get('arguments')
+        )
+        if raw_arguments is None:
+            normalized['toolArguments'] = None
+        elif isinstance(raw_arguments, str):
+            normalized['toolArguments'] = json.loads(raw_arguments)
+        elif isinstance(raw_arguments, dict):
+            normalized['toolArguments'] = raw_arguments
+        else:
+            raise RuntimeError('Executor returned an unsupported tool argument payload')
+
+    normalized.pop('toolArgumentsJson', None)
+    return normalized
