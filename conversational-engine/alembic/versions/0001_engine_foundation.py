@@ -16,6 +16,7 @@ depends_on = None
 
 def upgrade() -> None:
     connection = op.get_bind()
+    op.execute('CREATE EXTENSION IF NOT EXISTS pgcrypto')
     vector_available = bool(
         connection.execute(sa.text("SELECT 1 FROM pg_available_extensions WHERE name = 'vector'")).scalar()
     )

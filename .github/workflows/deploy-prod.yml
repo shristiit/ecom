@@ -35,7 +35,7 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     env:
-      AWS_REGION: us-east-1
+      AWS_REGION: eu-west-2
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -96,6 +96,12 @@ jobs:
         if: steps.vars.outputs.target == 'all' || steps.vars.outputs.target == 'backend'
         env:
           IMAGE_TAG: ${{ steps.vars.outputs.image_tag }}
+          BACKEND_DATABASE_URL: ${{ secrets.BACKEND_DATABASE_URL }}
+          BACKEND_JWT_SECRET: ${{ secrets.BACKEND_JWT_SECRET }}
+          BACKEND_OPENAI_API_KEY: ${{ secrets.BACKEND_OPENAI_API_KEY }}
+          BACKEND_AUTH0_CLIENT_SECRET: ${{ secrets.BACKEND_AUTH0_CLIENT_SECRET }}
+          BACKEND_SSO_GOOGLE_CLIENT_SECRET: ${{ secrets.BACKEND_SSO_GOOGLE_CLIENT_SECRET }}
+          BACKEND_SSO_AZUREAD_CLIENT_SECRET: ${{ secrets.BACKEND_SSO_AZUREAD_CLIENT_SECRET }}
         run: |
           TASK_DEFINITION_ARN="$(
             bash scripts/aws-register-ecs-task-def.sh \
@@ -105,16 +111,6 @@ jobs:
           )"
           echo "task_definition_arn=${TASK_DEFINITION_ARN}" >> "$GITHUB_OUTPUT"
 
-      - name: Run backend migrations
-        if: steps.vars.outputs.target == 'all' || steps.vars.outputs.target == 'backend'
-        run: |
-          bash scripts/aws-run-ecs-task.sh \
-            "${{ vars.AWS_ECS_CLUSTER }}" \
-            "${{ vars.AWS_BACKEND_SERVICE }}" \
-            "${{ steps.backend_task_def.outputs.task_definition_arn }}" \
-            "backend" \
-            npm run migrate:up:runtime
-
       - name: Deploy backend ECS service
         if: steps.vars.outputs.target == 'all' || steps.vars.outputs.target == 'backend'
         run: |
@@ -122,6 +118,17 @@ jobs:
             "${{ vars.AWS_ECS_CLUSTER }}" \
             "${{ vars.AWS_BACKEND_SERVICE }}" \
             "${{ steps.backend_task_def.outputs.task_definition_arn }}"
+
+      - name: Run backend migrations
+        if: steps.vars.outputs.target == 'all' || steps.vars.outputs.target == 'backend'
+        continue-on-error: true
+        run: |
+          bash scripts/aws-run-ecs-task.sh \
+            "${{ vars.AWS_ECS_CLUSTER }}" \
+            "${{ vars.AWS_BACKEND_SERVICE }}" \
+            "${{ steps.backend_task_def.outputs.task_definition_arn }}" \
+            "backend" \
+            sh -lc "export PGSSLMODE=require; npm run db:ensure:runtime && npm run migrate:up:runtime"
 
       - name: Build and push conversational-engine image
         if: steps.vars.outputs.target == 'all' || steps.vars.outputs.target == 'engine'
@@ -137,6 +144,11 @@ jobs:
         if: steps.vars.outputs.target == 'all' || steps.vars.outputs.target == 'engine'
         env:
           IMAGE_TAG: ${{ steps.vars.outputs.image_tag }}
+          BACKEND_DATABASE_URL: ${{ secrets.BACKEND_DATABASE_URL }}
+          BACKEND_OPENAI_API_KEY: ${{ secrets.BACKEND_OPENAI_API_KEY }}
+          ENGINE_DATABASE_URL: ${{ secrets.ENGINE_DATABASE_URL }}
+          ENGINE_LLM_API_KEY: ${{ secrets.ENGINE_LLM_API_KEY }}
+          ENGINE_DEEPSEEK_API_KEY: ${{ secrets.ENGINE_DEEPSEEK_API_KEY }}
         run: |
           TASK_DEFINITION_ARN="$(
             bash scripts/aws-register-ecs-task-def.sh \
@@ -154,7 +166,7 @@ jobs:
             "${{ vars.AWS_ENGINE_SERVICE }}" \
             "${{ steps.engine_task_def.outputs.task_definition_arn }}" \
             "conversational-engine" \
-            uv run alembic upgrade head
+            sh -lc "PYTHONPATH=src uv run python -m conversational_engine.scripts.ensure_db && uv run alembic upgrade head"
 
       - name: Deploy conversational-engine ECS service
         if: steps.vars.outputs.target == 'all' || steps.vars.outputs.target == 'engine'
@@ -180,13 +192,13 @@ jobs:
         run: bash scripts/aws-deploy-static.sh admin/dist "${{ vars.AWS_ADMIN_BUCKET }}" "${{ vars.AWS_ADMIN_DISTRIBUTION_ID }}"
 
       - name: Build landing site
-        if: steps.vars.outputs.target == 'all' || steps.vars.outputs.target == 'landing'
+        if: (steps.vars.outputs.target == 'all' || steps.vars.outputs.target == 'landing') && vars.AWS_LANDING_BUCKET != '' && vars.AWS_LANDING_DISTRIBUTION_ID != ''
         env:
           LOGIN_URL: https://admin.stockaisle.com/login
         run: pnpm --filter landing build
 
       - name: Deploy landing static assets
-        if: steps.vars.outputs.target == 'all' || steps.vars.outputs.target == 'landing'
+        if: (steps.vars.outputs.target == 'all' || steps.vars.outputs.target == 'landing') && vars.AWS_LANDING_BUCKET != '' && vars.AWS_LANDING_DISTRIBUTION_ID != ''
         run: bash scripts/aws-deploy-static.sh landing/dist "${{ vars.AWS_LANDING_BUCKET }}" "${{ vars.AWS_LANDING_DISTRIBUTION_ID }}"
 
       - name: Write deployment summary

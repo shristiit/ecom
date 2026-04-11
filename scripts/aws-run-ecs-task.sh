@@ -12,6 +12,75 @@ TASK_DEFINITION_ARN="$3"
 CONTAINER_NAME="$4"
 shift 4
 
+print_task_logs() {
+  local task_output="$1"
+  local task_id
+  local log_group
+  local log_prefix
+  local log_stream
+  local stream_names
+  local attempt
+
+  task_id="$(jq -r '.tasks[0].taskArn // ""' <<<"$task_output" | awk -F'/' '{print $NF}')"
+  if [ -z "$task_id" ]; then
+    return 0
+  fi
+
+  log_group="$(
+    aws ecs describe-task-definition \
+      --task-definition "$TASK_DEFINITION_ARN" \
+      --query "taskDefinition.containerDefinitions[?name=='${CONTAINER_NAME}'].logConfiguration.options.\"awslogs-group\" | [0]" \
+      --output text 2>/dev/null || true
+  )"
+  log_prefix="$(
+    aws ecs describe-task-definition \
+      --task-definition "$TASK_DEFINITION_ARN" \
+      --query "taskDefinition.containerDefinitions[?name=='${CONTAINER_NAME}'].logConfiguration.options.\"awslogs-stream-prefix\" | [0]" \
+      --output text 2>/dev/null || true
+  )"
+
+  if [ -z "$log_group" ] || [ "$log_group" = "None" ] || [ -z "$log_prefix" ] || [ "$log_prefix" = "None" ]; then
+    return 0
+  fi
+
+  log_stream="${log_prefix}/${CONTAINER_NAME}/${task_id}"
+  stream_names=""
+
+  for attempt in 1 2 3 4 5; do
+    stream_names="$(
+      aws logs describe-log-streams \
+        --log-group-name "$log_group" \
+        --log-stream-name-prefix "${log_prefix}/" \
+        --query "logStreams[?contains(logStreamName, '${task_id}')].logStreamName" \
+        --output text 2>/dev/null || true
+    )"
+    if [ -n "$stream_names" ] && [ "$stream_names" != "None" ]; then
+      break
+    fi
+    sleep 3
+  done
+
+  if [ -z "$stream_names" ] || [ "$stream_names" = "None" ]; then
+    stream_names="$log_stream"
+  fi
+
+  while IFS= read -r log_stream_name; do
+    [ -n "$log_stream_name" ] || continue
+
+    aws logs get-log-events \
+      --log-group-name "$log_group" \
+      --log-stream-name "$log_stream_name" \
+      --limit 200 \
+      --query 'events[].message' \
+      --output text \
+      > /tmp/aws-task-log-events.txt 2>/dev/null || true
+
+    echo "--- CloudWatch logs: ${log_group} / ${log_stream_name} ---" >&2
+    cat /tmp/aws-task-log-events.txt >&2 2>/dev/null || true
+    echo "--- end logs ---" >&2
+  done <<<"$(printf '%s\n' "$stream_names" | tr '\t' '\n')"
+}
+
 SERVICE_JSON="$(aws ecs describe-services --cluster "$CLUSTER" --services "$SERVICE")"
 FAILURE_COUNT="$(jq -r '.failures | length' <<<"$SERVICE_JSON")"
 if [ "$FAILURE_COUNT" != "0" ]; then
@@ -82,6 +151,7 @@ CONTAINER_REASON="$(
 )"
 
 if [ -z "$EXIT_CODE" ] || [ "$EXIT_CODE" != "0" ]; then
+  print_task_logs "$TASK_OUTPUT"
   echo "Task ${TASK_ARN} failed. stoppedReason=${STOPPED_REASON} containerReason=${CONTAINER_REASON} exitCode=${EXIT_CODE}" >&2
   exit 1
 fi

@@ -1,7 +1,7 @@
 variable "aws_region" {
   description = "AWS region for the production stack."
   type        = string
-  default     = "us-east-1"
+  default     = "eu-west-2"
 }
 
 variable "project" {
@@ -102,4 +102,16 @@ variable "existing_rds_security_group_id" {
   description = "Optional existing RDS security group ID to authorize backend and engine access."
   type        = string
   default     = ""
+}
+
+variable "manage_rds_security_group_rules" {
+  description = "Whether Terraform should manage ingress rules on the existing RDS security group."
+  type        = bool
+  default     = false
+}
+
+variable "enable_landing_site" {
+  description = "Whether to provision the landing site bucket, CloudFront distribution, and apex/www DNS records."
+  type        = bool
+  default     = false
 }

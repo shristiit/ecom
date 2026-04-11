@@ -192,10 +192,10 @@ data "aws_iam_policy_document" "github_actions_deploy" {
       "cloudfront:GetDistribution",
       "cloudfront:GetDistributionConfig",
     ]
-    resources = [
-      aws_cloudfront_distribution.admin.arn,
-      aws_cloudfront_distribution.landing.arn,
-    ]
+    resources = concat(
+      [aws_cloudfront_distribution.admin.arn],
+      var.enable_landing_site ? [aws_cloudfront_distribution.landing[0].arn] : []
+    )
   }
 }
 

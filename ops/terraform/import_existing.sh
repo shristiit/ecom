@@ -7,12 +7,15 @@ environment="${TF_VAR_environment:-prod}"
 domain_name="${TF_VAR_domain_name:-stockaisle.com}"
 vpc_id="${TF_VAR_existing_vpc_id:-}"
 rds_security_group_id="${TF_VAR_existing_rds_security_group_id:-}"
+manage_rds_security_group_rules="${TF_VAR_manage_rds_security_group_rules:-false}"
+enable_landing_site="${TF_VAR_enable_landing_site:-false}"
 account_id="$(aws sts get-caller-identity --query 'Account' --output text)"
 
 name_prefix="${project}-${environment}"
 namespace_name="svc.stockaisle.internal"
 admin_domain="admin.${domain_name}"
 media_domain="media.${domain_name}"
+landing_www_domain="www.${domain_name}"
 
 backend_repo="${project}/backend"
 engine_repo="${project}/conversational-engine"
@@ -28,21 +31,9 @@ alb_name="${name_prefix}-alb"
 backend_tg_name="${name_prefix}-backend"
 engine_tg_name="${name_prefix}-engine"
 oac_name="${name_prefix}-s3"
-
-backend_secret_names=(
-  "DATABASE_URL"
-  "JWT_SECRET"
-  "OPENAI_API_KEY"
-  "AUTH0_CLIENT_SECRET"
-  "SSO_GOOGLE_CLIENT_SECRET"
-  "SSO_AZUREAD_CLIENT_SECRET"
-)
-
-engine_secret_names=(
-  "CONVERSATIONAL_ENGINE_DATABASE_URL"
-  "CONVERSATIONAL_ENGINE_LLM_API_KEY"
-  "CONVERSATIONAL_ENGINE_DEEPSEEK_API_KEY"
-)
+ecs_cluster_name="${name_prefix}-cluster"
+backend_service_name="${name_prefix}-backend"
+engine_service_name="${name_prefix}-engine"
 
 normalize_id() {
   local value="${1:-}"
@@ -81,11 +72,12 @@ import_if_present() {
   terraform import -input=false "$address" "$import_id"
 }
 
-describe_secret_arn() {
-  local secret_name="$1"
-  aws secretsmanager describe-secret \
-    --secret-id "$secret_name" \
-    --query 'ARN' \
+describe_ecr_repository_name() {
+  local repository_name="$1"
+
+  aws ecr describe-repositories \
+    --repository-names "$repository_name" \
+    --query 'repositories[0].repositoryName' \
     --output text 2>/dev/null || true
 }
 
@@ -167,6 +159,22 @@ describe_distribution_id_by_alias() {
     --output text 2>/dev/null || true
 }
 
+describe_distribution_id_by_aliases() {
+  local alias=""
+  local distribution_id=""
+
+  for alias in "$@"; do
+    distribution_id="$(describe_distribution_id_by_alias "$alias")"
+
+    if normalize_id "$distribution_id" >/dev/null; then
+      printf '%s\n' "$distribution_id"
+      return 0
+    fi
+  done
+
+  return 0
+}
+
 describe_iam_policy_arn() {
   local policy_name="$1"
 
@@ -176,10 +184,43 @@ describe_iam_policy_arn() {
     --output text 2>/dev/null || true
 }
 
+describe_iam_role_name() {
+  local role_name="$1"
+
+  aws iam get-role \
+    --role-name "$role_name" \
+    --query 'Role.RoleName' \
+    --output text 2>/dev/null || true
+}
+
 describe_namespace_id() {
   aws servicediscovery list-namespaces \
     --query "Namespaces[?Name=='${namespace_name}'].Id | [0]" \
     --output text 2>/dev/null || true
+}
+
+describe_ecs_cluster_name() {
+  aws ecs describe-clusters \
+    --clusters "$ecs_cluster_name" \
+    --query "clusters[?status!='INACTIVE'].clusterName | [0]" \
+    --output text 2>/dev/null || true
+}
+
+describe_ecs_service_import_id() {
+  local service_name="$1"
+  local service_status=""
+
+  service_status="$(
+    aws ecs describe-services \
+      --cluster "$ecs_cluster_name" \
+      --services "$service_name" \
+      --query 'services[0].status' \
+      --output text 2>/dev/null || true
+  )"
+
+  if [[ "$service_status" == "ACTIVE" || "$service_status" == "DRAINING" ]]; then
+    printf '%s/%s\n' "$ecs_cluster_name" "$service_name"
+  fi
 }
 
 describe_service_id() {
@@ -206,37 +247,33 @@ describe_service_id() {
 
 describe_rds_ingress_rule_id() {
   local referenced_group_id="$1"
+  local rule_ids=""
+  local rule_id=""
 
-  aws ec2 describe-security-group-rules \
-    --filters \
-      "Name=group-id,Values=${rds_security_group_id}" \
-      "Name=is-egress,Values=false" \
-      "Name=ip-protocol,Values=tcp" \
-      "Name=from-port,Values=5432" \
-      "Name=to-port,Values=5432" \
-    --query "SecurityGroupRules[?ReferencedGroupInfo.GroupId=='${referenced_group_id}'].SecurityGroupRuleId | [0]" \
-    --output text 2>/dev/null || true
+  rule_ids="$(
+    aws ec2 describe-security-group-rules \
+      --filters \
+        "Name=group-id,Values=${rds_security_group_id}" \
+        "Name=referenced-group-id,Values=${referenced_group_id}" \
+      --query "SecurityGroupRules[?IsEgress==\`false\` && IpProtocol=='tcp' && FromPort==\`5432\` && ToPort==\`5432\`].SecurityGroupRuleId" \
+      --output text 2>/dev/null || true
+  )"
+
+  while IFS= read -r rule_id; do
+    if [[ -n "$rule_id" && "$rule_id" != "None" ]]; then
+      printf '%s\n' "$rule_id"
+      return 0
+    fi
+  done <<< "$rule_ids"
 }
 
 echo "Importing brownfield resources into Terraform state when they already exist in AWS"
 
-import_if_present 'aws_ecr_repository.backend' "$backend_repo"
-import_if_present 'aws_ecr_repository.engine' "$engine_repo"
+import_if_present 'aws_ecr_repository.backend' "$(describe_ecr_repository_name "$backend_repo")"
+import_if_present 'aws_ecr_repository.engine' "$(describe_ecr_repository_name "$engine_repo")"
 
 import_if_present 'aws_cloudwatch_log_group.backend' "$(describe_log_group_name "$backend_log_group")"
 import_if_present 'aws_cloudwatch_log_group.engine' "$(describe_log_group_name "$engine_log_group")"
-
-for secret_name in "${backend_secret_names[@]}"; do
-  import_if_present \
-    "aws_secretsmanager_secret.backend[\"${secret_name}\"]" \
-    "$(describe_secret_arn "${project}/${environment}/backend/${secret_name}")"
-done
-
-for secret_name in "${engine_secret_names[@]}"; do
-  import_if_present \
-    "aws_secretsmanager_secret.engine[\"${secret_name}\"]" \
-    "$(describe_secret_arn "${project}/${environment}/engine/${secret_name}")"
-done
 
 if [[ -n "$vpc_id" ]]; then
   import_if_present 'aws_security_group.alb' "$(describe_security_group_id "${name_prefix}-alb")"
@@ -244,7 +281,7 @@ if [[ -n "$vpc_id" ]]; then
   import_if_present 'aws_security_group.engine' "$(describe_security_group_id "${name_prefix}-engine")"
 fi
 
-if [[ -n "$rds_security_group_id" ]]; then
+if [[ -n "$rds_security_group_id" && "$manage_rds_security_group_rules" == "true" ]]; then
   backend_sg_id="$(describe_security_group_id "${name_prefix}-backend")"
   engine_sg_id="$(describe_security_group_id "${name_prefix}-engine")"
 
@@ -280,20 +317,23 @@ if normalize_id "$alb_arn" >/dev/null; then
   fi
 fi
 
-import_if_present 'aws_s3_bucket.landing' "$(describe_bucket_name "$landing_bucket")"
 import_if_present 'aws_s3_bucket.admin' "$(describe_bucket_name "$admin_bucket")"
 import_if_present 'aws_s3_bucket.media' "$(describe_bucket_name "$media_bucket")"
 
 import_if_present 'aws_cloudfront_origin_access_control.s3' "$(describe_oac_id)"
-import_if_present 'aws_cloudfront_distribution.landing' "$(describe_distribution_id_by_alias "$domain_name")"
+import_if_present 'aws_s3_bucket.landing' "$(describe_bucket_name "$landing_bucket")"
+if [[ "$enable_landing_site" == "true" ]]; then
+  import_if_present 'aws_cloudfront_distribution.landing' "$(describe_distribution_id_by_aliases "$domain_name" "$landing_www_domain")"
+fi
 import_if_present 'aws_cloudfront_distribution.admin' "$(describe_distribution_id_by_alias "$admin_domain")"
 import_if_present 'aws_cloudfront_distribution.media' "$(describe_distribution_id_by_alias "$media_domain")"
 
-import_if_present 'aws_iam_role.ecs_task_execution' "${name_prefix}-ecs-execution"
-import_if_present 'aws_iam_role.backend_task' "${name_prefix}-backend-task"
-import_if_present 'aws_iam_role.engine_task' "${name_prefix}-engine-task"
-import_if_present 'aws_iam_role.github_actions_deploy' "${name_prefix}-github-actions-deploy"
+import_if_present 'aws_iam_role.ecs_task_execution' "$(describe_iam_role_name "${name_prefix}-ecs-execution")"
+import_if_present 'aws_iam_role.backend_task' "$(describe_iam_role_name "${name_prefix}-backend-task")"
+import_if_present 'aws_iam_role.engine_task' "$(describe_iam_role_name "${name_prefix}-engine-task")"
+import_if_present 'aws_iam_role.github_actions_deploy' "$(describe_iam_role_name "${name_prefix}-github-actions-deploy")"
 import_if_present 'aws_iam_policy.ecs_execution_config_access' "$(describe_iam_policy_arn "${name_prefix}-ecs-config-access")"
+import_if_present 'aws_iam_policy.github_actions_deploy' "$(describe_iam_policy_arn "${name_prefix}-github-actions-deploy")"
 
 namespace_id="$(describe_namespace_id)"
 namespace_import_id=""
@@ -309,3 +349,7 @@ if normalize_id "$namespace_id" >/dev/null; then
     'aws_service_discovery_service.engine' \
     "$(describe_service_id "$namespace_id" "conversational-engine")"
 fi
+
+import_if_present 'aws_ecs_cluster.main' "$(describe_ecs_cluster_name)"
+import_if_present 'aws_ecs_service.backend' "$(describe_ecs_service_import_id "$backend_service_name")"
+import_if_present 'aws_ecs_service.engine' "$(describe_ecs_service_import_id "$engine_service_name")"

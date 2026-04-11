@@ -156,7 +156,7 @@ resource "aws_security_group" "engine" {
 }
 
 resource "aws_vpc_security_group_ingress_rule" "rds_backend" {
-  count = var.existing_rds_security_group_id == "" ? 0 : 1
+  count = var.existing_rds_security_group_id == "" || !var.manage_rds_security_group_rules ? 0 : 1
 
   security_group_id            = var.existing_rds_security_group_id
   referenced_security_group_id = aws_security_group.backend.id
@@ -167,7 +167,7 @@ resource "aws_vpc_security_group_ingress_rule" "rds_backend" {
 }
 
 resource "aws_vpc_security_group_ingress_rule" "rds_engine" {
-  count = var.existing_rds_security_group_id == "" ? 0 : 1
+  count = var.existing_rds_security_group_id == "" || !var.manage_rds_security_group_rules ? 0 : 1
 
   security_group_id            = var.existing_rds_security_group_id
   referenced_security_group_id = aws_security_group.engine.id
