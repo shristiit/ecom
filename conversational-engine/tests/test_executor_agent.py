@@ -38,3 +38,35 @@ async def test_executor_parses_tool_arguments_json():
 
     assert proposal['toolName'] == 'reporting.stock_summary'
     assert proposal['toolArguments'] == {'locationId': None, 'status': None, 'from': None}
+
+
+class AlternateShapeRouter:
+    async def complete_json(self, **kwargs):
+        del kwargs
+        return ProviderResponse(
+            provider_name='openai',
+            model_name='gpt-4.1-mini',
+            content='{}',
+            parsed={
+                'action': 'tool',
+                'assistantMessage': 'Fetching stock summary.',
+                'tool': 'reporting.stock_summary',
+                'arguments': {'locationId': None, 'status': None, 'from': None},
+                'requiredInputs': [],
+            },
+            raw_payload={},
+        )
+
+
+async def test_executor_accepts_common_openai_compatible_field_names():
+    agent = ExecutorAgent(AlternateShapeRouter())  # type: ignore[arg-type]
+
+    proposal = await agent.propose(
+        user_message='give me the overview of current stock levels',
+        plan={'action': 'tool'},
+        tools=[],
+        history=[],
+    )
+
+    assert proposal['toolName'] == 'reporting.stock_summary'
+    assert proposal['toolArguments'] == {'locationId': None, 'status': None, 'from': None}
