@@ -201,6 +201,7 @@ class AgentRuntimeService:
                 tool_name = str(proposal.get('toolName') or '')
                 tool_arguments = proposal.get('toolArguments')
                 if not tool_name or not isinstance(tool_arguments, dict):
+                    logger.error('Invalid executor proposal: %s', proposal)
                     return RuntimeOutcome(
                         blocks=render_failure('The AI runtime could not construct a valid tool call.'),
                         status=WorkflowStatus.FAILED,
