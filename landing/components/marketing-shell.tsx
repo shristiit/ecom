@@ -1,5 +1,5 @@
-import type { PropsWithChildren, ReactNode, RefObject } from 'react';
-import { Linking, Pressable, ScrollView, Text, View, useWindowDimensions, type ViewStyle, type StyleProp } from 'react-native';
+import { useRef, useState, type PropsWithChildren, type ReactNode } from 'react';
+import { Linking, Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
 import { Link, router, usePathname } from 'expo-router';
 import Head from 'expo-router/head';
 import { Image } from 'expo-image';
@@ -11,32 +11,31 @@ export const SITE_URL = process.env.EXPO_PUBLIC_SITE_URL ?? 'https://stockaisle.
 export const LOGIN_URL = process.env.EXPO_PUBLIC_LOGIN_URL ?? 'https://admin.stockaisle.com';
 export const MS_FORMS_URL = process.env.EXPO_PUBLIC_MS_FORMS_URL ?? '';
 
-type SectionKey = 'top' | 'about' | 'features' | 'pricing' | 'contact';
-
-const navItems: Array<
-  | { label: string; type: 'section'; section: SectionKey }
-  | { label: string; type: 'page'; href: '/faq' }
-> = [
-  { label: 'Home', type: 'section', section: 'top' },
-  { label: 'About', type: 'section', section: 'about' },
-  { label: 'Features', type: 'section', section: 'features' },
-  { label: 'Pricing', type: 'section', section: 'pricing' },
-  { label: 'FAQ', type: 'page', href: '/faq' },
-  { label: 'Contact', type: 'section', section: 'contact' },
-];
-
-const footerPageLinks = [
+const navLinks = [
+  { label: 'Home', href: '/' },
+  { label: 'How It Works', href: '/how-it-works' },
+  { label: 'Pricing', href: '/pricing' },
   { label: 'FAQ', href: '/faq' },
+  { label: 'Contact', href: '/contact' },
+] as const;
+
+const footerPrimaryLinks = [
+  { label: 'Home', href: '/' },
+  { label: 'How It Works', href: '/how-it-works' },
+  { label: 'Pricing', href: '/pricing' },
+  { label: 'FAQ', href: '/faq' },
+  { label: 'Book Demo', href: '/contact' },
+] as const;
+
+const footerSecondaryLinks = [
   { label: 'Careers', href: '/careers' },
   { label: 'Privacy Policy', href: '/privacy-policy' },
   { label: 'Cookie Policy', href: '/cookie-policy' },
 ] as const;
 
-const faintWhiteBorder = { borderColor: 'rgba(255,255,255,0.10)' };
 const footerPrimaryText = { color: 'rgba(255,255,255,0.9)' };
-const footerMutedText = { color: 'rgba(255,255,255,0.75)' };
-const footerSoftText = { color: 'rgba(255,255,255,0.6)' };
-const subtleWhiteText = { color: 'rgba(255,255,255,0.72)' };
+const footerMutedText = { color: 'rgba(255,255,255,0.72)' };
+const footerSoftText = { color: 'rgba(255,255,255,0.58)' };
 
 function SiteLogo({ dark = false }: { dark?: boolean }) {
   return (
@@ -49,68 +48,36 @@ function SiteLogo({ dark = false }: { dark?: boolean }) {
   );
 }
 
+function HeaderLink({ href, label }: { href: string; label: string }) {
+  const pathname = usePathname();
+  const active = pathname === href;
+
+  return (
+    <Link href={href as never} asChild>
+      <Pressable className="rounded-full px-2 py-2">
+        <Text className={`text-[15px] font-medium ${active ? 'text-primary' : 'text-muted'}`}>{label}</Text>
+      </Pressable>
+    </Link>
+  );
+}
+
 function NavPill({
   label,
-  onPress,
   emphasis = false,
+  onPress,
 }: {
   label: string;
-  onPress: () => void;
   emphasis?: boolean;
+  onPress: () => void;
 }) {
   return (
     <Pressable
       accessibilityRole="button"
       onPress={onPress}
-      className={`min-h-11 items-center justify-center rounded-full px-5 ${emphasis ? 'bg-primary' : 'bg-surface'} border border-border`}
+      className={`min-h-11 items-center justify-center rounded-full border px-5 ${emphasis ? 'border-primary bg-primary' : 'border-border bg-surface'}`}
     >
       <Text className={`font-semibold ${emphasis ? 'text-on-primary' : 'text-primary'}`}>{label}</Text>
     </Pressable>
-  );
-}
-
-function SectionNavButton({
-  label,
-  section,
-  onSectionPress,
-}: {
-  label: string;
-  section: SectionKey;
-  onSectionPress?: (section: SectionKey) => void;
-}) {
-  const pathname = usePathname();
-
-  return (
-    <Pressable
-      accessibilityRole="button"
-      onPress={() => {
-        if (pathname === '/' && onSectionPress) {
-          onSectionPress(section);
-          return;
-        }
-
-        router.push({ pathname: '/', params: { section } } as never);
-      }}
-      className="rounded-full px-2 py-2"
-    >
-      <Text className="text-[15px] font-medium text-muted">{label}</Text>
-    </Pressable>
-  );
-}
-
-function CareersButton() {
-  const pathname = usePathname();
-
-  if (pathname === '/careers') {
-    return <Text className="rounded-full px-2 py-2 text-[15px] font-medium text-primary">Careers</Text>;
-  }
-
-  return (
-    <Link href="/careers" asChild>
-      <Pressable className="rounded-full px-2 py-2">
-        <Text className="text-[15px] font-medium text-muted">Careers</Text>
-      </Pressable>
-    </Link>
   );
 }
 
@@ -130,22 +97,38 @@ export function PageHead({
       <title>{title}</title>
       <meta name="description" content={description} />
       <meta name="robots" content="index,follow" />
-      <meta name="keywords" content="inventory management software for wholesalers, wholesale inventory software, SME inventory software" />
+      <meta
+        name="keywords"
+        content="conversational inventory management software, inventory management software for wholesalers, wholesale inventory software UK, AI inventory management software, inventory software with audit trail, stock control software for SMEs, inventory software with approvals, inventory management through chat, conversational trade operations platform, stock control for wholesale businesses"
+      />
       <link rel="canonical" href={canonical} />
       <meta property="og:type" content="website" />
       <meta property="og:title" content={title} />
       <meta property="og:description" content={description} />
       <meta property="og:url" content={canonical} />
+      <meta name="twitter:card" content="summary_large_image" />
+      <meta name="twitter:title" content={title} />
+      <meta name="twitter:description" content={description} />
     </Head>
   );
 }
 
-export function SiteHeader({ onSectionPress }: { onSectionPress?: (section: SectionKey) => void }) {
+export function SiteHeader({ visible = true }: { visible?: boolean }) {
   const { width } = useWindowDimensions();
   const compact = width < 1080;
 
   return (
-    <View style={faintWhiteBorder} className="border-b bg-transparent px-4 pb-4 pt-5">
+    <View
+      style={{
+        opacity: visible ? 1 : 0,
+        transform: [{ translateY: visible ? 0 : -120 }],
+        // @ts-expect-error web-only CSS transition
+        transitionDuration: '220ms',
+        // @ts-expect-error web-only CSS timing function
+        transitionTimingFunction: 'ease',
+      }}
+      className="bg-transparent px-4 pb-4 pt-5"
+    >
       <View className="mx-auto w-full max-w-[1180px] rounded-full border border-border bg-surface px-5 py-4 shadow-soft">
         <View className={`items-center justify-between gap-4 ${compact ? 'flex-col' : 'flex-row'}`}>
           <Link href="/" asChild>
@@ -155,39 +138,15 @@ export function SiteHeader({ onSectionPress }: { onSectionPress?: (section: Sect
           </Link>
 
           <View className={`items-center gap-1 ${compact ? 'flex-row flex-wrap justify-center' : 'flex-row'}`}>
-            {navItems.map((item) => (
-              item.type === 'section' ? (
-                <SectionNavButton
-                  key={item.section}
-                  label={item.label}
-                  section={item.section}
-                  onSectionPress={onSectionPress}
-                />
-              ) : (
-                <Link key={item.href} href={item.href} asChild>
-                  <Pressable className="rounded-full px-2 py-2">
-                    <Text className="text-[15px] font-medium text-muted">{item.label}</Text>
-                  </Pressable>
-                </Link>
-              )
+            {navLinks.map((item) => (
+              <HeaderLink key={item.href} href={item.href} label={item.label} />
             ))}
-            <CareersButton />
+            <HeaderLink href="/careers" label="Careers" />
           </View>
 
           <View className="flex-row items-center gap-3">
             <NavPill label="Sign In" onPress={() => Linking.openURL(LOGIN_URL)} />
-            <NavPill
-              label="Book a Demo"
-              emphasis
-              onPress={() => {
-                if (onSectionPress) {
-                  onSectionPress('contact');
-                  return;
-                }
-
-                router.push({ pathname: '/', params: { section: 'contact' } } as never);
-              }}
-            />
+            <NavPill label="Book a Demo" emphasis onPress={() => router.push('/contact' as never)} />
           </View>
         </View>
       </View>
@@ -198,45 +157,60 @@ export function SiteHeader({ onSectionPress }: { onSectionPress?: (section: Sect
 export function SiteFooter() {
   return (
     <View
-      style={faintWhiteBorder}
-      className="mt-12 border-t px-4 pb-12 pt-10"
+      className="mt-12 border-t border-border px-4 pb-12 pt-10"
       style={{
         // @ts-expect-error web-only CSS background
         backgroundImage:
-          'radial-gradient(circle at top left, rgba(176, 138, 77, 0.16), transparent 24%), linear-gradient(180deg, #112137 0%, #0d1b2d 100%)',
+          'radial-gradient(circle at top left, rgba(176, 138, 77, 0.18), transparent 26%), linear-gradient(180deg, #112137 0%, #0d1b2d 100%)',
       }}
     >
       <View className="mx-auto w-full max-w-[1180px] gap-8">
         <View className="flex-row flex-wrap justify-between gap-8">
           <View className="max-w-[280px] gap-3">
             <SiteLogo dark />
-            <Text style={footerMutedText} className="text-sm">Stockailse ltd</Text>
-            <Text style={footerMutedText} className="text-sm">Newcastle upon Tyne, United Kingdom</Text>
-            <Text style={footerMutedText} className="text-sm">support@stockaisle.com</Text>
+            <Text style={footerMutedText} className="text-sm">
+              StockAisle for wholesalers, mixed trade operators, and inventory-heavy SME teams.
+            </Text>
+            <Text style={footerMutedText} className="text-sm">
+              Newcastle upon Tyne, United Kingdom
+            </Text>
+            <Text style={footerMutedText} className="text-sm">
+              support@stockaisle.com
+            </Text>
           </View>
 
           <View className="min-w-[180px] gap-3">
-            <Text style={footerPrimaryText} className="text-sm font-semibold uppercase tracking-[1.8px]">Pages</Text>
-            {footerPageLinks.map((item) => (
-              <Link key={item.href} href={item.href} asChild>
+            <Text style={footerPrimaryText} className="text-sm font-semibold uppercase tracking-[1.8px]">
+              Explore
+            </Text>
+            {footerPrimaryLinks.map((item) => (
+              <Link key={item.href} href={item.href as never} asChild>
                 <Pressable>
-                  <Text style={footerMutedText} className="text-sm">{item.label}</Text>
+                  <Text style={footerMutedText} className="text-sm">
+                    {item.label}
+                  </Text>
                 </Pressable>
               </Link>
             ))}
           </View>
 
           <View className="min-w-[180px] gap-3">
-            <Text style={footerPrimaryText} className="text-sm font-semibold uppercase tracking-[1.8px]">Social</Text>
-            {['LinkedIn', 'X', 'Instagram', 'Facebook'].map((item) => (
-              <Text key={item} style={footerSoftText} className="text-sm">
-                {item}
-              </Text>
+            <Text style={footerPrimaryText} className="text-sm font-semibold uppercase tracking-[1.8px]">
+              Company
+            </Text>
+            {footerSecondaryLinks.map((item) => (
+              <Link key={item.href} href={item.href as never} asChild>
+                <Pressable>
+                  <Text style={footerMutedText} className="text-sm">
+                    {item.label}
+                  </Text>
+                </Pressable>
+              </Link>
             ))}
           </View>
         </View>
 
-        <Text style={footerSoftText} className="border-t pt-5 text-sm">
+        <Text style={[footerSoftText, { borderTopColor: 'rgba(255,255,255,0.10)' }]} className="border-t pt-5 text-sm">
           © {new Date().getFullYear()} StockAisle. All rights reserved.
         </Text>
       </View>
@@ -246,44 +220,39 @@ export function SiteFooter() {
 
 export function PageScrollFrame({
   children,
-  onSectionPress,
   stickyHeader = true,
-  scrollRef,
-}: PropsWithChildren<{
-  onSectionPress?: (section: SectionKey) => void;
-  stickyHeader?: boolean;
-  scrollRef?: RefObject<ScrollView | null>;
-}>) {
+}: PropsWithChildren<{ stickyHeader?: boolean }>) {
+  const [showHeader, setShowHeader] = useState(true);
+  const lastOffsetY = useRef(0);
+
   return (
     <ScrollView
-      ref={scrollRef}
       className="flex-1"
       stickyHeaderIndices={stickyHeader ? [0] : undefined}
       contentContainerStyle={{ minHeight: '100%' as never }}
+      scrollEventThrottle={16}
+      onScroll={(event) => {
+        const currentY = event.nativeEvent.contentOffset.y;
+
+        if (currentY <= 8) {
+          setShowHeader(true);
+        } else if (currentY > lastOffsetY.current + 4) {
+          setShowHeader(false);
+        } else if (currentY < lastOffsetY.current - 4) {
+          setShowHeader(true);
+        }
+
+        lastOffsetY.current = currentY;
+      }}
     >
-      <SiteHeader onSectionPress={onSectionPress} />
+      <SiteHeader visible={showHeader} />
       {children}
       <SiteFooter />
     </ScrollView>
   );
 }
 
-export function SectionLabel({ children, light = false }: { children: ReactNode; light?: boolean }) {
-  return (
-    <Text
-      style={light ? subtleWhiteText : undefined}
-      className={`text-[12px] font-bold uppercase tracking-[2.4px] ${light ? 'text-white' : 'text-success'}`}
-    >
-      {children}
-    </Text>
-  );
-}
-
-export function SurfaceCard({
-  children,
-  className = '',
-  style,
-}: PropsWithChildren<{ className?: string; style?: StyleProp<ViewStyle> }>) {
+export function SurfaceCard({ children, className = '', style }: PropsWithChildren<{ className?: string; style?: object }>) {
   return (
     <View style={style} className={`rounded-[28px] border border-border bg-surface p-8 shadow-soft ${className}`}>
       {children}
@@ -304,11 +273,27 @@ export function HeroButton({
     <Pressable
       accessibilityRole="button"
       onPress={onPress}
-      className={`min-h-14 items-center justify-center rounded-full px-6 ${variant === 'primary' ? 'bg-primary' : 'bg-primary-tint'} border ${variant === 'primary' ? 'border-primary' : 'border-border'}`}
+      className={`min-h-14 items-center justify-center rounded-full border px-6 ${variant === 'primary' ? 'border-primary bg-primary' : 'border-border bg-primary-tint'}`}
     >
       <Text className={`text-base font-semibold ${variant === 'primary' ? 'text-on-primary' : 'text-primary'}`}>
         {label}
       </Text>
     </Pressable>
+  );
+}
+
+export function PageSection({
+  children,
+  className = '',
+  style,
+}: {
+  children: ReactNode;
+  className?: string;
+  style?: object;
+}) {
+  return (
+    <View style={style} className={`px-4 py-12 ${className}`}>
+      <View className="mx-auto w-full max-w-[1180px]">{children}</View>
+    </View>
   );
 }
