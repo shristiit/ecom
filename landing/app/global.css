@@ -1,0 +1,60 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;
+  --font-display: Fraunces, ui-serif, Georgia, 'Times New Roman', serif;
+
+  --bg: 247 244 238;
+  --surface: 255 255 255;
+  --surface-2: 244 240 232;
+  --surface-3: 234 228 218;
+
+  --border: 220 226 235;
+  --border-strong: 187 197 212;
+
+  --text: 21 32 51;
+  --text-muted: 88 101 122;
+  --text-subtle: 116 129 149;
+
+  --primary: 28 59 99;
+  --primary-hover: 22 48 82;
+  --primary-active: 16 37 64;
+  --primary-tint: 228 235 246;
+  --primary-tint-strong: 207 220 239;
+  --on-primary: 255 255 255;
+
+  --success: 18 120 85;
+  --success-tint: 231 247 240;
+  --warning: 180 83 9;
+  --warning-tint: 251 241 230;
+  --error: 180 35 24;
+  --error-tint: 251 234 234;
+
+  --radius-sm: 12px;
+  --radius-md: 18px;
+  --radius-lg: 28px;
+
+  --shadow-soft: 0 18px 60px rgba(17, 33, 55, 0.08);
+  --shadow-lift: 0 28px 80px rgba(17, 33, 55, 0.14);
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  color: rgb(var(--text));
+  background:
+    radial-gradient(42rem 26rem at 8% 0%, rgba(176, 138, 77, 0.09), transparent 62%),
+    linear-gradient(180deg, #fcfaf6 0%, #f5efe6 52%, #efe7da 100%);
+  font-family: var(--font-sans);
+}
+
+a {
+  color: inherit;
+}

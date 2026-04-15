@@ -465,7 +465,57 @@ importers:
         specifier: ~5.9.2
         version: 5.9.3
 
-  landing: {}
+  landing:
+    dependencies:
+      expo:
+        specifier: ~54.0.33
+        version: 54.0.33(@babel/core@7.29.0)(@expo/metro-runtime@6.1.2)(expo-router@6.0.23)(react-native@0.81.5(@babel/core@7.29.0)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)
+      expo-image:
+        specifier: ~3.0.11
+        version: 3.0.11(expo@54.0.33)(react-native-web@0.21.2(react-dom@19.1.0(react@19.1.0))(react@19.1.0))(react-native@0.81.5(@babel/core@7.29.0)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)
+      expo-router:
+        specifier: ~6.0.23
+        version: 6.0.23(@expo/metro-runtime@6.1.2)(@types/react@19.1.17)(expo-constants@18.0.13)(expo-linking@8.0.11)(expo@54.0.33)(react-dom@19.1.0(react@19.1.0))(react-native-gesture-handler@2.28.0(react-native@0.81.5(@babel/core@7.29.0)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0))(react-native-reanimated@4.1.7(react-native-worklets@0.5.1(@babel/core@7.29.0)(react-native@0.81.5(@babel/core@7.29.0)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0))(react-native@0.81.5(@babel/core@7.29.0)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0))(react-native-safe-area-context@5.6.2(react-native@0.81.5(@babel/core@7.29.0)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0))(react-native-screens@4.16.0(react-native@0.81.5(@babel/core@7.29.0)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0))(react-native-web@0.21.2(react-dom@19.1.0(react@19.1.0))(react@19.1.0))(react-native@0.81.5(@babel/core@7.29.0)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)
+      expo-status-bar:
+        specifier: ~3.0.9
+        version: 3.0.9(react-native@0.81.5(@babel/core@7.29.0)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)
+      nativewind:
+        specifier: ^4.1.20
+        version: 4.2.3(react-native-reanimated@4.1.7(react-native-worklets@0.5.1(@babel/core@7.29.0)(react-native@0.81.5(@babel/core@7.29.0)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0))(react-native@0.81.5(@babel/core@7.29.0)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0))(react-native-safe-area-context@5.6.2(react-native@0.81.5(@babel/core@7.29.0)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0))(react-native-svg@15.12.1(react-native@0.81.5(@babel/core@7.29.0)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0))(react-native@0.81.5(@babel/core@7.29.0)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)(tailwindcss@3.4.19(ts-node@10.9.2(@types/node@24.1.0)(typescript@5.9.3)))
+      react:
+        specifier: 19.1.0
+        version: 19.1.0
+      react-dom:
+        specifier: 19.1.0
+        version: 19.1.0(react@19.1.0)
+      react-native:
+        specifier: 0.81.5
+        version: 0.81.5(@babel/core@7.29.0)(@types/react@19.1.17)(react@19.1.0)
+      react-native-safe-area-context:
+        specifier: ~5.6.0
+        version: 5.6.2(react-native@0.81.5(@babel/core@7.29.0)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)
+      react-native-screens:
+        specifier: ~4.16.0
+        version: 4.16.0(react-native@0.81.5(@babel/core@7.29.0)(@types/react@19.1.17)(react@19.1.0))(react@19.1.0)
+      react-native-web:
+        specifier: ~0.21.0
+        version: 0.21.2(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
+    devDependencies:
+      '@types/react':
+        specifier: ~19.1.0
+        version: 19.1.17
+      eslint:
+        specifier: ^9.25.0
+        version: 9.39.4(jiti@1.21.7)
+      eslint-config-expo:
+        specifier: ~10.0.0
+        version: 10.0.0(eslint@9.39.4(jiti@1.21.7))(typescript@5.9.3)
+      tailwindcss:
+        specifier: ^3.4.10
+        version: 3.4.19(ts-node@10.9.2(@types/node@24.1.0)(typescript@5.9.3))
+      typescript:
+        specifier: ~5.9.2
+        version: 5.9.3
 
 packages:
 

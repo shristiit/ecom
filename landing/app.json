@@ -1,0 +1,24 @@
+{
+  "expo": {
+    "name": "StockAisle",
+    "slug": "stockaisle-landing",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./src/assets/brand/stockaisle-badge-light.png",
+    "scheme": "stockaisle",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "web": {
+      "output": "static",
+      "favicon": "./src/assets/brand/stockaisle-badge-light.png"
+    },
+    "plugins": ["expo-router"],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    },
+    "extra": {
+      "router": {}
+    }
+  }
+}
