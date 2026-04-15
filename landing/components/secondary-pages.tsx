@@ -175,7 +175,7 @@ export function PrivacyPolicyScreen() {
           title: 'Information we collect',
           body: [
             'We may collect contact details such as your name, company name, email address, phone number, role, country, and any details you provide when requesting a demo or contacting us.',
-            'We may also collect technical information needed to operate the site securely, including anti-spam or security signals.',
+            'We may also collect technical information needed to operate the site securely and reliably.',
           ],
         },
         {
@@ -221,7 +221,7 @@ export function CookiePolicyScreen() {
         {
           title: 'Essential and security',
           body: [
-            'Essential technologies support basic site functionality, traffic integrity, and anti-spam controls such as Google reCAPTCHA where configured.',
+            'Essential technologies support basic site functionality and traffic integrity.',
           ],
         },
         {

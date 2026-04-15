@@ -23,8 +23,6 @@ execFileSync(
       EXPO_PUBLIC_LOGIN_URL: process.env.EXPO_PUBLIC_LOGIN_URL ?? 'https://admin.stockaisle.com',
       EXPO_PUBLIC_SITE_URL: siteUrl,
       EXPO_PUBLIC_MS_FORMS_URL: process.env.EXPO_PUBLIC_MS_FORMS_URL ?? '',
-      EXPO_PUBLIC_RECAPTCHA_SITE_KEY:
-        process.env.EXPO_PUBLIC_RECAPTCHA_SITE_KEY ?? '6LffaLYsAAAAABkEv1tP3xdicF6uM6oauyydT0xK',
     },
   },
 );
