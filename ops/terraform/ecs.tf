@@ -67,17 +67,6 @@ resource "aws_ssm_parameter" "admin" {
   tags = local.common_tags
 }
 
-resource "aws_ssm_parameter" "landing" {
-  for_each = local.landing_ssm_parameters
-
-  name      = "/${var.project}/${var.environment}/landing/${each.key}"
-  type      = "String"
-  value     = each.value
-  overwrite = true
-
-  tags = local.common_tags
-}
-
 resource "aws_service_discovery_private_dns_namespace" "main" {
   name = local.namespace_name
   vpc  = local.vpc_id

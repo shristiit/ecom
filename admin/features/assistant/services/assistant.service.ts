@@ -42,6 +42,12 @@ type HistoryRow = {
   movementType?: string | null;
   quantity?: number | null;
   recordedTime?: string | null;
+  source?: string | null;
+  requestedBy?: string | null;
+  approvedBy?: string | null;
+  executedBy?: string | null;
+  toolName?: string | null;
+  status?: string | null;
 };
 
 export const assistantService = {
@@ -144,6 +150,12 @@ export const assistantService = {
           movementType: item.movementType ?? null,
           quantity: item.quantity ?? null,
           recordedTime: item.recordedTime ?? null,
+          source: item.source ?? null,
+          requestedBy: item.requestedBy ?? null,
+          approvedBy: item.approvedBy ?? null,
+          executedBy: item.executedBy ?? null,
+          toolName: item.toolName ?? null,
+          status: item.status ?? null,
         }) satisfies AssistantHistoryItem,
     );
   },

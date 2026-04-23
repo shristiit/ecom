@@ -128,4 +128,10 @@ export type AssistantHistoryItem = {
   movementType?: string | null;
   quantity?: number | null;
   recordedTime?: string | null;
+  source?: string | null;
+  requestedBy?: string | null;
+  approvedBy?: string | null;
+  executedBy?: string | null;
+  toolName?: string | null;
+  status?: string | null;
 };

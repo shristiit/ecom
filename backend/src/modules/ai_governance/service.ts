@@ -30,6 +30,33 @@ const approvalDecisionSchema = z.object({
 
 const approvalRequestSelect = `id, status, conversation_id, workflow_id, action_type, tool_name, summary, reason, preview, execution_payload, result, requested_by, approved_by, created_at, updated_at`;
 
+async function recordApprovalAuditEvent(
+  tenantId: string,
+  actorId: string,
+  eventType: string,
+  payload: {
+    conversationId?: string | null;
+    workflowId?: string | null;
+    approvalRequestId?: string | null;
+    details?: Record<string, unknown>;
+  },
+) {
+  await query(
+    `INSERT INTO ai_audit_events
+     (tenant_id, conversation_id, workflow_id, approval_request_id, actor_id, event_type, payload)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [
+      tenantId,
+      payload.conversationId ?? null,
+      payload.workflowId ?? null,
+      payload.approvalRequestId ?? null,
+      actorId,
+      eventType,
+      payload.details ?? {},
+    ]
+  );
+}
+
 function approvalReason(actionType: string) {
   if (readOnlyActions.has(actionType)) {
     return {
@@ -79,7 +106,23 @@ export async function createApprovalRequest(req: Request, res: Response) {
     ]
   );
 
-  return res.status(201).json(result.rows[0]);
+  const approval = result.rows[0];
+  await recordApprovalAuditEvent(req.user!.tenantId, req.user!.id, 'approval_requested', {
+    conversationId: approval.conversation_id,
+    workflowId: approval.workflow_id,
+    approvalRequestId: approval.id,
+    details: {
+      actionType: approval.action_type,
+      toolName: approval.tool_name,
+      status: approval.status,
+      summary: approval.summary,
+      reason: approval.reason,
+      preview: approval.preview,
+      executionPayload: approval.execution_payload,
+    },
+  });
+
+  return res.status(201).json(approval);
 }
 
 export async function updateApprovalRequest(req: Request, res: Response) {
@@ -173,11 +216,28 @@ export async function decideApproval(req: Request, res: Response) {
   const result = await query(
     `UPDATE ai_action_requests
      SET status = $1, approved_by = $2, updated_at = NOW()
-     WHERE id = $3 AND tenant_id = $4`,
+     WHERE id = $3 AND tenant_id = $4
+     RETURNING ${approvalRequestSelect}`,
     [status, req.user!.id, req.params.id, req.user!.tenantId]
   );
 
   if (result.rowCount === 0) return res.status(404).json({ message: 'Approval request not found' });
+
+  const approval = result.rows[0];
+  await recordApprovalAuditEvent(req.user!.tenantId, req.user!.id, 'approval_decision', {
+    conversationId: approval.conversation_id,
+    workflowId: approval.workflow_id,
+    approvalRequestId: approval.id,
+    details: {
+      actionType: approval.action_type,
+      toolName: approval.tool_name,
+      status,
+      summary: approval.summary,
+      reason: approval.reason,
+      preview: approval.preview,
+      executionPayload: approval.execution_payload,
+    },
+  });
 
   res.json({ status });
 }

@@ -12,8 +12,6 @@ account_id="$(aws sts get-caller-identity --query 'Account' --output text)"
 name_prefix="${project}-${environment}"
 namespace_name="svc.stockaisle.internal"
 
-public_domain="${domain_name}"
-www_domain="www.${domain_name}"
 admin_domain="admin.${domain_name}"
 api_domain="api.${domain_name}"
 engine_domain="engine.${domain_name}"
@@ -22,7 +20,6 @@ media_domain="media.${domain_name}"
 backend_repo="${project}/backend"
 engine_repo="${project}/conversational-engine"
 
-landing_bucket="${name_prefix}-landing-${account_id}"
 admin_bucket="${name_prefix}-admin-${account_id}"
 media_bucket="${name_prefix}-media-${account_id}"
 
@@ -378,7 +375,7 @@ delete_acm_certs() {
   cert_arns="$(
     aws acm list-certificates \
       --certificate-statuses ISSUED PENDING_VALIDATION INACTIVE EXPIRED VALIDATION_TIMED_OUT FAILED REVOKED \
-      --query "CertificateSummaryList[?DomainName=='${public_domain}' || DomainName=='${www_domain}' || DomainName=='${admin_domain}' || DomainName=='${api_domain}' || DomainName=='${engine_domain}' || DomainName=='${media_domain}'].CertificateArn" \
+      --query "CertificateSummaryList[?DomainName=='${admin_domain}' || DomainName=='${api_domain}' || DomainName=='${engine_domain}' || DomainName=='${media_domain}'].CertificateArn" \
       --output text 2>/dev/null || true
   )"
 
@@ -551,11 +548,9 @@ delete_service_discovery
 
 delete_alb_stack
 
-delete_cloudfront_distribution_by_alias "$public_domain"
 delete_cloudfront_distribution_by_alias "$admin_domain"
 delete_cloudfront_distribution_by_alias "$media_domain"
 
-delete_bucket "$landing_bucket"
 delete_bucket "$admin_bucket"
 delete_bucket "$media_bucket"
 

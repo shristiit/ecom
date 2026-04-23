@@ -39,19 +39,58 @@ export async function listHistory(req: Request, res: Response) {
      FROM (
        SELECT
          ae.id,
-         COALESCE(ae.payload->>'resultId', ae.payload->>'transactionId', ae.id::text) AS transaction_id,
-         COALESCE(ae.payload->>'requestText', ae.payload->>'summary', ae.event_type) AS request_text,
-         COALESCE(ae.payload->>'summary', ae.payload->>'message') AS why,
+         CASE
+           WHEN ae.event_type = 'execution_result' THEN COALESCE(
+             ae.payload->>'transactionId',
+             ae.payload->>'resultId',
+             ae.payload->>'productId',
+             ae.payload->>'invoiceId',
+             ae.payload->>'poId',
+             ae.approval_request_id::text,
+             ae.id::text
+           )
+           ELSE COALESCE(ae.approval_request_id::text, ae.id::text)
+         END AS transaction_id,
+         COALESCE(
+           ae.payload->>'requestText',
+           ar.summary,
+           ar.reason,
+           ae.payload->>'summary',
+           ae.event_type
+         ) AS request_text,
+         COALESCE(ae.payload->>'summary', ar.summary, ar.reason, ae.payload->>'message') AS why,
          ae.created_at,
-         COALESCE(ae.payload->>'actionType', ae.event_type) AS movement_type,
+         COALESCE(ae.payload->>'actionType', ar.action_type, ae.event_type) AS movement_type,
          CASE
            WHEN (ae.payload->>'quantity') ~ '^[0-9]+$' THEN (ae.payload->>'quantity')::int
+           WHEN (ae.payload->'executionPayload'->>'quantity') ~ '^[0-9]+$' THEN (ae.payload->'executionPayload'->>'quantity')::int
+           WHEN (ar.execution_payload->>'quantity') ~ '^[0-9]+$' THEN (ar.execution_payload->>'quantity')::int
            ELSE NULL
          END AS quantity,
-         ae.created_at AS recorded_time
+         ae.created_at AS recorded_time,
+         'ai'::text AS source,
+         COALESCE(requested_user.email, ar.requested_by::text) AS requested_by,
+         COALESCE(approved_user.email, ar.approved_by::text) AS approved_by,
+         CASE
+           WHEN ae.event_type = 'execution_result' THEN COALESCE(executor.email, ae.actor_id::text)
+           ELSE NULL
+         END AS executed_by,
+         COALESCE(ae.payload->>'toolName', ar.tool_name) AS tool_name,
+         COALESCE(
+           ae.payload->>'status',
+           CASE
+             WHEN ae.event_type = 'approval_requested' THEN 'pending'
+             WHEN ae.event_type = 'approval_decision' THEN 'approved'
+             ELSE 'success'
+           END
+         ) AS status
        FROM ai_audit_events ae
+       LEFT JOIN ai_action_requests ar ON ar.id = ae.approval_request_id
+       LEFT JOIN users requested_user ON requested_user.id = ar.requested_by
+       LEFT JOIN users approved_user ON approved_user.id = ar.approved_by
+       LEFT JOIN users executor ON executor.id = ae.actor_id
        WHERE ae.tenant_id = $1
-         AND ae.event_type = 'execution_result'
+         AND ae.event_type IN ('approval_requested', 'approval_decision', 'execution_result')
 
        UNION ALL
 
@@ -63,7 +102,13 @@ export async function listHistory(req: Request, res: Response) {
          ar.created_at,
          it.type::text AS movement_type,
          it.quantity,
-         it.recorded_time
+         it.recorded_time,
+         'inventory'::text AS source,
+         NULL::text AS requested_by,
+         NULL::text AS approved_by,
+         NULL::text AS executed_by,
+         NULL::text AS tool_name,
+         'success'::text AS status
        FROM audit_records ar
        LEFT JOIN inventory_transactions it ON it.id = ar.transaction_id
        WHERE ar.tenant_id = $1

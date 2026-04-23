@@ -128,8 +128,24 @@ export default function AuditScreen() {
                     <Text className="text-small font-medium text-primary">{row.id.slice(0, 8).toUpperCase()}</Text>
                   </Link>
                 </AppTableCell>
-                <AppTableCell>{row.actorId ?? '-'}</AppTableCell>
-                <AppTableCell>{row.action}</AppTableCell>
+                <AppTableCell>
+                  <View className="gap-1">
+                    <Text className="text-small text-text">{row.actorEmail ?? row.actorId ?? '-'}</Text>
+                    {row.actorEmail && row.actorId ? <Text className="text-caption text-muted">{row.actorId}</Text> : null}
+                  </View>
+                </AppTableCell>
+                <AppTableCell>
+                  <View className="gap-1">
+                    <Text className="text-small text-text">{row.action}</Text>
+                    <Text className="text-caption text-muted">
+                      {String(row.metadata?.source ?? row.module ?? 'system')}
+                      {row.entityId ? ` · ${row.entityId}` : ''}
+                    </Text>
+                    {typeof row.metadata?.approvedByEmail === 'string' ? (
+                      <Text className="text-caption text-muted">Approved by {row.metadata.approvedByEmail}</Text>
+                    ) : null}
+                  </View>
+                </AppTableCell>
                 <AppTableCell>{formatDate(row.createdAt)}</AppTableCell>
                 <AppTableCell align="right">
                   <AppBadge

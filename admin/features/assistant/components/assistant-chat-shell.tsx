@@ -341,7 +341,7 @@ export function AssistantChatShell({
         </View>
 
         <View className={`flex-1 gap-4 ${showHistoryRail && isDesktop ? 'lg:flex-row' : ''}`}>
-          <View className="min-h-[620px] flex-1 overflow-hidden rounded-[28px] border border-border bg-surface shadow-sm">
+          <View className="min-h-[620px] flex-1 overflow-hidden rounded-lg border border-border bg-surface shadow-sm">
             <ScrollView
               ref={scrollRef}
               className="flex-1"
@@ -385,7 +385,7 @@ export function AssistantChatShell({
                 ) : null}
 
                 {conversationQuery.error ? (
-                  <View className="w-full max-w-3xl rounded-3xl border border-error/20 bg-error-tint px-5 py-4">
+                  <View className="w-full max-w-3xl rounded-lg border border-error/20 bg-error-tint px-5 py-4">
                     <Text className="text-small text-error">{conversationQuery.error.message}</Text>
                     <View className="mt-3 flex-row">
                       <AppButton label="Retry" size="sm" variant="secondary" onPress={() => void conversationQuery.refetch()} />
@@ -404,7 +404,7 @@ export function AssistantChatShell({
                       </Text>
 
                       <View
-                        className={`rounded-[28px] ${
+                        className={`rounded-lg ${
                           turn.role === 'user'
                             ? 'bg-surface-2 px-5 py-4'
                             : 'bg-[#F8F6F1] px-0 py-0'
@@ -419,13 +419,13 @@ export function AssistantChatShell({
                 ))}
 
                 {activeConversation && activeConversation.messages.length === 0 ? (
-                  <View className="w-full max-w-3xl rounded-[24px] border border-dashed border-border bg-surface-2 px-5 py-5">
+                  <View className="w-full max-w-3xl rounded-md border border-dashed border-border bg-surface-2 px-5 py-5">
                     <Text className="text-small text-muted">No messages in this conversation yet.</Text>
                   </View>
                 ) : null}
 
                 {pendingAction?.actions?.length ? (
-                  <View className="w-full max-w-3xl rounded-[28px] border border-border bg-surface-2 px-5 py-5">
+                  <View className="w-full max-w-3xl rounded-lg border border-border bg-surface-2 px-5 py-5">
                     <Text className="text-small font-semibold text-text">{pendingAction.prompt}</Text>
                     <View className="mt-4 flex-row flex-wrap gap-2">
                       {pendingAction.actions.map((action) => (
@@ -445,7 +445,7 @@ export function AssistantChatShell({
             </ScrollView>
 
             <View className="border-t border-border bg-surface/95 px-4 py-4 md:px-6">
-              <View className="mx-auto w-full max-w-4xl rounded-[30px] border border-border bg-white px-4 py-4 shadow-sm">
+              <View className="mx-auto w-full max-w-4xl rounded-lg border border-border bg-white px-4 py-4 shadow-sm">
                 <TextInput
                   nativeID="assistant-chat-composer"
                   accessibilityLabel="Ask My AI Assistant"
@@ -499,7 +499,7 @@ export function AssistantChatShell({
 
           {showHistoryRail ? (
           <View className={historyRailContainerClassName}>
-            <View className="h-full min-h-[420px] rounded-[28px] border border-border bg-surface shadow-sm">
+            <View className="h-full min-h-[420px] rounded-lg border border-border bg-surface shadow-sm">
               <View className="border-b border-border px-5 py-4">
                 <View className="flex-row items-center justify-between gap-3">
                   <View>
@@ -517,7 +517,7 @@ export function AssistantChatShell({
                   ) : null}
 
                   {conversationsQuery.error ? (
-                    <View className="gap-3 rounded-2xl border border-error/20 bg-error-tint px-4 py-4">
+                    <View className="gap-3 rounded-md border border-error/20 bg-error-tint px-4 py-4">
                       <Text className="text-small text-error">{conversationsQuery.error.message}</Text>
                       <AppButton label="Retry" size="sm" variant="secondary" onPress={() => void conversationsQuery.refetch()} />
                     </View>
@@ -532,7 +532,7 @@ export function AssistantChatShell({
                             key={item.id}
                             accessibilityRole="button"
                             onPress={() => handleOpenConversation(item.id)}
-                            className={`rounded-[22px] border px-4 py-3 ${
+                            className={`rounded-md border px-4 py-3 ${
                               isActive ? 'border-primary bg-primary text-on-primary' : 'border-border bg-surface-2'
                             }`}
                           >
@@ -553,7 +553,7 @@ export function AssistantChatShell({
                       })}
 
                       {conversations.length === 0 ? (
-                        <View className="rounded-[22px] border border-dashed border-border bg-surface-2 px-4 py-5">
+                        <View className="rounded-md border border-dashed border-border bg-surface-2 px-4 py-5">
                           <Text className="text-small text-muted">No conversations yet.</Text>
                         </View>
                       ) : null}

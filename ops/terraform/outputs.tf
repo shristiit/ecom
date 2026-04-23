@@ -38,11 +38,6 @@ output "engine_ecr_repository_url" {
   value       = aws_ecr_repository.engine.repository_url
 }
 
-output "landing_bucket_name" {
-  description = "S3 bucket for the landing site."
-  value       = aws_s3_bucket.landing.bucket
-}
-
 output "admin_bucket_name" {
   description = "S3 bucket for the admin site."
   value       = aws_s3_bucket.admin.bucket
@@ -51,11 +46,6 @@ output "admin_bucket_name" {
 output "media_bucket_name" {
   description = "S3 bucket for product media."
   value       = aws_s3_bucket.media.bucket
-}
-
-output "landing_distribution_id" {
-  description = "CloudFront distribution ID for stockaisle.com."
-  value       = try(aws_cloudfront_distribution.landing[0].id, null)
 }
 
 output "admin_distribution_id" {

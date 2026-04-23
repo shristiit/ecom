@@ -23,7 +23,7 @@ export function AssistantMessageBlocks({ blocks }: Props) {
 
         if (block.type === 'clarification') {
           return (
-            <View key={key} className="rounded-[24px] border border-border bg-surface-2 px-4 py-4">
+            <View key={key} className="rounded-md border border-border bg-surface-2 px-4 py-4">
               <Text className="text-body font-semibold text-text">{block.prompt}</Text>
               {block.requiredFields?.length ? (
                 <Text className="mt-2 text-small text-muted">
@@ -36,7 +36,7 @@ export function AssistantMessageBlocks({ blocks }: Props) {
 
         if (block.type === 'preview') {
           return (
-            <View key={key} className="rounded-[24px] border border-primary/20 bg-primary-tint px-4 py-4">
+            <View key={key} className="rounded-md border border-primary/20 bg-primary-tint px-4 py-4">
               <View className="flex-row items-start justify-between gap-3">
                 <View className="flex-1 gap-1">
                   <Text className="text-body font-semibold text-text">{block.actionType}</Text>
@@ -71,7 +71,7 @@ export function AssistantMessageBlocks({ blocks }: Props) {
 
         if (block.type === 'confirmation_required') {
           return (
-            <View key={key} className="rounded-[24px] border border-warning/30 bg-warning-tint px-4 py-4">
+            <View key={key} className="rounded-md border border-warning/30 bg-warning-tint px-4 py-4">
               <Text className="text-body font-semibold text-warning">{block.prompt}</Text>
               {block.allowedActions?.length ? (
                 <Text className="mt-2 text-small text-muted">
@@ -84,7 +84,7 @@ export function AssistantMessageBlocks({ blocks }: Props) {
 
         if (block.type === 'approval_pending' || block.type === 'approval_result') {
           return (
-            <View key={key} className="rounded-[24px] border border-border bg-surface-2 px-4 py-4">
+            <View key={key} className="rounded-md border border-border bg-surface-2 px-4 py-4">
               <View className="flex-row items-center justify-between gap-3">
                 <Text className="text-small font-medium text-text">{block.message}</Text>
                 <AppBadge label={block.status} tone={block.status === 'approved' ? 'success' : block.status === 'rejected' ? 'error' : 'warning'} />
@@ -96,7 +96,7 @@ export function AssistantMessageBlocks({ blocks }: Props) {
 
         if (block.type === 'success' || block.type === 'error') {
           return (
-            <View key={key} className={`rounded-[24px] border px-4 py-4 ${block.type === 'success' ? 'border-success/30 bg-success-tint' : 'border-error/30 bg-error-tint'}`}>
+            <View key={key} className={`rounded-md border px-4 py-4 ${block.type === 'success' ? 'border-success/30 bg-success-tint' : 'border-error/30 bg-error-tint'}`}>
               <Text className={`text-small font-medium ${block.type === 'success' ? 'text-success' : 'text-error'}`}>
                 {block.title}
               </Text>
@@ -107,7 +107,7 @@ export function AssistantMessageBlocks({ blocks }: Props) {
 
         if (block.type === 'navigation') {
           return (
-            <View key={key} className="rounded-[24px] border border-border bg-surface-2 px-4 py-4">
+            <View key={key} className="rounded-md border border-border bg-surface-2 px-4 py-4">
               <Text className="text-body font-semibold text-text">{block.label}</Text>
               <Text className="mt-1 text-small text-muted">{block.description}</Text>
               <Link href={block.href as never} asChild>

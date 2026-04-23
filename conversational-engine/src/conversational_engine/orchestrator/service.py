@@ -492,13 +492,6 @@ class OrchestratorService:
             memory['activeApprovalId'] = str(approval.id)
             memory.pop('_pendingActions', None)
             memory.pop('_pendingPrompt', None)
-            await self._audit(
-                auth,
-                conversation_id=str(conversation.id),
-                workflow_id=str(workflow.id),
-                event_type='approval_requested',
-                payload={'approvalId': str(approval.id), 'actionType': action_type},
-            )
             return OrchestratorOutcome(
                 blocks=[
                     ApprovalPendingBlock(
@@ -516,6 +509,18 @@ class OrchestratorService:
             )
 
         execution_result = await self._execute_action(auth, action_type, tool_name, execution_payload, None)
+        if not isinstance(execution_result, Exception):
+            await self._record_execution_audit(
+                auth,
+                conversation_id=str(conversation.id),
+                workflow_id=str(workflow.id),
+                approval_request_id=None,
+                action_type=action_type,
+                tool_name=tool_name,
+                execution_payload=execution_payload,
+                summary=str(memory.get('summary') or action_type.replace('_', ' ')),
+                execution_result=execution_result,
+            )
         return self._execution_outcome(
             auth=auth,
             conversation=conversation,
@@ -608,6 +613,18 @@ class OrchestratorService:
                 active_preview_id=workflow.active_preview_id,
                 active_approval_id=approval.id,
             )
+
+        await self._record_execution_audit(
+            auth,
+            conversation_id=str(conversation.id),
+            workflow_id=str(workflow.id),
+            approval_request_id=str(approval.id),
+            action_type=action_type,
+            tool_name=approval.tool_name,
+            execution_payload=approval.execution_payload,
+            summary=approval.summary or action_type.replace('_', ' '),
+            execution_result=execution_result,
+        )
 
         base_outcome = self._execution_outcome(
             auth=auth,
@@ -1367,6 +1384,49 @@ class OrchestratorService:
             else:
                 safe[key] = value
         return safe
+
+    async def _record_execution_audit(
+        self,
+        auth: AuthContext,
+        *,
+        conversation_id: str | None,
+        workflow_id: str | None,
+        approval_request_id: str | None,
+        action_type: str,
+        tool_name: str,
+        execution_payload: dict[str, object],
+        summary: str,
+        execution_result: dict[str, object],
+    ) -> None:
+        result_id = (
+            execution_result.get('id')
+            or execution_result.get('receiptId')
+            or execution_result.get('transactionId')
+            or execution_result.get('productId')
+            or execution_result.get('invoiceId')
+            or execution_result.get('poId')
+        )
+        await self._audit(
+            auth,
+            conversation_id=conversation_id,
+            workflow_id=workflow_id,
+            approval_request_id=approval_request_id,
+            event_type='execution_result',
+            payload={
+                'actionType': action_type,
+                'toolName': tool_name,
+                'summary': summary,
+                'requestText': summary,
+                'status': 'success',
+                'resultId': result_id,
+                'transactionId': execution_result.get('transactionId'),
+                'productId': execution_result.get('productId'),
+                'invoiceId': execution_result.get('invoiceId'),
+                'poId': execution_result.get('poId'),
+                'executionPayload': execution_payload,
+                'executionResult': execution_result,
+            },
+        )
 
     async def _audit(
         self,

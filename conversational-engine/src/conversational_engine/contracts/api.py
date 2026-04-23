@@ -76,6 +76,12 @@ class HistoryItem(ContractModel):
     movement_type: str | None = None
     quantity: int | None = None
     recorded_time: str | None = None
+    source: str | None = None
+    requested_by: str | None = None
+    approved_by: str | None = None
+    executed_by: str | None = None
+    tool_name: str | None = None
+    status: str | None = None
 
 
 class ApprovalDecisionRequest(ContractModel):

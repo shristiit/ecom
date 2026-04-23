@@ -6,7 +6,6 @@ Applications in this workspace:
 - `conversational-engine`: FastAPI AI orchestration service
 - `admin`: Expo web/native admin app
 - `ecommerce`: Expo storefront app
-- `landing`: static marketing site for `stockaisle.com`
 
 Deployment assets:
 

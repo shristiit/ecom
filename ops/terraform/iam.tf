@@ -179,8 +179,6 @@ data "aws_iam_policy_document" "github_actions_deploy" {
     resources = [
       aws_s3_bucket.admin.arn,
       "${aws_s3_bucket.admin.arn}/*",
-      aws_s3_bucket.landing.arn,
-      "${aws_s3_bucket.landing.arn}/*",
     ]
   }
 
@@ -192,10 +190,7 @@ data "aws_iam_policy_document" "github_actions_deploy" {
       "cloudfront:GetDistribution",
       "cloudfront:GetDistributionConfig",
     ]
-    resources = concat(
-      [aws_cloudfront_distribution.admin.arn],
-      var.enable_landing_site ? [aws_cloudfront_distribution.landing[0].arn] : []
-    )
+    resources = [aws_cloudfront_distribution.admin.arn]
   }
 }
 
