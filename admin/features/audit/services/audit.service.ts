@@ -4,12 +4,17 @@ import type { AuditQueryFilter } from '../types/audit.types';
 
 type AuditRow = {
   id: string;
-  transaction_id: string;
-  request_text: string;
-  who: string;
-  approver?: string | null;
-  before_after?: Record<string, unknown>;
-  why?: string;
+  source?: string;
+  action: string;
+  module?: string;
+  entity_type?: string;
+  entity_id?: string;
+  result?: 'success' | 'failure' | 'warning';
+  actor_id?: string;
+  actor_email?: string | null;
+  request_text?: string;
+  why?: string | null;
+  metadata?: Record<string, unknown>;
   created_at: string;
 };
 
@@ -17,17 +22,17 @@ function mapAuditRow(row: AuditRow): AuditEvent {
   return {
     id: row.id,
     tenantId: '',
-    actorId: row.who,
-    actorEmail: undefined,
-    action: row.why ?? 'inventory.transaction',
-    module: 'inventory',
-    entityType: 'inventory_transaction',
-    entityId: row.transaction_id,
-    result: 'success',
-    metadata: {
-      beforeAfter: row.before_after ?? {},
+    actorId: row.actor_id,
+    actorEmail: row.actor_email ?? undefined,
+    action: row.action,
+    module: row.module ?? 'inventory',
+    entityType: row.entity_type,
+    entityId: row.entity_id,
+    result: row.result ?? 'success',
+    metadata: row.metadata ?? {
       requestText: row.request_text,
-      approver: row.approver,
+      summary: row.why ?? null,
+      source: row.source ?? row.module ?? 'inventory',
     },
     createdAt: row.created_at,
   };

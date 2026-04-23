@@ -4,14 +4,12 @@ This repository now includes:
 
 - Terraform infrastructure under [`ops/terraform`](/Users/Apple/Desktop/ecom/ops/terraform)
 - production GitHub Actions workflows under [`.github/workflows`](/Users/Apple/Desktop/ecom/.github/workflows)
-- a static landing site package under [`landing`](/Users/Apple/Desktop/ecom/landing)
 - a production Docker image for the conversational engine under [`conversational-engine/Dockerfile`](/Users/Apple/Desktop/ecom/conversational-engine/Dockerfile)
 
 The intended app region is `eu-west-2` (London). One AWS exception still applies: the ACM certificate used by `CloudFront` must remain in `us-east-1`.
 
 ## What Gets Deployed
 
-- `stockaisle.com` and `www.stockaisle.com`: landing site on S3 + CloudFront
 - `admin.stockaisle.com`: admin web app on S3 + CloudFront
 - `api.stockaisle.com`: backend on ECS Fargate behind ALB
 - `engine.stockaisle.com`: conversational engine on ECS Fargate behind ALB
@@ -49,9 +47,7 @@ Set these repository variables after the first Terraform apply:
 - `AWS_BACKEND_ECR_REPOSITORY` from Terraform output `backend_ecr_repository_url`
 - `AWS_ENGINE_ECR_REPOSITORY` from Terraform output `engine_ecr_repository_url`
 - `AWS_ADMIN_BUCKET` from Terraform output `admin_bucket_name`
-- `AWS_LANDING_BUCKET` from Terraform output `landing_bucket_name`
 - `AWS_ADMIN_DISTRIBUTION_ID` from Terraform output `admin_distribution_id`
-- `AWS_LANDING_DISTRIBUTION_ID` from Terraform output `landing_distribution_id`
 
 ## Secrets To Populate In AWS Secrets Manager
 

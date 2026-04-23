@@ -8,14 +8,12 @@ domain_name="${TF_VAR_domain_name:-stockaisle.com}"
 vpc_id="${TF_VAR_existing_vpc_id:-}"
 rds_security_group_id="${TF_VAR_existing_rds_security_group_id:-}"
 manage_rds_security_group_rules="${TF_VAR_manage_rds_security_group_rules:-false}"
-enable_landing_site="${TF_VAR_enable_landing_site:-false}"
 account_id="$(aws sts get-caller-identity --query 'Account' --output text)"
 
 name_prefix="${project}-${environment}"
 namespace_name="svc.stockaisle.internal"
 admin_domain="admin.${domain_name}"
 media_domain="media.${domain_name}"
-landing_www_domain="www.${domain_name}"
 
 backend_repo="${project}/backend"
 engine_repo="${project}/conversational-engine"
@@ -23,7 +21,6 @@ engine_repo="${project}/conversational-engine"
 backend_log_group="/aws/ecs/${name_prefix}-backend"
 engine_log_group="/aws/ecs/${name_prefix}-engine"
 
-landing_bucket="${name_prefix}-landing-${account_id}"
 admin_bucket="${name_prefix}-admin-${account_id}"
 media_bucket="${name_prefix}-media-${account_id}"
 
@@ -157,22 +154,6 @@ describe_distribution_id_by_alias() {
   aws cloudfront list-distributions \
     --query "DistributionList.Items[?Aliases.Quantity > \`0\` && contains(Aliases.Items, '${alias}')].Id | [0]" \
     --output text 2>/dev/null || true
-}
-
-describe_distribution_id_by_aliases() {
-  local alias=""
-  local distribution_id=""
-
-  for alias in "$@"; do
-    distribution_id="$(describe_distribution_id_by_alias "$alias")"
-
-    if normalize_id "$distribution_id" >/dev/null; then
-      printf '%s\n' "$distribution_id"
-      return 0
-    fi
-  done
-
-  return 0
 }
 
 describe_iam_policy_arn() {
@@ -321,10 +302,6 @@ import_if_present 'aws_s3_bucket.admin' "$(describe_bucket_name "$admin_bucket")
 import_if_present 'aws_s3_bucket.media' "$(describe_bucket_name "$media_bucket")"
 
 import_if_present 'aws_cloudfront_origin_access_control.s3' "$(describe_oac_id)"
-import_if_present 'aws_s3_bucket.landing' "$(describe_bucket_name "$landing_bucket")"
-if [[ "$enable_landing_site" == "true" ]]; then
-  import_if_present 'aws_cloudfront_distribution.landing' "$(describe_distribution_id_by_aliases "$domain_name" "$landing_www_domain")"
-fi
 import_if_present 'aws_cloudfront_distribution.admin' "$(describe_distribution_id_by_alias "$admin_domain")"
 import_if_present 'aws_cloudfront_distribution.media' "$(describe_distribution_id_by_alias "$media_domain")"
 

@@ -26,6 +26,9 @@ import aiAuditRoutes from '@backend/modules/ai_audit/routes.js';
 import reportingRoutes from '@backend/modules/reporting/routes.js';
 
 const app = express();
+const LOCAL_LOOPBACK_HOSTNAMES = new Set(['localhost', '127.0.0.1']);
+const LOCAL_STOCKAISLE_WEB_HOSTNAMES = new Set(['dev.stockaisle.test']);
+const LOCAL_STOCKAISLE_WEB_PORTS = new Set(['', '8081', '19006', '3000']);
 
 if (process.env.SENTRY_DSN) {
   Sentry.init({
@@ -49,7 +52,11 @@ function isAllowedOrigin(origin: string): boolean {
       return true;
     }
 
-    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+    if (LOCAL_LOOPBACK_HOSTNAMES.has(hostname)) {
+      return true;
+    }
+
+    if (LOCAL_STOCKAISLE_WEB_HOSTNAMES.has(hostname) && LOCAL_STOCKAISLE_WEB_PORTS.has(url.port)) {
       return true;
     }
   } catch {
