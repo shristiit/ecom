@@ -11,4 +11,4 @@
 
 ## Notes
 - Tests use Mocha + TypeScript + Selenium WebDriver.
-- Update `tests/home.spec.ts` with real selectors and titles (replace `"Your App Title"` and `[data-testid='hero-cta']`).
+- Add or update specs under `tests/` with real selectors and titles for the app under test.

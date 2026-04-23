@@ -22,7 +22,6 @@ from conversational_engine.contracts.common import (
 
 def render_clarification(message: str, required_inputs: list[str]) -> list[MessageBlock]:
     return [
-        TextBlock(content=message),
         ClarificationBlock(prompt=message, required_fields=required_inputs),
     ]
 

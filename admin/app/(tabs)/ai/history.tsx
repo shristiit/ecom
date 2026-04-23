@@ -15,7 +15,7 @@ export default function AiHistoryScreen() {
 
   return (
     <ScrollView className="bg-bg px-4 py-4">
-      <PageHeader title="AI History" subtitle="Executed AI commands and resulting transactions." />
+      <PageHeader title="AI History" subtitle="Approval requests, approval decisions, and executed AI actions." />
 
       <AppCard>
         {query.isLoading ? <Text className="text-small text-muted">Loading AI history...</Text> : null}
@@ -32,18 +32,38 @@ export default function AiHistoryScreen() {
               <AppTableHeaderCell>ID</AppTableHeaderCell>
               <AppTableHeaderCell>Request</AppTableHeaderCell>
               <AppTableHeaderCell>Type</AppTableHeaderCell>
-              <AppTableHeaderCell align="right">Qty</AppTableHeaderCell>
-              <AppTableHeaderCell>Executed</AppTableHeaderCell>
+              <AppTableHeaderCell>Audit Trail</AppTableHeaderCell>
+              <AppTableHeaderCell>Timestamp</AppTableHeaderCell>
               <AppTableHeaderCell align="right">Links</AppTableHeaderCell>
             </AppTableRow>
 
             {rows.map((row) => (
               <AppTableRow key={row.id}>
                 <AppTableCell>{row.id.slice(0, 8).toUpperCase()}</AppTableCell>
-                <AppTableCell>{row.requestText || '-'}</AppTableCell>
-                <AppTableCell>{row.movementType || '-'}</AppTableCell>
-                <AppTableCell align="right" className="tabular-nums">
-                  {row.quantity ?? '-'}
+                <AppTableCell>
+                  <View className="gap-1">
+                    <Text className="text-small text-text">{row.requestText || '-'}</Text>
+                    {row.why ? <Text className="text-caption text-muted">{row.why}</Text> : null}
+                  </View>
+                </AppTableCell>
+                <AppTableCell>
+                  <View className="gap-1">
+                    <Text className="text-small text-text">{row.movementType || '-'}</Text>
+                    <Text className="text-caption text-muted">
+                      {row.source ?? 'ai'}{row.toolName ? ` via ${row.toolName}` : ''}
+                    </Text>
+                    {row.status ? <Text className="text-caption text-muted">Status: {row.status}</Text> : null}
+                  </View>
+                </AppTableCell>
+                <AppTableCell>
+                  <View className="gap-1">
+                    <Text className="text-caption text-muted">Requested: {row.requestedBy || '-'}</Text>
+                    <Text className="text-caption text-muted">Approved: {row.approvedBy || '-'}</Text>
+                    <Text className="text-caption text-muted">Executed: {row.executedBy || '-'}</Text>
+                    {row.quantity != null ? (
+                      <Text className="text-caption tabular-nums text-muted">Qty: {row.quantity}</Text>
+                    ) : null}
+                  </View>
                 </AppTableCell>
                 <AppTableCell>{formatDate(row.createdAt)}</AppTableCell>
                 <AppTableCell align="right">

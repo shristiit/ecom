@@ -30,8 +30,6 @@ locals {
     Repository  = var.github_repository
   }
 
-  public_domain = var.domain_name
-  www_domain    = "www.${var.domain_name}"
   admin_domain  = "admin.${var.domain_name}"
   api_domain    = "api.${var.domain_name}"
   engine_domain = "engine.${var.domain_name}"
@@ -40,9 +38,8 @@ locals {
   backend_ecr_repository = "${var.project}/backend"
   engine_ecr_repository  = "${var.project}/conversational-engine"
 
-  landing_bucket_name = "${local.name_prefix}-landing-${data.aws_caller_identity.current.account_id}"
-  admin_bucket_name   = "${local.name_prefix}-admin-${data.aws_caller_identity.current.account_id}"
-  media_bucket_name   = "${local.name_prefix}-media-${data.aws_caller_identity.current.account_id}"
+  admin_bucket_name = "${local.name_prefix}-admin-${data.aws_caller_identity.current.account_id}"
+  media_bucket_name = "${local.name_prefix}-media-${data.aws_caller_identity.current.account_id}"
 
   ecs_cluster_name    = "${local.name_prefix}-cluster"
   backend_family_name = "${local.name_prefix}-backend"
@@ -59,7 +56,7 @@ locals {
     PORT                      = "4000"
     ACCESS_TOKEN_TTL          = "15m"
     REFRESH_TOKEN_TTL         = "7d"
-    CORS_ORIGIN               = "https://${local.admin_domain},https://${local.public_domain}"
+    CORS_ORIGIN               = "https://${local.admin_domain}"
     CONVERSATIONAL_ENGINE_URL = "http://conversational-engine.${local.namespace_name}:8000"
     OPENAI_MODEL              = "gpt-4o-mini"
     OPENAI_BASE_URL           = "https://api.openai.com/v1"
@@ -144,22 +141,13 @@ locals {
     if trimspace(value) != ""
   }
 
-  landing_parameters = {
-    LOGIN_URL = "https://${local.admin_domain}/login"
-  }
-
-  landing_ssm_parameters = {
-    for key, value in local.landing_parameters :
-    key => value
-    if trimspace(value) != ""
-  }
-
-  production_domains = [
-    local.public_domain,
-    local.www_domain,
-    local.admin_domain,
+  alb_domains = [
     local.api_domain,
     local.engine_domain,
+  ]
+
+  cloudfront_domains = [
+    local.admin_domain,
     local.media_domain,
   ]
 }

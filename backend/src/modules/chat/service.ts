@@ -200,13 +200,14 @@ export async function execute(req: Request, res: Response) {
 
   if (spec.governance_decision?.requiresApproval) {
     const approval = await query(
-      `SELECT id, status FROM approvals WHERE transaction_spec_id = $1 AND tenant_id = $2`,
+      `SELECT id, status, approved_by FROM approvals WHERE transaction_spec_id = $1 AND tenant_id = $2`,
       [spec.id, req.user!.tenantId]
     );
     if (approval.rowCount === 0 || approval.rows[0].status !== 'approved') {
       return res.status(403).json({ message: 'Approval required' });
     }
     spec.approvalId = approval.rows[0].id;
+    spec.approvedBy = approval.rows[0].approved_by;
   }
 
   const result = await executeSpec(req.user!.tenantId, req.user!.id, spec);
@@ -228,7 +229,7 @@ export async function execute(req: Request, res: Response) {
     await query(
       `INSERT INTO audit_records (tenant_id, transaction_id, request_text, who, approver, before_after, why)
        VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-      [req.user!.tenantId, transactionId, textRes.rows[0]?.content ?? '', req.user!.id, null, {}, spec.intent]
+      [req.user!.tenantId, transactionId, textRes.rows[0]?.content ?? '', req.user!.id, spec.approvedBy ?? null, {}, spec.intent]
     );
   }
 

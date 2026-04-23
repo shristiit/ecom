@@ -90,7 +90,15 @@ class Settings(BaseSettings):
     feature_enabled: bool = True
     mutations_enabled: bool = True
     retrieval_enabled: bool = True
-    cors_origins: str = 'http://localhost:8081,http://localhost:19006,http://127.0.0.1:8081'
+    cors_origins: str = (
+        'http://localhost:8081,'
+        'http://localhost:19006,'
+        'http://127.0.0.1:8081,'
+        'http://127.0.0.1:19006,'
+        'http://dev.stockaisle.test,'
+        'http://dev.stockaisle.test:8081,'
+        'http://dev.stockaisle.test:19006'
+    )
 
     @property
     def health_payload(self) -> dict[str, object]:

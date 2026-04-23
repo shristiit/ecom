@@ -8,5 +8,4 @@ existing_vpc_id            = "vpc-xxxxxxxxxxxxxxxxx"
 existing_public_subnet_ids_csv = "subnet-xxxxxxxxxxxxxxxxx,subnet-yyyyyyyyyyyyyyyyy"
 existing_rds_security_group_id = "sg-xxxxxxxxxxxxxxxxx"
 manage_rds_security_group_rules = false
-enable_landing_site          = false
 alarm_email                 = "alerts@stockaisle.com"
