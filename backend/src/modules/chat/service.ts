@@ -6,6 +6,11 @@ import { resolveNavigation } from '@backend/modules/chat/navigation.js';
 import { orchestrateChat } from '@backend/modules/chat/orchestrator.js';
 import { interpretTransaction } from '@backend/modules/chat/transaction-tool.js';
 import {
+  assertAiQuotaAvailable,
+  estimateAiTokens,
+  recordTenantAuditEvent,
+} from '@backend/modules/platform/control-plane.js';
+import {
   approveSchema,
   confirmSchema,
   executeSchema,
@@ -13,6 +18,22 @@ import {
   navigateSchema,
   respondSchema,
 } from '@backend/modules/chat/schemas.js';
+
+async function consumeAiQuota(req: Request, text: string) {
+  const estimatedTokens = estimateAiTokens(text);
+  try {
+    await assertAiQuotaAvailable(req.user!.tenantId, estimatedTokens);
+  } catch (error: any) {
+    await recordTenantAuditEvent({
+      tenantId: req.user!.tenantId,
+      actorType: 'tenant_user',
+      actorId: req.user!.id,
+      eventType: 'tenant.ai_limit.blocked',
+      payload: { estimatedTokens, message: error?.message ?? 'AI token limit exceeded' },
+    });
+    throw error;
+  }
+}
 
 export async function listThreads(req: Request, res: Response) {
   const rows = await query(
@@ -81,6 +102,7 @@ export async function navigate(req: Request, res: Response) {
   try {
     const parsed = navigateSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: 'Invalid payload' });
+    await consumeAiQuota(req, parsed.data.text);
     const result = await resolveNavigation({
       text: parsed.data.text,
       tenantId: req.user!.tenantId,
@@ -89,7 +111,8 @@ export async function navigate(req: Request, res: Response) {
     res.json(result);
   } catch (error) {
     logger.error({ error }, 'chat navigate failed');
-    return res.status(502).json({ message: 'Failed to resolve navigation request' });
+    const message = error instanceof Error ? error.message : 'Failed to resolve navigation request';
+    return res.status(message.includes('AI token limit exceeded') ? 403 : 502).json({ message, code: message.includes('AI token limit exceeded') ? 'AI_TOKEN_LIMIT_EXCEEDED' : undefined });
   }
 }
 
@@ -97,6 +120,7 @@ export async function respond(req: Request, res: Response) {
   try {
     const parsed = respondSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: 'Invalid payload' });
+    await consumeAiQuota(req, parsed.data.text);
 
     const result = await orchestrateChat({
       text: parsed.data.text,
@@ -108,7 +132,8 @@ export async function respond(req: Request, res: Response) {
     res.json(result);
   } catch (error) {
     logger.error({ error }, 'chat respond failed');
-    return res.status(502).json({ message: error instanceof Error ? error.message : 'Failed to process prompt' });
+    const message = error instanceof Error ? error.message : 'Failed to process prompt';
+    return res.status(message.includes('AI token limit exceeded') ? 403 : 502).json({ message, code: message.includes('AI token limit exceeded') ? 'AI_TOKEN_LIMIT_EXCEEDED' : undefined });
   }
 }
 
@@ -116,6 +141,7 @@ export async function interpret(req: Request, res: Response) {
   try {
     const parsed = interpretSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ message: 'Invalid payload' });
+    await consumeAiQuota(req, parsed.data.text);
     const result = await interpretTransaction({
       text: parsed.data.text,
       tenantId: req.user!.tenantId,
@@ -125,7 +151,8 @@ export async function interpret(req: Request, res: Response) {
     res.json(result);
   } catch (error) {
     logger.error({ error }, 'chat interpret failed');
-    return res.status(502).json({ message: error instanceof Error ? error.message : 'Failed to interpret prompt' });
+    const message = error instanceof Error ? error.message : 'Failed to interpret prompt';
+    return res.status(message.includes('AI token limit exceeded') ? 403 : 502).json({ message, code: message.includes('AI token limit exceeded') ? 'AI_TOKEN_LIMIT_EXCEEDED' : undefined });
   }
 }
 

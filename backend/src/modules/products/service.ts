@@ -4,6 +4,11 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { S3_BUCKET, S3_PUBLIC_BASE_URL, S3_REGION } from '@backend/config/env.js';
 import { pool, query } from '@backend/db/pool.js';
+import {
+  assertSkuQuotaAvailable,
+  recordTenantAuditEvent,
+  syncSkuUsageCounter,
+} from '@backend/modules/platform/control-plane.js';
 
 const s3Client = S3_REGION ? new S3Client({ region: S3_REGION }) : null;
 
@@ -153,6 +158,19 @@ export async function createComposedProduct(req: Request, res: Response) {
   if (!parsed.success) return res.status(400).json({ message: 'Invalid payload' });
 
   const payload = parsed.data;
+  try {
+    await assertSkuQuotaAvailable(req.user!.tenantId, payload.variants.length);
+  } catch (error: any) {
+    await recordTenantAuditEvent({
+      tenantId: req.user!.tenantId,
+      actorType: 'tenant_user',
+      actorId: req.user!.id,
+      eventType: 'tenant.sku_limit.blocked',
+      payload: { attemptedSkuIncrement: payload.variants.length, message: error?.message ?? 'SKU limit exceeded' },
+    });
+    return res.status(403).json({ message: error?.message ?? 'SKU limit exceeded', code: 'SKU_LIMIT_EXCEEDED' });
+  }
+
   for (const variant of payload.variants) {
     for (const size of variant.sizes) {
       const normalized = normalizeSizeLabel(size.sizeLabel);
@@ -301,6 +319,7 @@ export async function createComposedProduct(req: Request, res: Response) {
     }
 
     await client.query('COMMIT');
+    await syncSkuUsageCounter(req.user!.tenantId, client);
     return res.status(201).json({
       productId: product.id,
       skuCount: createdSkuCount,
@@ -404,12 +423,25 @@ export async function updateProduct(req: Request, res: Response) {
 
 export async function deleteProduct(req: Request, res: Response) {
   await query(`DELETE FROM products WHERE id = $1 AND tenant_id = $2`, [req.params.id, req.user!.tenantId]);
+  await syncSkuUsageCounter(req.user!.tenantId);
   res.status(204).send();
 }
 
 export async function createSku(req: Request, res: Response) {
   const parsed = skuSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ message: 'Invalid payload' });
+  try {
+    await assertSkuQuotaAvailable(req.user!.tenantId, 1);
+  } catch (error: any) {
+    await recordTenantAuditEvent({
+      tenantId: req.user!.tenantId,
+      actorType: 'tenant_user',
+      actorId: req.user!.id,
+      eventType: 'tenant.sku_limit.blocked',
+      payload: { attemptedSkuIncrement: 1, message: error?.message ?? 'SKU limit exceeded' },
+    });
+    return res.status(403).json({ message: error?.message ?? 'SKU limit exceeded', code: 'SKU_LIMIT_EXCEEDED' });
+  }
   const s = parsed.data;
   const result = await query(
     `INSERT INTO skus (tenant_id, product_id, color_name, color_code, sku_code, price_override, status)
@@ -417,6 +449,7 @@ export async function createSku(req: Request, res: Response) {
      RETURNING *`,
     [req.user!.tenantId, req.params.id, s.colorName, s.colorCode ?? null, s.skuCode, s.priceOverride ?? null, s.status]
   );
+  await syncSkuUsageCounter(req.user!.tenantId);
   res.status(201).json(result.rows[0]);
 }
 
@@ -453,6 +486,7 @@ export async function updateSku(req: Request, res: Response) {
 
 export async function deleteSku(req: Request, res: Response) {
   await query(`DELETE FROM skus WHERE id = $1 AND tenant_id = $2`, [req.params.skuId, req.user!.tenantId]);
+  await syncSkuUsageCounter(req.user!.tenantId);
   res.status(204).send();
 }
 

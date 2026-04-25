@@ -1,6 +1,7 @@
 import fetch from 'node-fetch';
 import { CONVERSATIONAL_ENGINE_URL } from '@backend/config/env.js';
 import { query } from '@backend/db/pool.js';
+import { consumeAiTokens, estimateAiTokens, extractProviderTokenUsage } from '@backend/modules/platform/control-plane.js';
 import { logger } from '@backend/utils/logger.js';
 
 type InterpretTransactionInput = {
@@ -47,6 +48,17 @@ export async function interpretTransaction(input: InterpretTransactionInput): Pr
   } catch {
     throw new Error('Conversational engine returned invalid payload');
   }
+
+  const usage =
+    extractProviderTokenUsage(spec?.usagePayload ?? spec?.usage ?? null) ??
+    (typeof spec?.tokenUsage?.totalTokens === 'number'
+      ? {
+          promptTokens: Number(spec?.tokenUsage?.promptTokens ?? 0),
+          completionTokens: Number(spec?.tokenUsage?.completionTokens ?? 0),
+          totalTokens: Number(spec?.tokenUsage?.totalTokens ?? 0),
+        }
+      : null);
+  await consumeAiTokens(input.tenantId, usage?.totalTokens ?? estimateAiTokens(input.text));
 
   const specRes = await query(
     `INSERT INTO transaction_specs (tenant_id, intent, entities, quantities, constraints, confidence, governance_decision, status, created_by, conversation_id)

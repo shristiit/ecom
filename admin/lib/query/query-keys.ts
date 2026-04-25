@@ -2,6 +2,9 @@ export const queryKeys = {
   auth: {
     me: () => ['auth', 'me'] as const,
   },
+  billing: {
+    summary: () => ['billing', 'summary'] as const,
+  },
   dashboard: {
     overview: () => ['dashboard', 'overview'] as const,
   },
@@ -40,5 +43,11 @@ export const queryKeys = {
     conversation: (id: string) => ['assistant', 'conversation', id] as const,
     approvals: () => ['assistant', 'approvals'] as const,
     history: () => ['assistant', 'history'] as const,
+  },
+  platform: {
+    businesses: () => ['platform', 'businesses'] as const,
+    business: (id: string) => ['platform', 'business', id] as const,
+    admins: () => ['platform', 'admins'] as const,
+    audit: () => ['platform', 'audit'] as const,
   },
 };

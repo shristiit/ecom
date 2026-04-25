@@ -28,6 +28,10 @@ EventSink = Callable[[str, dict[str, object]], None]
 logger = logging.getLogger(__name__)
 
 
+def _estimate_tokens(text: str) -> int:
+    return max(1, (len(text.strip()) + 3) // 4)
+
+
 class AgentRuntimeService:
     def __init__(
         self,
@@ -69,6 +73,13 @@ class AgentRuntimeService:
             recent_messages=recent_messages,
             extracted_entities=extracted_entities,
         )
+        usage_entries: list[dict[str, object]] = []
+
+        await self._backend_client.check_ai_usage_quota(
+            access_token=auth.access_token or '',
+            tenant_id=auth.tenant_id,
+            requested_tokens=_estimate_tokens(user_message),
+        )
 
         try:
             for iteration in range(3):
@@ -80,6 +91,14 @@ class AgentRuntimeService:
                         }
                         provider_name = trace.response.provider_name if trace.response else 'unavailable'
                         model_name = trace.response.model_name if trace.response else 'unavailable'
+                        if trace.response and trace.response.raw_payload:
+                            usage_entries.append(
+                                {
+                                    'provider': provider_name,
+                                    'model': model_name,
+                                    'rawPayload': trace.response.raw_payload,
+                                }
+                            )
                         self._training_data_service.record_trace(
                             tenant_id=auth.tenant_id,
                             run_id=run_id,
@@ -371,3 +390,13 @@ class AgentRuntimeService:
                 current_task='runtime_error',
                 extracted_entities=extracted_entities,
             )
+        finally:
+            if usage_entries:
+                try:
+                    await self._backend_client.record_ai_usage(
+                        access_token=auth.access_token or '',
+                        tenant_id=auth.tenant_id,
+                        entries=usage_entries,
+                    )
+                except Exception:
+                    logger.exception('failed to record exact ai usage for conversation %s workflow %s', conversation_id, workflow_id)

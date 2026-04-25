@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "scripts": {
     "start": "expo start",
-    "start:dev": "expo start --web",
+    "start:dev": "EXPO_PUBLIC_PORTAL_MODE=business expo start --web --port 8081",
     "build": "expo export --platform web",
     "build:web": "expo export --platform web",
     "build:prod": "expo export --platform web --output-dir dist",
@@ -22,7 +22,7 @@
     "reset-project": "node ./scripts/reset-project.js",
     "android": "pnpm android:dev",
     "ios": "pnpm ios:dev",
-    "web": "expo start --web",
+    "web": "EXPO_PUBLIC_PORTAL_MODE=business expo start --web --port 8081",
     "lint": "expo lint"
   },
   "dependencies": {

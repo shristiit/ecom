@@ -5,7 +5,7 @@ import { AppButton, AppInput } from '@admin/components/ui';
 import { AuthScreenShell, useAuthSession } from '@admin/features/auth';
 
 export default function LoginScreen() {
-  const { signIn, signInWithSso } = useAuthSession();
+  const { signIn, signInWithSso, portalMode } = useAuthSession();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -43,7 +43,7 @@ export default function LoginScreen() {
   };
 
   return (
-    <AuthScreenShell title="Sign in">
+    <AuthScreenShell title={portalMode === 'platform' ? 'Platform sign in' : 'Sign in'}>
       <KeyboardAvoidingView behavior={Platform.select({ ios: 'padding', default: undefined })}>
         <View className="gap-4 w-480">
           <AppInput
@@ -67,7 +67,17 @@ export default function LoginScreen() {
           {error ? <Text className="text-caption text-error">{error}</Text> : null}
 
           <AppButton label="Sign in" onPress={handleLogin} loading={submitting} fullWidth />
-          <AppButton label="Continue with SSO" variant="secondary" onPress={handleSsoLogin} loading={ssoSubmitting} fullWidth />
+          {portalMode === 'business' ? (
+            <AppButton label="Continue with SSO" variant="secondary" onPress={handleSsoLogin} loading={ssoSubmitting} fullWidth />
+          ) : null}
+
+          {portalMode === 'business' ? (
+            <Link href="/signup" asChild>
+              <Pressable accessibilityRole="link" accessibilityLabel="Create a business account" accessibilityHint="Opens the business signup page.">
+                <Text className="text-center text-small text-primary">Start a 15-day trial</Text>
+              </Pressable>
+            </Link>
+          ) : null}
 
           <Link href="/forgot-password" asChild>
             <Pressable accessibilityRole="link" accessibilityLabel="Forgot password?" accessibilityHint="Opens the password reset request page.">
