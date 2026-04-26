@@ -1,21 +1,26 @@
 import { type ReactNode, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Platform } from 'react-native';
 import { openBrowserAsync, WebBrowserPresentationStyle } from 'expo-web-browser';
-import { get, configureApiClient } from '@admin/lib/api';
+import { configureApiClient } from '@admin/lib/api';
 import { authService } from '../services/auth.service';
 import { sessionStorage } from '../services/session-storage';
-import type { LoginInput } from '../types/auth.types';
-import type { SessionState, SessionTenant, SessionUser } from '../types/session.types';
+import type { LoginInput, RegisterBusinessInput } from '../types/auth.types';
+import type { PrincipalType, SessionState, SessionTenant, SessionUser } from '../types/session.types';
+
+type PortalMode = 'business' | 'platform';
 
 type AuthSessionContextValue = {
   status: SessionState['status'];
   isReady: boolean;
   isAuthenticated: boolean;
   requiresMfa: boolean;
+  portalMode: PortalMode;
   user: SessionUser | null;
   tenants: SessionTenant[];
   selectedTenantId: string | null;
+  businessSlug: string | null;
   signIn: (input: LoginInput) => Promise<void>;
+  signUpBusiness: (input: RegisterBusinessInput) => Promise<void>;
   signInWithSso: () => Promise<void>;
   verifyMfa: (code: string) => Promise<void>;
   requestPasswordReset: (email: string) => Promise<void>;
@@ -28,6 +33,7 @@ type AuthSessionContextValue = {
 
 const MFA_ENABLED = process.env.EXPO_PUBLIC_ENABLE_MFA === 'true';
 const SSO_URL = process.env.EXPO_PUBLIC_SSO_URL ?? '';
+const PLATFORM_HOSTNAME = process.env.EXPO_PUBLIC_PLATFORM_HOSTNAME ?? 'master.stockaisle.com';
 
 const initialState: SessionState = {
   status: 'bootstrapping',
@@ -41,29 +47,52 @@ const initialState: SessionState = {
 
 const AuthSessionContext = createContext<AuthSessionContextValue | null>(null);
 
-async function resolvePermissions(roleId: string) {
-  try {
-    const roles = await get<Array<{ id: string; permissions?: string[] }>>('/admin/roles');
-    const role = roles.find((item) => item.id === roleId);
-    return role?.permissions ?? [];
-  } catch {
-    return [];
+function resolvePortalMode(): PortalMode {
+  if (process.env.EXPO_PUBLIC_PORTAL_MODE === 'platform') {
+    return 'platform';
   }
+
+  if (typeof window !== 'undefined') {
+    return window.location.hostname === PLATFORM_HOSTNAME ? 'platform' : 'business';
+  }
+
+  return 'business';
 }
 
-async function buildSessionUser() {
-  const profile = await authService.me();
-  const permissions = profile.permissions?.length ? profile.permissions : await resolvePermissions(profile.roleId);
+async function buildSessionUser(portalMode: PortalMode) {
+  if (portalMode === 'platform') {
+    const profile = await authService.platformMe();
+    return {
+      user: {
+        principalType: 'platform_admin',
+        id: profile.id,
+        email: profile.email,
+        permissions: profile.permissions,
+      } satisfies SessionUser,
+      defaultTenantId: null,
+      tenants: [] as SessionTenant[],
+    };
+  }
 
+  const profile = await authService.me();
   return {
     user: {
+      principalType: 'tenant_user',
       id: profile.id,
       tenantId: profile.tenantId,
+      tenantSlug: profile.tenantSlug,
+      tenantStatus: profile.tenantStatus,
       roleId: profile.roleId,
       email: profile.email,
-      permissions,
+      permissions: profile.permissions,
+      features: profile.features,
+      limits: profile.limits,
+      usage: profile.usage,
+      restrictions: profile.restrictions,
+      billing: profile.billing,
     } satisfies SessionUser,
     defaultTenantId: profile.tenantId,
+    tenants: [{ id: profile.tenantId, name: profile.tenantSlug, slug: profile.tenantSlug }] as SessionTenant[],
   };
 }
 
@@ -71,6 +100,7 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<SessionState>(initialState);
   const refreshInFlightRef = useRef<Promise<boolean> | null>(null);
   const unauthorizedHandlerRef = useRef<(() => Promise<boolean>) | null>(null);
+  const portalMode = resolvePortalMode();
 
   const signOut = useCallback(() => {
     sessionStorage.clear();
@@ -82,14 +112,15 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
   const applyApiContext = useCallback((nextState: SessionState) => {
     configureApiClient({
       getAccessToken: () => nextState.accessToken,
-      getTenantId: () => nextState.selectedTenantId ?? nextState.user?.tenantId ?? null,
+      getTenantId: () =>
+        portalMode === 'business' ? nextState.selectedTenantId ?? nextState.user?.tenantId ?? null : null,
       onUnauthorized: async () => {
         const handler = unauthorizedHandlerRef.current;
         if (!handler) return false;
         return handler();
       },
     });
-  }, []);
+  }, [portalMode]);
 
   const commitSignedInSession = useCallback(
     async (accessToken: string, refreshToken: string, selectedTenantId?: string | null) => {
@@ -101,16 +132,19 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
         refreshToken,
         user: null,
         tenants: [],
-        selectedTenantId: selectedTenantId ?? null,
+        selectedTenantId: portalMode === 'business' ? selectedTenantId ?? null : null,
         pendingTokens: null,
       };
       applyApiContext(draftState);
 
-      const { user, defaultTenantId } = await buildSessionUser();
-      const nextSelectedTenantId = selectedTenantId ?? defaultTenantId;
-      const tenants: SessionTenant[] = [{ id: defaultTenantId, name: 'Primary Tenant' }];
+      const { user, defaultTenantId, tenants } = await buildSessionUser(portalMode);
+      const nextSelectedTenantId = portalMode === 'business' ? selectedTenantId ?? defaultTenantId : null;
 
-      sessionStorage.writeSelectedTenant(nextSelectedTenantId);
+      if (portalMode === 'business') {
+        sessionStorage.writeSelectedTenant(nextSelectedTenantId);
+      } else {
+        sessionStorage.writeSelectedTenant(null);
+      }
 
       const nextState: SessionState = {
         ...draftState,
@@ -122,7 +156,7 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
       setState(nextState);
       applyApiContext(nextState);
     },
-    [applyApiContext],
+    [applyApiContext, portalMode],
   );
 
   const handleUnauthorized = useCallback(async () => {
@@ -184,7 +218,7 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
 
   const signIn = useCallback(
     async (input: LoginInput) => {
-      const tokens = await authService.login(input);
+      const tokens = portalMode === 'platform' ? await authService.platformLogin(input) : await authService.login(input);
 
       if (MFA_ENABLED) {
         setState((prev) => ({
@@ -197,10 +231,25 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
 
       await commitSignedInSession(tokens.accessToken, tokens.refreshToken);
     },
-    [commitSignedInSession],
+    [commitSignedInSession, portalMode],
+  );
+
+  const signUpBusiness = useCallback(
+    async (input: RegisterBusinessInput) => {
+      if (portalMode === 'platform') {
+        throw new Error('Business signup is not available in the platform portal.');
+      }
+
+      const session = await authService.registerBusiness(input);
+      await commitSignedInSession(session.accessToken, session.refreshToken, session.tenantId);
+    },
+    [commitSignedInSession, portalMode],
   );
 
   const signInWithSso = useCallback(async () => {
+    if (portalMode === 'platform') {
+      throw new Error('SSO is not available for platform admins.');
+    }
     if (!SSO_URL) {
       throw new Error('SSO is not configured for this tenant.');
     }
@@ -213,7 +262,7 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
     await openBrowserAsync(SSO_URL, {
       presentationStyle: WebBrowserPresentationStyle.AUTOMATIC,
     });
-  }, []);
+  }, [portalMode]);
 
   const verifyMfa = useCallback(
     async (code: string) => {
@@ -240,17 +289,19 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const selectTenant = useCallback((tenantId: string) => {
+    if (portalMode !== 'business') return;
     setState((prev) => {
       const nextState = { ...prev, selectedTenantId: tenantId };
       applyApiContext(nextState);
       return nextState;
     });
     sessionStorage.writeSelectedTenant(tenantId);
-  }, [applyApiContext]);
+  }, [applyApiContext, portalMode]);
 
   const hasPermission = useCallback(
     (permission: string) => {
       if (!state.user) return false;
+      if (state.user.principalType === 'platform_admin') return true;
       return state.user.permissions.includes(permission) || state.user.permissions.includes('*');
     },
     [state.user],
@@ -270,10 +321,13 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
       isReady: state.status !== 'bootstrapping',
       isAuthenticated: state.status === 'signed_in',
       requiresMfa: state.status === 'mfa_required',
+      portalMode,
       user: state.user,
       tenants: state.tenants,
       selectedTenantId: state.selectedTenantId,
+      businessSlug: state.user?.principalType === 'tenant_user' ? state.user.tenantSlug ?? null : null,
       signIn,
+      signUpBusiness,
       signInWithSso,
       verifyMfa,
       requestPasswordReset,
@@ -283,7 +337,7 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
       hasPermission,
       hasAnyPermission,
     }),
-    [state, signIn, signInWithSso, verifyMfa, requestPasswordReset, resetPassword, selectTenant, signOut, hasPermission, hasAnyPermission],
+    [state, portalMode, signIn, signUpBusiness, signInWithSso, verifyMfa, requestPasswordReset, resetPassword, selectTenant, signOut, hasPermission, hasAnyPermission],
   );
 
   return <AuthSessionContext.Provider value={value}>{children}</AuthSessionContext.Provider>;
