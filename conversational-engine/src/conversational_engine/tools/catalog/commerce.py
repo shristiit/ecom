@@ -7,7 +7,7 @@ from conversational_engine.contracts.auth import AuthContext
 from conversational_engine.retrieval.navigation_targets import NAVIGATION_TARGETS
 from conversational_engine.tools.definitions import SemanticTool
 from .resolvers import EntityResolver
-from .utils import object_schema
+from .utils import object_schema, search_rows
 
 
 def build_commerce_tools(
@@ -15,6 +15,26 @@ def build_commerce_tools(
 ) -> dict[str, SemanticTool]:
     token = auth.access_token or ''
     tenant = auth.tenant_id
+
+    async def search_locations(payload: dict[str, Any]) -> dict[str, Any]:
+        items = await backend.list_locations(token, tenant)
+        rows = search_rows(items, str(payload.get('query') or ''), 'name', 'code')
+        return {'rows': [{k: row[k] for k in ('id', 'name', 'code') if k in row} for row in rows]}
+
+    async def search_suppliers(payload: dict[str, Any]) -> dict[str, Any]:
+        items = await backend.list_suppliers(token, tenant)
+        rows = search_rows(items, str(payload.get('query') or ''), 'name', 'code')
+        return {'rows': [{k: row[k] for k in ('id', 'name', 'code') if k in row} for row in rows]}
+
+    async def search_customers(payload: dict[str, Any]) -> dict[str, Any]:
+        items = await backend.list_customers(token, tenant)
+        rows = search_rows(items, str(payload.get('query') or ''), 'name', 'email', 'code')
+        return {'rows': [{k: row[k] for k in ('id', 'name', 'email', 'code') if k in row} for row in rows]}
+
+    async def search_categories(payload: dict[str, Any]) -> dict[str, Any]:
+        items = await backend.list_categories(token, tenant)
+        rows = search_rows(items, str(payload.get('query') or ''), 'name')
+        return {'rows': [{k: row[k] for k in ('id', 'name') if k in row} for row in rows]}
 
     async def find_screen(payload: dict[str, Any]) -> dict[str, Any]:
         query = str(payload.get('query') or '').lower()
@@ -39,6 +59,42 @@ def build_commerce_tools(
         return {'result': await backend.create_invoice(token, tenant, resolved)}
 
     return {
+        'master.search_locations': SemanticTool(
+            name='master.search_locations',
+            description='Search locations by name or code.',
+            input_schema=object_schema({'query': {'type': 'string'}}, ['query']),
+            risk_level='low',
+            side_effect=False,
+            output_mode='table',
+            executor=search_locations,
+        ),
+        'master.search_suppliers': SemanticTool(
+            name='master.search_suppliers',
+            description='Search suppliers by name or code.',
+            input_schema=object_schema({'query': {'type': 'string'}}, ['query']),
+            risk_level='low',
+            side_effect=False,
+            output_mode='table',
+            executor=search_suppliers,
+        ),
+        'master.search_customers': SemanticTool(
+            name='master.search_customers',
+            description='Search customers by name, email, or code.',
+            input_schema=object_schema({'query': {'type': 'string'}}, ['query']),
+            risk_level='low',
+            side_effect=False,
+            output_mode='table',
+            executor=search_customers,
+        ),
+        'master.search_categories': SemanticTool(
+            name='master.search_categories',
+            description='Search product categories by name.',
+            input_schema=object_schema({'query': {'type': 'string'}}, ['query']),
+            risk_level='low',
+            side_effect=False,
+            output_mode='table',
+            executor=search_categories,
+        ),
         'navigation.find_screen': SemanticTool(
             name='navigation.find_screen',
             description='Find the most relevant internal screen for a user workflow request.',

@@ -1,7 +1,8 @@
 import { Link } from 'expo-router';
 import { useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
-import { AppButton, AppCard, AppTable, AppTableCell, AppTableHeaderCell, AppTableRow, PageHeader } from '@admin/components/ui';
+import { AppButton, AppCard, AppInput, AppTable, AppTableCell, AppTableHeaderCell, AppTableRow, PageHeader } from '@admin/components/ui';
+import { useDebouncedNameFilter } from '@admin/features/shared';
 import {
   MasterFormModal,
   useCreateMasterCategoryMutation,
@@ -18,6 +19,7 @@ export default function MasterCategoriesScreen() {
   const updateCategory = useUpdateMasterCategoryMutation();
   const deleteCategory = useDeleteMasterCategoryMutation();
   const rows = query.data ?? [];
+  const { nameFilter, setNameFilter, filteredRows, hasActiveFilter } = useDebouncedNameFilter(rows);
   const editingRow = rows.find((row) => row.id === editingId);
 
   const handleSubmit = async (values: Record<string, string>) => {
@@ -78,50 +80,64 @@ export default function MasterCategoriesScreen() {
         ) : null}
 
         {!query.isLoading && !query.error ? (
-          <AppTable>
-            <AppTableRow header>
-              <AppTableHeaderCell>Name</AppTableHeaderCell>
-              <AppTableHeaderCell>Slug</AppTableHeaderCell>
-              <AppTableHeaderCell>Created</AppTableHeaderCell>
-              <AppTableHeaderCell align="right">Actions</AppTableHeaderCell>
-            </AppTableRow>
+          <View className="gap-4">
+            <AppInput
+              label="Filter by category name"
+              placeholder="Type a category name"
+              value={nameFilter}
+              onChangeText={setNameFilter}
+              autoCapitalize="none"
+              autoCorrect={false}
+              containerClassName="max-w-md"
+            />
 
-            {rows.map((row) => (
-              <AppTableRow key={row.id}>
-                <AppTableCell>{row.name}</AppTableCell>
-                <AppTableCell>{row.slug}</AppTableCell>
-                <AppTableCell>{new Date(row.createdAt).toLocaleDateString()}</AppTableCell>
-                <AppTableCell align="right">
-                  <View className="flex-row justify-end gap-2">
-                    <AppButton
-                      label="Edit"
-                      size="sm"
-                      variant="tertiary"
-                      onPress={() => {
-                        setEditingId(row.id);
-                        setIsModalOpen(true);
-                      }}
-                    />
-                    <AppButton
-                      label="Delete"
-                      size="sm"
-                      variant="tertiary"
-                      loading={deleteCategory.isPending}
-                      onPress={() => void handleDelete(row.id)}
-                    />
-                  </View>
-                </AppTableCell>
+            <AppTable>
+              <AppTableRow header>
+                <AppTableHeaderCell>Name</AppTableHeaderCell>
+                <AppTableHeaderCell>Slug</AppTableHeaderCell>
+                <AppTableHeaderCell>Created</AppTableHeaderCell>
+                <AppTableHeaderCell align="right">Actions</AppTableHeaderCell>
               </AppTableRow>
-            ))}
 
-            {rows.length === 0 ? (
-              <AppTableRow>
-                <AppTableCell className="min-w-full">
-                  <Text className="text-small text-muted">No categories found.</Text>
-                </AppTableCell>
-              </AppTableRow>
-            ) : null}
-          </AppTable>
+              {filteredRows.map((row) => (
+                <AppTableRow key={row.id}>
+                  <AppTableCell>{row.name}</AppTableCell>
+                  <AppTableCell>{row.slug}</AppTableCell>
+                  <AppTableCell>{new Date(row.createdAt).toLocaleDateString()}</AppTableCell>
+                  <AppTableCell align="right">
+                    <View className="flex-row justify-end gap-2">
+                      <AppButton
+                        label="Edit"
+                        size="sm"
+                        variant="tertiary"
+                        onPress={() => {
+                          setEditingId(row.id);
+                          setIsModalOpen(true);
+                        }}
+                      />
+                      <AppButton
+                        label="Delete"
+                        size="sm"
+                        variant="tertiary"
+                        loading={deleteCategory.isPending}
+                        onPress={() => void handleDelete(row.id)}
+                      />
+                    </View>
+                  </AppTableCell>
+                </AppTableRow>
+              ))}
+
+              {filteredRows.length === 0 ? (
+                <AppTableRow>
+                  <AppTableCell className="min-w-full">
+                    <Text className="text-small text-muted">
+                      {rows.length === 0 ? 'No categories found.' : hasActiveFilter ? 'No categories match that name.' : 'No categories found.'}
+                    </Text>
+                  </AppTableCell>
+                </AppTableRow>
+              ) : null}
+            </AppTable>
+          </View>
         ) : null}
       </AppCard>
 

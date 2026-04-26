@@ -66,10 +66,22 @@ export function AppTableCell({ children, align = 'left', className }: TableCellP
   const { width } = useWindowDimensions();
   const isText = typeof children === 'string' || typeof children === 'number';
   const widthClass = width < 768 ? 'min-w-[96px]' : 'min-w-0 basis-0';
+  const textAlignStyle = {
+    left: 'left' as const,
+    right: 'right' as const,
+    center: 'center' as const,
+  };
 
   return (
     <View className={`${widthClass} flex-1 justify-center ${alignClass[align]} ${className ?? ''}`.trim()}>
-      {isText ? <Text className="text-small text-text">{children}</Text> : children}
+      {isText ? (
+        <Text
+          className="w-full flex-shrink text-small text-text"
+          style={{ flexShrink: 1, flexWrap: 'wrap', textAlign: textAlignStyle[align] }}
+        >
+          {children}
+        </Text>
+      ) : children}
     </View>
   );
 }

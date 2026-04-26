@@ -1,8 +1,9 @@
 import { useMemo } from 'react';
 import { queryKeys, useQuery } from '@admin/lib/query';
 import { inventoryService } from '../services/inventory.service';
+import type { StockOnHandFilter } from '../types/inventory.types';
 
-export function useStockOnHandQuery(filters?: { locationId?: string; sku?: string }, enabled = true) {
+export function useStockOnHandQuery(filters?: StockOnHandFilter, enabled = true) {
   const filterKey = useMemo(() => JSON.stringify(filters ?? {}), [filters]);
 
   return useQuery({
