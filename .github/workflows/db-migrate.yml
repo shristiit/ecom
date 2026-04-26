@@ -92,7 +92,11 @@ jobs:
             "${{ vars.AWS_BACKEND_SERVICE }}" \
             "${{ steps.backend_task_def.outputs.task_definition_arn }}" \
             "backend" \
+<<<<<<< Updated upstream
             sh -lc "export PGSSLMODE=require; npm run db:ensure:runtime && npm run migrate:up:runtime"
+=======
+            sh -lc "export PGSSLMODE=require; npm run db:ensure:runtime && npm run migrate:up:runtime:compat"
+>>>>>>> Stashed changes
 
       - name: Run backend migrate down
         if: steps.vars.outputs.target == 'backend' && steps.vars.outputs.direction == 'down'
@@ -102,7 +106,11 @@ jobs:
             "${{ vars.AWS_BACKEND_SERVICE }}" \
             "${{ steps.backend_task_def.outputs.task_definition_arn }}" \
             "backend" \
+<<<<<<< Updated upstream
             sh -lc "export PGSSLMODE=require; npm run migrate:down:runtime"
+=======
+            sh -lc "export PGSSLMODE=require; npm run migrate:down:runtime:compat"
+>>>>>>> Stashed changes
 
       - name: Build and push conversational-engine image
         if: steps.vars.outputs.target == 'engine'

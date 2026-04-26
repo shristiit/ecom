@@ -197,6 +197,17 @@ data "aws_iam_policy_document" "github_actions_deploy" {
       aws_cloudfront_distribution.superadmin.arn,
     ]
   }
+
+  statement {
+    sid = "CloudWatchTaskLogsRead"
+
+    actions = [
+      "logs:DescribeLogGroups",
+      "logs:DescribeLogStreams",
+      "logs:GetLogEvents",
+    ]
+    resources = ["*"]
+  }
 }
 
 resource "aws_iam_policy" "github_actions_deploy" {
