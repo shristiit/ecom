@@ -57,7 +57,7 @@ variable "existing_vpc_id" {
 }
 
 variable "existing_public_subnet_ids_csv" {
-  description = "Optional comma-separated subnet IDs to reuse for the ALB and ECS services."
+  description = "Optional comma-separated public subnet IDs to reuse for the ALB and ECS services. These subnets must provide outbound AWS API access for Fargate startup."
   type        = string
   default     = ""
 }

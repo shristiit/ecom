@@ -68,6 +68,7 @@ terraform init -backend-config=backend.hcl
 - Add a real `backend.hcl` from the example below before the first shared/team apply so Terraform state is stored in S3 with a DynamoDB lock table.
 - The Terraform state bucket/table can live in a different region from the production app stack. Set `TF_STATE_REGION` in GitHub Actions to match the S3 bucket and DynamoDB table region.
 - If you already have an RDS database inside an existing VPC, set `AWS_VPC_ID` and `AWS_PUBLIC_SUBNET_IDS` so Terraform reuses that network instead of creating a separate VPC.
+- `AWS_PUBLIC_SUBNET_IDS` must point at subnets that are actually public for the current stack design. Reusing private subnets will commonly surface as ECS `ResourceInitializationError` failures while fetching SSM parameters or ECR auth.
 - Terraform plan/apply workflows assume a separate bootstrap/admin AWS role. The deploy role output by this stack is intentionally narrower and only meant for application releases.
 - For a fresh London deployment, create the database manually first in `eu-west-2`, then feed the VPC ID, public subnet IDs, and RDS security group ID into the GitHub repository variables before `Terraform Apply`.
 - This branch currently leaves existing RDS security-group ingress rules unmanaged by default. If the DB rules already exist and work, Terraform will not try to recreate them.
