@@ -20,6 +20,9 @@ print_task_logs() {
   local log_stream
   local stream_names
   local attempt
+  local describe_streams_output
+  local describe_streams_status
+  local get_events_status
 
   task_id="$(jq -r '.tasks[0].taskArn // ""' <<<"$task_output" | awk -F'/' '{print $NF}')"
   if [ -z "$task_id" ]; then
@@ -47,13 +50,19 @@ print_task_logs() {
   stream_names=""
 
   for attempt in 1 2 3 4 5; do
-    stream_names="$(
+    describe_streams_output="$(
       aws logs describe-log-streams \
         --log-group-name "$log_group" \
         --log-stream-name-prefix "${log_prefix}/" \
         --query "logStreams[?contains(logStreamName, '${task_id}')].logStreamName" \
-        --output text 2>/dev/null || true
+        --output text 2>&1
     )"
+    describe_streams_status=$?
+    if [ "$describe_streams_status" -ne 0 ]; then
+      echo "Unable to read CloudWatch log streams for ${log_group}: ${describe_streams_output}" >&2
+      return 0
+    fi
+    stream_names="$describe_streams_output"
     if [ -n "$stream_names" ] && [ "$stream_names" != "None" ]; then
       break
     fi
@@ -73,10 +82,15 @@ print_task_logs() {
       --limit 200 \
       --query 'events[].message' \
       --output text \
-      > /tmp/aws-task-log-events.txt 2>/dev/null || true
+      > /tmp/aws-task-log-events.txt 2>/tmp/aws-task-log-events.err
+    get_events_status=$?
 
     echo "--- CloudWatch logs: ${log_group} / ${log_stream_name} ---" >&2
-    cat /tmp/aws-task-log-events.txt >&2 2>/dev/null || true
+    if [ "$get_events_status" -eq 0 ]; then
+      cat /tmp/aws-task-log-events.txt >&2 2>/dev/null || true
+    else
+      cat /tmp/aws-task-log-events.err >&2 2>/dev/null || true
+    fi
     echo "--- end logs ---" >&2
   done <<<"$(printf '%s\n' "$stream_names" | tr '\t' '\n')"
 }
