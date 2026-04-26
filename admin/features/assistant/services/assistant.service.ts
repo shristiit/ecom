@@ -85,11 +85,11 @@ export const assistantService = {
   },
 
   async streamRun(
-    input: { conversationId?: string; title?: string | null; content: string },
+    input: { conversationId?: string; title?: string | null; content: string; attachments?: Array<{ dataUrl: string; filename?: string }> },
     onEvent: (event: AssistantRunEvent) => void | Promise<void>,
   ): Promise<{ runId: string | null; conversationId: string | null; workflowId: string | null }> {
     let latestEvent: AssistantRunEvent | null = null;
-    await engineStream<AssistantRunEvent, { conversationId?: string; title?: string | null; content: string }>(
+    await engineStream<AssistantRunEvent, typeof input>(
       '/api/chat/runs/stream',
       input,
       async (event) => {

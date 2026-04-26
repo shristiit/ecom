@@ -9,6 +9,7 @@ from typing import Any
 class ProviderMessage:
     role: str
     content: str
+    image_data_urls: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

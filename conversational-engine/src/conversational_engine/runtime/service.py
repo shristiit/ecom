@@ -59,6 +59,7 @@ class AgentRuntimeService:
         recent_messages: list[dict[str, object]],
         emit: EventSink,
         run_id: UUID,
+        image_data_urls: tuple[str, ...] = (),
     ) -> RuntimeOutcome:
         tool_history: list[dict[str, object]] = []
         catalog = SemanticToolCatalog(backend=self._backend_client, auth=auth)
@@ -100,6 +101,7 @@ class AgentRuntimeService:
                     },
                     tools=catalog.schema_catalog(),
                     history=tool_history,
+                    image_data_urls=image_data_urls if iteration == 0 else (),
                     trace_callback=record_trace('planner', iteration),
                 )
                 emit(

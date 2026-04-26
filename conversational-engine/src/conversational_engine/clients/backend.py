@@ -70,6 +70,18 @@ class BackendClient:
     async def list_products(self, access_token: str, tenant_id: str) -> list[dict[str, object]]:
         return await self._request('GET', '/products', access_token, tenant_id)
 
+    async def search_products(
+        self,
+        access_token: str,
+        tenant_id: str,
+        q: str | None = None,
+        color: str | None = None,
+        category: str | None = None,
+        brand: str | None = None,
+    ) -> list[dict[str, object]]:
+        params = {k: v for k, v in {'q': q, 'color': color, 'category': category, 'brand': brand}.items() if v}
+        return await self._request('GET', '/products', access_token, tenant_id, params=params or None)
+
     async def get_product(self, access_token: str, tenant_id: str, product_id: str) -> dict[str, object]:
         payload = await self._request('GET', f'/products/{product_id}', access_token, tenant_id)
         return payload
