@@ -4,6 +4,7 @@ import {
   AppBadge,
   AppButton,
   AppCard,
+  AppInput,
   PageShell,
   AppTable,
   AppTableCell,
@@ -11,6 +12,7 @@ import {
   AppTableRow,
   PageHeader,
 } from '@admin/components/ui';
+import { useDebouncedNameFilter } from '@admin/features/shared';
 import { useProductsQuery } from '@admin/features/products';
 
 const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
@@ -18,6 +20,7 @@ const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: '
 export default function ProductsListScreen() {
   const { data, error, isLoading, refetch } = useProductsQuery({ page: 1, pageSize: 100 });
   const products = data?.items ?? [];
+  const { nameFilter, setNameFilter, filteredRows, hasActiveFilter } = useDebouncedNameFilter(products);
 
   return (
     <PageShell variant="products">
@@ -42,41 +45,55 @@ export default function ProductsListScreen() {
           ) : null}
 
           {!isLoading && !error ? (
-            <AppTable>
-              <AppTableRow header>
-                <AppTableHeaderCell>Product</AppTableHeaderCell>
-                <AppTableHeaderCell>Style code</AppTableHeaderCell>
-                <AppTableHeaderCell>Category</AppTableHeaderCell>
-                <AppTableHeaderCell align="right">Base price</AppTableHeaderCell>
-                <AppTableHeaderCell align="right">Status</AppTableHeaderCell>
-              </AppTableRow>
+            <View className="gap-4">
+              <AppInput
+                label="Filter by product name"
+                placeholder="Type a product name"
+                value={nameFilter}
+                onChangeText={setNameFilter}
+                autoCapitalize="none"
+                autoCorrect={false}
+                containerClassName="max-w-md"
+              />
 
-              {products.map((product) => (
-                <AppTableRow key={product.id}>
-                  <AppTableCell>
-                    <Link href={`/products/${product.id}`} asChild>
-                      <Text className="text-small font-medium text-primary">{product.name}</Text>
-                    </Link>
-                  </AppTableCell>
-                  <AppTableCell>{product.styleCode}</AppTableCell>
-                  <AppTableCell>{product.category || '-'}</AppTableCell>
-                  <AppTableCell align="right" className="tabular-nums">
-                    {currency.format(Number(product.basePrice ?? 0))}
-                  </AppTableCell>
-                  <AppTableCell align="right">
-                    <AppBadge label={product.status} tone={product.status === 'active' ? 'success' : 'default'} />
-                  </AppTableCell>
+              <AppTable>
+                <AppTableRow header>
+                  <AppTableHeaderCell>Product</AppTableHeaderCell>
+                  <AppTableHeaderCell>Style code</AppTableHeaderCell>
+                  <AppTableHeaderCell>Category</AppTableHeaderCell>
+                  <AppTableHeaderCell align="right">Base price</AppTableHeaderCell>
+                  <AppTableHeaderCell align="right">Status</AppTableHeaderCell>
                 </AppTableRow>
-              ))}
 
-              {products.length === 0 ? (
-                <AppTableRow>
-                  <AppTableCell className="min-w-full">
-                    <Text className="text-small text-muted">No products found.</Text>
-                  </AppTableCell>
-                </AppTableRow>
-              ) : null}
-            </AppTable>
+                {filteredRows.map((product) => (
+                  <AppTableRow key={product.id}>
+                    <AppTableCell>
+                      <Link href={`/products/${product.id}`} asChild>
+                        <Text className="text-small font-medium text-primary">{product.name}</Text>
+                      </Link>
+                    </AppTableCell>
+                    <AppTableCell>{product.styleCode}</AppTableCell>
+                    <AppTableCell>{product.category || '-'}</AppTableCell>
+                    <AppTableCell align="right" className="tabular-nums">
+                      {currency.format(Number(product.basePrice ?? 0))}
+                    </AppTableCell>
+                    <AppTableCell align="right">
+                      <AppBadge label={product.status} tone={product.status === 'active' ? 'success' : 'default'} />
+                    </AppTableCell>
+                  </AppTableRow>
+                ))}
+
+                {filteredRows.length === 0 ? (
+                  <AppTableRow>
+                    <AppTableCell className="min-w-full">
+                      <Text className="text-small text-muted">
+                        {products.length === 0 ? 'No products found.' : hasActiveFilter ? 'No products match that name.' : 'No products found.'}
+                      </Text>
+                    </AppTableCell>
+                  </AppTableRow>
+                ) : null}
+              </AppTable>
+            </View>
           ) : null}
         </AppCard>
       </ScrollView>

@@ -6,6 +6,7 @@ import type {
   InventoryReceipt,
   InventorySimpleTransactionInput,
   InventoryTransferInput,
+  StockOnHandFilter,
   StockOnHandItem,
 } from '../types/inventory.types';
 
@@ -142,7 +143,7 @@ export const inventoryService = {
     return normalizePaginated(payload, toMovement);
   },
 
-  async getStockOnHand(filters?: { locationId?: string; sku?: string }) {
+  async getStockOnHand(filters?: StockOnHandFilter) {
     const payload = await get<StockRow[] | StockRow>('/inventory/stock-on-hand', { query: filters });
     if (Array.isArray(payload)) {
       return {

@@ -27,7 +27,19 @@ import { useAuthSession } from '@admin/features/auth';
 import { EntityQuickViewDrawer, GlobalCommandPalette, NotificationCenter } from '@admin/features/shared';
 
 type NavItem = {
-  href: '/' | '/dashboard' | '/products' | '/inventory' | '/orders' | '/billing' | '/master/locations' | '/users' | '/audit' | '/ai' | '/settings';
+  href:
+    | '/'
+    | '/dashboard'
+    | '/products'
+    | '/inventory'
+    | '/orders/sales'
+    | '/orders/purchase'
+    | '/billing'
+    | '/master/locations'
+    | '/users'
+    | '/audit'
+    | '/ai'
+    | '/settings';
   label: string;
   icon: LucideIcon;
   activePrefixes?: string[];
@@ -39,7 +51,14 @@ const NAV_ITEMS: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutGrid },
   { href: '/products', label: 'Products', icon: Boxes, permissions: ['products.read', 'products.write'] },
   { href: '/inventory', label: 'Inventory', icon: ArrowLeftRight, permissions: ['inventory.read', 'inventory.write'] },
-  { href: '/orders', label: 'Orders', icon: Package, permissions: ['sales.write', 'purchasing.write'] },
+  { href: '/orders/sales', label: 'Sales Orders', icon: Package, activePrefixes: ['/orders/sales'], permissions: ['sales.write'] },
+  {
+    href: '/orders/purchase',
+    label: 'Purchase Orders',
+    icon: Package,
+    activePrefixes: ['/orders/purchase'],
+    permissions: ['purchasing.read'],
+  },
   { href: '/billing', label: 'Billing & Payments', icon: CreditCard },
   { href: '/master/locations', label: 'Master Data', icon: Building2, activePrefixes: ['/master'], permissions: ['master.read', 'master.write'] },
   { href: '/users', label: 'Users & Access', icon: Users, activePrefixes: ['/users', '/roles', '/policies'], permissions: ['admin.roles.read', 'admin.policies.read'] },
@@ -52,6 +71,8 @@ const PAGE_TITLE_RULES = [
   { prefix: '/dashboard', title: 'Dashboard' },
   { prefix: '/products', title: 'Products' },
   { prefix: '/inventory', title: 'Inventory' },
+  { prefix: '/orders/sales', title: 'Sales Orders' },
+  { prefix: '/orders/purchase', title: 'Purchase Orders' },
   { prefix: '/orders', title: 'Orders' },
   { prefix: '/billing', title: 'Billing & Payments' },
   { prefix: '/master', title: 'Master Data' },
@@ -321,7 +342,9 @@ export function AppShell({ children }: { children: ReactNode }) {
   );
 
   const mobileNavItems = useMemo(() => {
-    const candidates = navItems.filter((item) => ['/dashboard', '/products', '/inventory', '/orders', '/ai'].includes(item.href));
+    const candidates = navItems.filter((item) =>
+      ['/dashboard', '/products', '/inventory', '/orders/sales', '/orders/purchase', '/ai'].includes(item.href),
+    );
     return candidates.length > 0 ? candidates : navItems.slice(0, 5);
   }, [navItems]);
 

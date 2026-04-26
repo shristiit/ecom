@@ -11,6 +11,12 @@ export type InventoryMovementsFilter = {
   toDate?: string;
 };
 
+export type StockOnHandFilter = {
+  productName?: string;
+  sku?: string;
+  locationId?: string;
+};
+
 export type StockOnHandItem = {
   skuId: string;
   sku: string;

@@ -53,7 +53,7 @@ async function resolvePermissions(roleId: string) {
 
 async function buildSessionUser() {
   const profile = await authService.me();
-  const permissions = await resolvePermissions(profile.roleId);
+  const permissions = profile.permissions?.length ? profile.permissions : await resolvePermissions(profile.roleId);
 
   return {
     user: {
