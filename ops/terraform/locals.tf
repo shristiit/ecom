@@ -30,16 +30,18 @@ locals {
     Repository  = var.github_repository
   }
 
-  admin_domain  = "admin.${var.domain_name}"
-  api_domain    = "api.${var.domain_name}"
-  engine_domain = "engine.${var.domain_name}"
-  media_domain  = "media.${var.domain_name}"
+  admin_domain      = "admin.${var.domain_name}"
+  superadmin_domain = "master.${var.domain_name}"
+  api_domain        = "api.${var.domain_name}"
+  engine_domain     = "engine.${var.domain_name}"
+  media_domain      = "media.${var.domain_name}"
 
   backend_ecr_repository = "${var.project}/backend"
   engine_ecr_repository  = "${var.project}/conversational-engine"
 
-  admin_bucket_name = "${local.name_prefix}-admin-${data.aws_caller_identity.current.account_id}"
-  media_bucket_name = "${local.name_prefix}-media-${data.aws_caller_identity.current.account_id}"
+  admin_bucket_name      = "${local.name_prefix}-admin-${data.aws_caller_identity.current.account_id}"
+  superadmin_bucket_name = "${local.name_prefix}-superadmin-${data.aws_caller_identity.current.account_id}"
+  media_bucket_name      = "${local.name_prefix}-media-${data.aws_caller_identity.current.account_id}"
 
   ecs_cluster_name    = "${local.name_prefix}-cluster"
   backend_family_name = "${local.name_prefix}-backend"
@@ -56,7 +58,7 @@ locals {
     PORT                      = "4000"
     ACCESS_TOKEN_TTL          = "15m"
     REFRESH_TOKEN_TTL         = "7d"
-    CORS_ORIGIN               = "https://${local.admin_domain}"
+    CORS_ORIGIN               = "https://stockaisle.com,https://${local.admin_domain}"
     CONVERSATIONAL_ENGINE_URL = "http://conversational-engine.${local.namespace_name}:8000"
     OPENAI_MODEL              = "gpt-4o-mini"
     OPENAI_BASE_URL           = "https://api.openai.com/v1"
@@ -100,6 +102,8 @@ locals {
     CONVERSATIONAL_ENGINE_LOG_LEVEL               = "INFO"
     CONVERSATIONAL_ENGINE_BACKEND_BASE_URL        = "https://${local.api_domain}/api"
     CONVERSATIONAL_ENGINE_LLM_BASE_URL            = "https://api.openai.com/v1"
+    CONVERSATIONAL_ENGINE_GEMINI_BASE_URL         = "https://generativelanguage.googleapis.com/v1beta"
+    CONVERSATIONAL_ENGINE_DEEPSEEK_BASE_URL       = "https://api.deepseek.com/v1"
     CONVERSATIONAL_ENGINE_MODEL_BEST              = "gpt-4.1"
     CONVERSATIONAL_ENGINE_MODEL_OK                = "gpt-4.1-mini"
     CONVERSATIONAL_ENGINE_EMBEDDINGS_MODEL        = "text-embedding-3-small"
@@ -108,10 +112,22 @@ locals {
     CONVERSATIONAL_ENGINE_EXECUTOR_PROVIDER_CHAIN = "openai,deepseek"
     CONVERSATIONAL_ENGINE_REVIEWER_PROVIDER_CHAIN = "openai,deepseek"
     CONVERSATIONAL_ENGINE_NARRATOR_PROVIDER_CHAIN = "openai,deepseek"
+    CONVERSATIONAL_ENGINE_OPENAI_PLANNER_MODEL    = "gpt-4.1"
+    CONVERSATIONAL_ENGINE_OPENAI_EXECUTOR_MODEL   = "gpt-4.1-mini"
+    CONVERSATIONAL_ENGINE_OPENAI_REVIEWER_MODEL   = "gpt-4.1"
+    CONVERSATIONAL_ENGINE_OPENAI_NARRATOR_MODEL   = "gpt-4.1-mini"
+    CONVERSATIONAL_ENGINE_GEMINI_PLANNER_MODEL    = "gemini-2.5-flash"
+    CONVERSATIONAL_ENGINE_GEMINI_EXECUTOR_MODEL   = "gemini-2.5-flash"
+    CONVERSATIONAL_ENGINE_GEMINI_REVIEWER_MODEL   = "gemini-2.5-flash"
+    CONVERSATIONAL_ENGINE_GEMINI_NARRATOR_MODEL   = "gemini-2.5-flash"
+    CONVERSATIONAL_ENGINE_DEEPSEEK_PLANNER_MODEL  = "deepseek-chat"
+    CONVERSATIONAL_ENGINE_DEEPSEEK_EXECUTOR_MODEL = "deepseek-chat"
+    CONVERSATIONAL_ENGINE_DEEPSEEK_REVIEWER_MODEL = "deepseek-chat"
+    CONVERSATIONAL_ENGINE_DEEPSEEK_NARRATOR_MODEL = "deepseek-chat"
     CONVERSATIONAL_ENGINE_FEATURE_ENABLED         = "true"
     CONVERSATIONAL_ENGINE_MUTATIONS_ENABLED       = "false"
     CONVERSATIONAL_ENGINE_RETRIEVAL_ENABLED       = "false"
-    CONVERSATIONAL_ENGINE_CORS_ORIGINS            = "https://${local.admin_domain}"
+    CONVERSATIONAL_ENGINE_CORS_ORIGINS            = "https://${local.admin_domain},https://${local.superadmin_domain}"
   }
 
   engine_ssm_parameters = {
@@ -123,6 +139,7 @@ locals {
   engine_secret_names = toset([
     "CONVERSATIONAL_ENGINE_DATABASE_URL",
     "CONVERSATIONAL_ENGINE_LLM_API_KEY",
+    "CONVERSATIONAL_ENGINE_GEMINI_API_KEY",
     "CONVERSATIONAL_ENGINE_DEEPSEEK_API_KEY",
   ])
 
@@ -132,6 +149,7 @@ locals {
     EXPO_PUBLIC_API_URL                   = "https://${local.api_domain}/api"
     EXPO_PUBLIC_CONVERSATIONAL_ENGINE_URL = "https://${local.engine_domain}"
     EXPO_PUBLIC_ENABLE_MFA                = "false"
+    EXPO_PUBLIC_PORTAL_MODE               = "business"
     EXPO_PUBLIC_SSO_URL                   = ""
   }
 
@@ -148,6 +166,7 @@ locals {
 
   cloudfront_domains = [
     local.admin_domain,
+    local.superadmin_domain,
     local.media_domain,
   ]
 }
