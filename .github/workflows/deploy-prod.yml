@@ -209,11 +209,7 @@ jobs:
         run: bash scripts/aws-deploy-static.sh admin/dist "${{ vars.AWS_ADMIN_BUCKET }}" "${{ vars.AWS_ADMIN_DISTRIBUTION_ID }}"
 
       - name: Build superadmin site
-<<<<<<< Updated upstream
-        if: steps.vars.outputs.target == 'all' || steps.vars.outputs.target == 'superadmin'
-=======
         if: steps.vars.outputs.target == 'superadmin' || (steps.vars.outputs.target == 'all' && vars.AWS_SUPERADMIN_BUCKET != '' && vars.AWS_SUPERADMIN_DISTRIBUTION_ID != '')
->>>>>>> Stashed changes
         env:
           ADMIN_PROD_API_URL: https://api.stockaisle.com/api
           EXPO_PUBLIC_API_URL: https://api.stockaisle.com/api
@@ -225,11 +221,7 @@ jobs:
         run: pnpm --filter superadmin build:prod
 
       - name: Deploy superadmin static assets
-<<<<<<< Updated upstream
-        if: steps.vars.outputs.target == 'all' || steps.vars.outputs.target == 'superadmin'
-=======
         if: steps.vars.outputs.target == 'superadmin' || (steps.vars.outputs.target == 'all' && vars.AWS_SUPERADMIN_BUCKET != '' && vars.AWS_SUPERADMIN_DISTRIBUTION_ID != '')
->>>>>>> Stashed changes
         run: bash scripts/aws-deploy-static.sh superadmin/dist "${{ vars.AWS_SUPERADMIN_BUCKET }}" "${{ vars.AWS_SUPERADMIN_DISTRIBUTION_ID }}"
 
       - name: Write deployment summary
