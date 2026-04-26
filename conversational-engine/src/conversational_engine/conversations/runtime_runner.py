@@ -46,6 +46,8 @@ class ConversationRuntimeRunner:
 
         queue: asyncio.Queue[RunEvent | None] = asyncio.Queue()
 
+        image_data_urls = tuple(a.data_url for a in request.attachments if a.data_url)
+
         async def producer() -> None:
             try:
                 await self.run_message(
@@ -53,6 +55,7 @@ class ConversationRuntimeRunner:
                     conversation=conversation,
                     workflow=workflow,
                     content=request.content,
+                    image_data_urls=image_data_urls,
                     event_listener=lambda event: queue.put_nowait(event),
                 )
             finally:
@@ -75,6 +78,7 @@ class ConversationRuntimeRunner:
         conversation,
         workflow,
         content: str,
+        image_data_urls: tuple[str, ...] = (),
         event_listener: Callable[[RunEvent], None] | None,
     ) -> None:
         self._repository.append_message(
@@ -133,6 +137,7 @@ class ConversationRuntimeRunner:
             recent_messages=recent_messages,
             emit=emit,
             run_id=run.id,
+            image_data_urls=image_data_urls,
         )
         self._outcome_store.store(
             auth=auth,

@@ -207,6 +207,17 @@ class SemanticToolCatalog:
             result = await backend.create_invoice(auth.access_token or '', auth.tenant_id, payload)
             return {'result': result}
 
+        async def products_search(payload: dict[str, Any]) -> dict[str, Any]:
+            rows = await backend.search_products(
+                auth.access_token or '',
+                auth.tenant_id,
+                q=payload.get('query') or None,
+                color=payload.get('color') or None,
+                category=payload.get('category') or None,
+                brand=payload.get('brand') or None,
+            )
+            return {'rows': rows if isinstance(rows, list) else []}
+
         async def products_create(payload: dict[str, Any]) -> dict[str, Any]:
             normalized_payload = _normalize_product_create_payload(payload)
             result = await backend.create_product(auth.access_token or '', auth.tenant_id, normalized_payload)
@@ -333,6 +344,26 @@ class SemanticToolCatalog:
                 side_effect=True,
                 output_mode='mutation',
                 executor=sales_create_invoice,
+            ),
+            'products.search_products': SemanticTool(
+                name='products.search_products',
+                description=(
+                    'Search existing products by name, colour, category, or brand. '
+                    'Use this when the user wants to find similar products — for example after analysing '
+                    'an image to extract colour, style type, or category.'
+                ),
+                input_schema=_object_schema(
+                    {
+                        'query': {'type': ['string', 'null'], 'description': 'Search by product name or style code'},
+                        'color': {'type': ['string', 'null'], 'description': 'Filter by colour name (e.g. "blue", "red")'},
+                        'category': {'type': ['string', 'null'], 'description': 'Filter by product category'},
+                        'brand': {'type': ['string', 'null'], 'description': 'Filter by brand name'},
+                    }
+                ),
+                risk_level='low',
+                side_effect=False,
+                output_mode='table',
+                executor=products_search,
             ),
             'products.create_product': SemanticTool(
                 name='products.create_product',

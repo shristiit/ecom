@@ -18,6 +18,15 @@ export function enginePost<TResponse, TBody = unknown>(path: string, body?: TBod
   });
 }
 
+export function engineUpload<TResponse>(path: string, formData: FormData) {
+  return request<TResponse, FormData>({
+    method: 'POST',
+    path,
+    body: formData,
+    baseUrl: ENGINE_BASE_URL,
+  });
+}
+
 export function engineStream<TEvent, TBody = unknown>(
   path: string,
   body: TBody,
