@@ -324,3 +324,33 @@ class BackendClient:
     ) -> dict[str, object]:
         result = await self._request('POST', '/ai-audit/events', access_token, tenant_id, json=payload)
         return result
+
+    async def check_ai_usage_quota(
+        self,
+        access_token: str,
+        tenant_id: str,
+        requested_tokens: int,
+    ) -> dict[str, object]:
+        result = await self._request(
+            'POST',
+            '/billing/ai-usage/check',
+            access_token,
+            tenant_id,
+            json={'requestedTokens': requested_tokens},
+        )
+        return result
+
+    async def record_ai_usage(
+        self,
+        access_token: str,
+        tenant_id: str,
+        entries: list[dict[str, object]],
+    ) -> dict[str, object]:
+        result = await self._request(
+            'POST',
+            '/billing/ai-usage',
+            access_token,
+            tenant_id,
+            json={'entries': entries},
+        )
+        return result

@@ -24,6 +24,8 @@ import storefrontRoutes from '@backend/modules/storefront/routes.js';
 import aiGovernanceRoutes from '@backend/modules/ai_governance/routes.js';
 import aiAuditRoutes from '@backend/modules/ai_audit/routes.js';
 import reportingRoutes from '@backend/modules/reporting/routes.js';
+import platformRoutes from '@backend/modules/platform/routes.js';
+import billingRoutes from '@backend/modules/billing/routes.js';
 
 const app = express();
 const LOCAL_LOOPBACK_HOSTNAMES = new Set(['localhost', '127.0.0.1']);
@@ -91,7 +93,9 @@ app.use(rateLimit({ windowMs: 60_000, max: 300, standardHeaders: true, legacyHea
 app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
 
 app.use('/api/auth', authRoutes);
+app.use('/api/billing', billingRoutes);
 app.use('/api/tenants', tenantRoutes);
+app.use('/api/platform', platformRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/inventory', inventoryRoutes);

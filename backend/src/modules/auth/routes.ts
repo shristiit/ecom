@@ -1,9 +1,10 @@
 import { Router } from 'express';
 import * as ctrl from '@backend/modules/auth/service.js';
-import { authGuard } from '@backend/middlewares/auth.js';
+import { authGuard, requireTenantUser } from '@backend/middlewares/auth.js';
 
 const r = Router();
 
+r.post('/register-business', ctrl.registerBusiness);
 r.post('/register', ctrl.register);
 r.post('/login', ctrl.login);
 r.post('/refresh', ctrl.refresh);
@@ -14,6 +15,6 @@ r.post('/reset-password', ctrl.resetPassword);
 r.get('/sso/:provider/start', ctrl.ssoStart);
 r.get('/sso/:provider/callback', ctrl.ssoCallback);
 
-r.get('/me', authGuard, ctrl.me);
+r.get('/me', authGuard, requireTenantUser, ctrl.me);
 
 export default r;

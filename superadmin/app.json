@@ -1,0 +1,62 @@
+{
+  "expo": {
+    "name": "StockAisle Super Admin",
+    "slug": "stockaisle-superadmin",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "../admin/assets/images/stockaisle_inventory_primary_whitebg.png",
+    "scheme": "stockaisle-superadmin",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "ios": {
+      "bundleIdentifier": "com.stockaisle.superadmin",
+      "buildNumber": "1",
+      "supportsTablet": true,
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.stockaisle.superadmin",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "../admin/assets/images/stockaisle_inventory_primary_transparent.png",
+        "backgroundImage": "../admin/assets/images/stockaisle_inventory_primary_badge_light.png",
+        "monochromeImage": "../admin/assets/images/stockaisle_inventory_primary_badge_dark.png"
+      },
+      "edgeToEdgeEnabled": true,
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "output": "static",
+      "favicon": "../admin/assets/images/stockaisle_inventory_primary_badge_light.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "image": "../admin/assets/images/stockaisle_inventory_primary_whitebg.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#ffffff",
+          "dark": {
+            "backgroundColor": "#000000"
+          }
+        }
+      ],
+      "expo-secure-store"
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "stockaisle-superadmin-local"
+      }
+    }
+  }
+}

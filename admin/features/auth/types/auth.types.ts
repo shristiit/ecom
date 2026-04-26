@@ -3,6 +3,15 @@ export type LoginInput = {
   password: string;
 };
 
+export type RegisterBusinessInput = {
+  businessName: string;
+  businessSlug?: string;
+  adminName: string;
+  email: string;
+  password: string;
+  planCode: 'starter' | 'growth' | 'pro';
+};
+
 export type RefreshInput = {
   refreshToken: string;
 };
@@ -10,4 +19,9 @@ export type RefreshInput = {
 export type AuthTokens = {
   accessToken: string;
   refreshToken: string;
+};
+
+export type RegisterBusinessResponse = AuthTokens & {
+  tenantId: string;
+  tenantSlug: string;
 };

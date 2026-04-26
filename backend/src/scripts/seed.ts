@@ -2,6 +2,7 @@ import bcrypt from 'bcrypt';
 import { faker } from '@faker-js/faker';
 import type { PoolClient } from 'pg';
 import { pool } from '@backend/db/pool.js';
+import { ensureTenantControlPlane, syncSkuUsageCounter } from '@backend/modules/platform/control-plane.js';
 
 const ALL_PERMISSIONS = [
   'admin.roles.read',
@@ -263,6 +264,21 @@ async function getOrCreateTenant(client: PoolClient, tenantName: string, tenantS
   );
 
   return tenantRes.rows[0].id as string;
+}
+
+async function seedPlatformAdmin(client: PoolClient, passwordHash: string) {
+  const email = (process.env.SEED_PLATFORM_ADMIN_EMAIL ?? 'platform@stockaisle.com').toLowerCase();
+  const fullName = process.env.SEED_PLATFORM_ADMIN_NAME ?? 'Platform Administrator';
+
+  await client.query(
+    `INSERT INTO platform_admins (email, full_name, password_hash, status)
+     VALUES ($1, $2, $3, 'active')
+     ON CONFLICT (email)
+     DO UPDATE SET full_name = EXCLUDED.full_name, password_hash = EXCLUDED.password_hash, status = 'active', updated_at = NOW()`,
+    [email, fullName, passwordHash],
+  );
+
+  return { email, fullName };
 }
 
 async function seedRolesAndUsers(client: PoolClient, tenantId: string, staffPasswordHash: string) {
@@ -1272,6 +1288,7 @@ async function run() {
   const tenantSlug = process.env.SEED_TENANT_SLUG ?? 'demo';
   const seedPassword = process.env.SEED_PASSWORD ?? 'ChangeMe123!';
   const customerPassword = process.env.SEED_CUSTOMER_PASSWORD ?? seedPassword;
+  const platformPassword = process.env.SEED_PLATFORM_ADMIN_PASSWORD ?? seedPassword;
   const randomSeed = Number(process.env.SEED_RANDOM_SEED ?? '20260320');
 
   faker.seed(randomSeed);
@@ -1285,6 +1302,9 @@ async function run() {
 
     const staffPasswordHash = await bcrypt.hash(seedPassword, 12);
     const customerPasswordHash = await bcrypt.hash(customerPassword, 12);
+    const platformPasswordHash = await bcrypt.hash(platformPassword, 12);
+    const platformAdmin = await seedPlatformAdmin(client, platformPasswordHash);
+    await ensureTenantControlPlane(tenantId, { client });
 
     const { users, roleIdByName } = await seedRolesAndUsers(client, tenantId, staffPasswordHash);
     const policyCount = await seedPolicies(client, tenantId);
@@ -1313,6 +1333,7 @@ async function run() {
       roleIdByName,
     );
     const idempotencyCount = await seedIdempotencyKeys(client, tenantId);
+    await syncSkuUsageCounter(tenantId, client);
 
     await client.query('COMMIT');
 
@@ -1337,6 +1358,8 @@ async function run() {
     });
     console.log(`Staff password: ${seedPassword}`);
     console.log(`Customer password: ${customerPassword}`);
+    console.log(`Platform admin: ${platformAdmin.email}`);
+    console.log(`Platform admin password: ${platformPassword}`);
     console.log('Seeded staff logins:');
     for (const user of users) {
       console.log(`- ${user.roleName}: ${user.email}`);
