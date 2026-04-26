@@ -15,8 +15,10 @@
     "migrate": "node-pg-migrate --envPath .env.local --tsx --tsconfig tsconfig.json --check-order false",
     "migrate:up": "node-pg-migrate up --envPath .env.local --tsx --tsconfig tsconfig.json --check-order false",
     "migrate:up:runtime": "node-pg-migrate up --tsx --tsconfig tsconfig.json --check-order false",
+    "migrate:up:runtime:compat": "node ./scripts/runtime-migrate.mjs up",
     "migrate:down": "node-pg-migrate down --envPath .env.local --tsx --tsconfig tsconfig.json --check-order false",
     "migrate:down:runtime": "node-pg-migrate down --tsx --tsconfig tsconfig.json --check-order false",
+    "migrate:down:runtime:compat": "node ./scripts/runtime-migrate.mjs down",
     "migrate:create": "node-pg-migrate create --envPath .env.local --migration-file-language ts --check-order false",
     "seed": "tsx src/scripts/seed.ts"
   },

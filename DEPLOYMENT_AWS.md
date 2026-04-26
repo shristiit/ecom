@@ -33,6 +33,7 @@ Set these repository variables before running the workflows:
   Existing VPC ID to reuse for ECS, ALB, and service discovery when RDS already lives inside that VPC.
 - `AWS_PUBLIC_SUBNET_IDS`
   Comma-separated subnet IDs in that VPC for the public ALB and ECS tasks.
+  These must be truly public subnets for the current Terraform stack: a default route to an Internet Gateway and public-IP assignment for Fargate tasks. If you pass private app/database subnets instead, ECS can fail before container startup with `ResourceInitializationError` when trying to reach SSM Parameter Store, ECR, or CloudWatch Logs.
 - `AWS_RDS_SECURITY_GROUP_ID`
 - `AWS_ALARM_EMAIL`
 
@@ -89,3 +90,11 @@ Rotate the currently exposed AI provider keys before go-live.
 10. Populate Secrets Manager values.
 11. Copy Terraform outputs into GitHub repository variables.
 12. Run `Deploy Production` manually once.
+
+## ECS Startup Failure Checklist
+
+If an ECS task stops with `ResourceInitializationError` mentioning `unable to retrieve secrets from ssm`, check these first:
+
+1. The task definition uses the ECS execution role with SSM/KMS access. This repository already provisions that role and policy.
+2. The ECS service is using subnets that have outbound connectivity to AWS APIs. In this stack that means public subnets plus `assign_public_ip = true`.
+3. If you must run ECS tasks in private subnets, add NAT or the required VPC endpoints before deploying. At minimum that typically includes `ssm`, `kms`, `ecr.api`, `ecr.dkr`, `logs`, and S3 access for image layers.
