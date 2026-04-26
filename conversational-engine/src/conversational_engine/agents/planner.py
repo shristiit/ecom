@@ -32,8 +32,10 @@ class PlannerAgent:
         memory: dict[str, Any],
         tools: list[dict[str, Any]],
         history: list[dict[str, Any]],
+        image_data_urls: tuple[str, ...] = (),
         trace_callback: Callable[[str, ProviderTrace], None] | None = None,
     ) -> dict[str, Any]:
+        image_note = '\n\nAttached images: the user has provided image(s) above — describe what you observe and use that as context.' if image_data_urls else ''
         response = await self._router.complete_json(
             role='planner',
             messages=[
@@ -52,7 +54,9 @@ class PlannerAgent:
                         f'Memory:\n{memory}\n\n'
                         f'Available tools:\n{tools}\n\n'
                         f'Prior tool history:\n{history}'
+                        f'{image_note}'
                     ),
+                    image_data_urls=image_data_urls,
                 ),
             ],
             json_schema=PLANNER_SCHEMA,

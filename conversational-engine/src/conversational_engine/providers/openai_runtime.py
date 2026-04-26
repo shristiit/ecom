@@ -21,6 +21,19 @@ class OpenAICompatibleRuntimeProvider(RuntimeProvider):
             'Accept': 'application/json',
         }
 
+    @staticmethod
+    def _serialize_messages(messages: list[ProviderMessage]) -> list[dict[str, object]]:
+        result: list[dict[str, object]] = []
+        for msg in messages:
+            if msg.image_data_urls:
+                content: list[dict[str, object]] = [{'type': 'text', 'text': msg.content}]
+                for url in msg.image_data_urls:
+                    content.append({'type': 'image_url', 'image_url': {'url': url, 'detail': 'auto'}})
+                result.append({'role': msg.role, 'content': content})
+            else:
+                result.append({'role': msg.role, 'content': msg.content})
+        return result
+
     async def complete_text(
         self,
         *,
@@ -32,7 +45,7 @@ class OpenAICompatibleRuntimeProvider(RuntimeProvider):
             'model': model,
             'temperature': 0,
             'max_tokens': max_tokens,
-            'messages': [{'role': message.role, 'content': message.content} for message in messages],
+            'messages': self._serialize_messages(messages),
         }
         async with httpx.AsyncClient(timeout=40.0) as client:
             response = await client.post(f'{self._base_url}/chat/completions', headers=self._headers(), json=payload)
@@ -62,7 +75,7 @@ class OpenAICompatibleRuntimeProvider(RuntimeProvider):
             'model': model,
             'temperature': 0,
             'max_tokens': max_tokens,
-            'messages': [{'role': message.role, 'content': message.content} for message in messages],
+            'messages': self._serialize_messages(messages),
             'response_format': {
                 'type': 'json_schema',
                 'json_schema': {
@@ -76,7 +89,7 @@ class OpenAICompatibleRuntimeProvider(RuntimeProvider):
             response = await client.post(f'{self._base_url}/chat/completions', headers=self._headers(), json=payload)
             if response.status_code == 400:
                 fallback_payload = dict(payload)
-                fallback_messages = [{'role': message.role, 'content': message.content} for message in messages]
+                fallback_messages = self._serialize_messages(messages)
                 fallback_messages.insert(
                     0,
                     {

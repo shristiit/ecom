@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import base64
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import StreamingResponse
 
 from conversational_engine.app.auth import require_auth_context
@@ -130,4 +131,35 @@ async def list_history(
     return await backend_client.list_history(
         access_token=auth.access_token or '',
         tenant_id=auth.tenant_id,
+    )
+
+
+_TEXT_TYPES = {'text/plain', 'text/csv', 'application/csv', 'text/tab-separated-values'}
+_IMAGE_TYPES = {'image/jpeg', 'image/png', 'image/webp', 'image/gif'}
+_MAX_BYTES = 5 * 1024 * 1024  # 5 MB
+
+
+@chat_router.post('/attachments')
+async def upload_attachment(
+    file: UploadFile = File(...),
+    auth: AuthContext = Depends(require_auth_context),
+) -> dict:
+    content = await file.read()
+    if len(content) > _MAX_BYTES:
+        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail='File exceeds 5 MB limit.')
+
+    content_type = (file.content_type or 'application/octet-stream').split(';')[0].strip().lower()
+    filename = file.filename or 'attachment'
+
+    if content_type in _TEXT_TYPES:
+        text_content = content.decode('utf-8', errors='replace')
+        return {'filename': filename, 'content_type': content_type, 'text_content': text_content, 'is_image': False}
+
+    if content_type in _IMAGE_TYPES:
+        data_url = f'data:{content_type};base64,{base64.b64encode(content).decode()}'
+        return {'filename': filename, 'content_type': content_type, 'text_content': None, 'is_image': True, 'data_url': data_url}
+
+    raise HTTPException(
+        status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+        detail=f'Unsupported file type: {content_type}. Supported types: CSV, plain text, JPEG, PNG, WebP.',
     )

@@ -114,10 +114,40 @@ function buildS3ObjectUrl(key: string) {
 }
 
 export async function listProducts(req: Request, res: Response) {
+  const q = typeof req.query.q === 'string' ? req.query.q.trim() : null;
+  const color = typeof req.query.color === 'string' ? req.query.color.trim() : null;
+  const category = typeof req.query.category === 'string' ? req.query.category.trim() : null;
+  const brand = typeof req.query.brand === 'string' ? req.query.brand.trim() : null;
+
+  const conditions: string[] = ['p.tenant_id = $1'];
+  const params: (string | null)[] = [req.user!.tenantId];
+  let idx = 2;
+
+  if (q) {
+    conditions.push(`(p.name ILIKE $${idx} OR p.style_code ILIKE $${idx})`);
+    params.push(`%${q}%`);
+    idx++;
+  }
+  if (color) {
+    conditions.push(`EXISTS (SELECT 1 FROM skus s WHERE s.product_id = p.id AND s.tenant_id = p.tenant_id AND s.color_name ILIKE $${idx})`);
+    params.push(`%${color}%`);
+    idx++;
+  }
+  if (category) {
+    conditions.push(`p.category ILIKE $${idx}`);
+    params.push(`%${category}%`);
+    idx++;
+  }
+  if (brand) {
+    conditions.push(`p.brand ILIKE $${idx}`);
+    params.push(`%${brand}%`);
+    idx++;
+  }
+
   const rows = await query(
-    `SELECT id, style_code, name, category, brand, base_price, status, created_at, updated_at
-     FROM products WHERE tenant_id = $1 ORDER BY updated_at DESC`,
-    [req.user!.tenantId]
+    `SELECT p.id, p.style_code, p.name, p.category, p.brand, p.base_price, p.status, p.created_at, p.updated_at
+     FROM products p WHERE ${conditions.join(' AND ')} ORDER BY p.updated_at DESC LIMIT 30`,
+    params
   );
   res.json(rows.rows);
 }

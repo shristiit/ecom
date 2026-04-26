@@ -10,8 +10,9 @@ dependencies = [
   "pgvector>=0.4.1",
   "psycopg[binary]>=3.2.0",
   "pydantic-settings>=2.10.0",
+  "python-multipart>=0.0.26",
   "sqlalchemy>=2.0.0",
-  "uvicorn[standard]>=0.35.0"
+  "uvicorn[standard]>=0.35.0",
 ]
 
 [dependency-groups]

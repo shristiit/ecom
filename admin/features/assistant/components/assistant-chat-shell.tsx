@@ -1,7 +1,7 @@
 import { Link, useRouter } from 'expo-router';
-import { MessageSquarePlus, Mic, PanelRightClose, PanelRightOpen, Square, Sparkles } from 'lucide-react-native';
+import { MessageSquarePlus, Mic, Paperclip, PanelRightClose, PanelRightOpen, Square, Sparkles, X } from 'lucide-react-native';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Pressable, ScrollView, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { Image, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { AppButton } from '@admin/components/ui';
 import {
   useAssistantConversationQuery,
@@ -10,6 +10,16 @@ import {
 } from '../hooks';
 import { assistantService } from '../services';
 import { AssistantMessageBlocks } from './assistant-message-blocks';
+
+type Attachment = {
+  id: string;
+  filename: string;
+  mimeType: string;
+  textContent: string | null;
+  isImage: boolean;
+  dataUrl?: string;
+  previewUrl?: string;
+};
 
 type AssistantChatShellProps = {
   mode: 'new' | 'thread';
@@ -79,11 +89,13 @@ export function AssistantChatShell({
   const [isDictating, setIsDictating] = useState(false);
   const [isHistoryRailOpen, setIsHistoryRailOpen] = useState(false);
   const [isStreamingRun, setIsStreamingRun] = useState(false);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
 
   const scrollRef = useRef<ScrollView | null>(null);
   const lastAutoStartedPromptRef = useRef<string | null>(null);
   const recognitionRef = useRef<WebSpeechRecognitionInstance | null>(null);
   const recognitionCtorRef = useRef<WebSpeechRecognitionConstructor | null>(getSpeechRecognitionConstructor());
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const isThreadMode = mode === 'thread' && Boolean(conversationId);
   const activeConversation = isThreadMode ? conversationQuery.data : undefined;
@@ -101,6 +113,66 @@ export function AssistantChatShell({
     ]);
   }, [conversationQuery, conversationsQuery, isThreadMode]);
 
+  const attachmentsRef = useRef<Attachment[]>([]);
+  attachmentsRef.current = attachments;
+
+  const buildContentWithAttachments = useCallback((text: string) => {
+    const current = attachmentsRef.current;
+    if (current.length === 0) return text;
+    const blocks = current.map((a) => {
+      if (a.isImage) return `[Image attached: ${a.filename}]`;
+      return `[File: ${a.filename}]\n---\n${a.textContent ?? ''}\n---`;
+    });
+    return `${blocks.join('\n\n')}\n\n${text}`;
+  }, []);
+
+  const handleAttach = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
+  const handleFileChange = useCallback((e: Event) => {
+    const input = e.target as HTMLInputElement;
+    const files = Array.from(input.files ?? []);
+    if (files.length === 0) return;
+    input.value = '';
+
+    setError(null);
+
+    for (const file of files) {
+      const isImage = file.type.startsWith('image/');
+      const reader = new FileReader();
+
+      reader.onload = () => {
+        const result = reader.result as string;
+        setAttachments((prev) => [
+          ...prev,
+          {
+            id: `${Date.now()}-${Math.random()}`,
+            filename: file.name,
+            mimeType: file.type,
+            textContent: isImage ? null : result,
+            isImage,
+            previewUrl: isImage ? result : undefined,
+          },
+        ]);
+      };
+
+      reader.onerror = () => {
+        setError(`Could not read ${file.name}.`);
+      };
+
+      if (isImage) {
+        reader.readAsDataURL(file);
+      } else {
+        reader.readAsText(file);
+      }
+    }
+  }, []);
+
+  const handleRemoveAttachment = useCallback((id: string) => {
+    setAttachments((prev) => prev.filter((a) => a.id !== id));
+  }, []);
+
   const handleCreateConversation = useCallback(async (nextPrompt: string) => {
     const trimmedPrompt = nextPrompt.trim();
     if (!trimmedPrompt) {
@@ -112,11 +184,17 @@ export function AssistantChatShell({
     setStatusMessage(null);
     setIsStreamingRun(true);
 
+    const content = buildContentWithAttachments(trimmedPrompt);
+    const imageAttachments = attachmentsRef.current
+      .filter((a) => a.isImage && a.previewUrl)
+      .map((a) => ({ dataUrl: a.previewUrl!, filename: a.filename }));
+
     try {
       const result = await assistantService.streamRun(
         {
           title: trimmedPrompt.slice(0, 60),
-          content: trimmedPrompt,
+          content,
+          attachments: imageAttachments.length > 0 ? imageAttachments : undefined,
         },
         async (event) => {
           if (event.type === 'plan.updated') {
@@ -132,6 +210,7 @@ export function AssistantChatShell({
       );
 
       setPrompt('');
+      setAttachments([]);
       setStatusMessage('Run completed.');
       await conversationsQuery.refetch();
       if (result.conversationId) {
@@ -142,7 +221,7 @@ export function AssistantChatShell({
     } finally {
       setIsStreamingRun(false);
     }
-  }, [conversationsQuery, router]);
+  }, [buildContentWithAttachments, conversationsQuery, router]);
 
   const handleSend = useCallback(async () => {
     const trimmedPrompt = prompt.trim();
@@ -160,9 +239,14 @@ export function AssistantChatShell({
     setStatusMessage(null);
     setIsStreamingRun(true);
 
+    const content = buildContentWithAttachments(trimmedPrompt);
+    const imageAttachments = attachmentsRef.current
+      .filter((a) => a.isImage && a.previewUrl)
+      .map((a) => ({ dataUrl: a.previewUrl!, filename: a.filename }));
+
     try {
       await assistantService.streamRun(
-        { conversationId, content: trimmedPrompt },
+        { conversationId, content, attachments: imageAttachments.length > 0 ? imageAttachments : undefined },
         async (event) => {
           if (event.type === 'plan.updated') {
             setStatusMessage('Planning next step...');
@@ -176,6 +260,7 @@ export function AssistantChatShell({
         },
       );
       setPrompt('');
+      setAttachments([]);
       setStatusMessage('Run completed.');
       await refreshConversationViews();
     } catch (err) {
@@ -277,6 +362,21 @@ export function AssistantChatShell({
   }, [isDictating]);
 
   useEffect(() => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.multiple = true;
+    input.accept = 'text/plain,text/csv,application/csv,image/jpeg,image/png,image/webp';
+    input.style.display = 'none';
+    input.addEventListener('change', handleFileChange);
+    document.body.appendChild(input);
+    fileInputRef.current = input;
+    return () => {
+      input.removeEventListener('change', handleFileChange);
+      document.body.removeChild(input);
+    };
+  }, [handleFileChange]);
+
+  useEffect(() => {
     setPrompt(incomingPrompt || '');
   }, [incomingPrompt, mode]);
 
@@ -311,9 +411,9 @@ export function AssistantChatShell({
   return (
     <View className="flex-1 bg-bg px-4 py-4 md:px-6 md:py-5">
       <View className="mx-auto flex-1 w-full max-w-[1600px] gap-4">
-        <View className="flex-row items-start justify-between gap-4">
+        <View className="gap-3 md:flex-row md:items-start md:justify-between md:gap-4">
           <View className="gap-1">
-            <Text className="text-[30px] font-semibold leading-[36px] text-text">
+            <Text className="text-[22px] font-semibold leading-[28px] text-text md:text-[30px] md:leading-[36px]">
               {activeConversation?.conversation.title || 'My AI Assistant'}
             </Text>
             <Text className="text-small text-muted">
@@ -323,7 +423,7 @@ export function AssistantChatShell({
             </Text>
           </View>
 
-          <View className="flex-row items-center gap-2">
+          <View className="flex-row flex-wrap items-center gap-2">
             <AppButton
               label={showHistoryRail ? 'Hide history' : 'Show history'}
               size="sm"
@@ -348,16 +448,16 @@ export function AssistantChatShell({
             >
               <View className={`px-5 py-6 md:px-8 ${activeConversation ? 'gap-6' : 'flex-1 items-center justify-center gap-8'}`}>
                 {mode === 'new' ? (
-                <View className="w-full max-w-3xl items-center gap-5">
-                  <View className="rounded-full border border-primary/10 bg-primary-tint px-4 py-2">
+                <View className="w-full max-w-3xl items-center">
+                  <View style={{ marginBottom: 32 }} className="rounded-full border border-primary/10 bg-primary-tint px-4 py-2">
                     <View className="flex-row items-center gap-2">
                       <Sparkles size={16} color="#1F3A5F" />
                       <Text className="text-small font-medium text-primary">Inventory AI</Text>
                     </View>
                   </View>
 
-                  <View className="items-center gap-3">
-                    <Text className="text-center text-[36px] font-semibold leading-[44px] text-text">
+                  <View style={{ marginBottom: 24 }} className="items-center">
+                    <Text style={{ marginBottom: 12 }} className="text-center text-[26px] font-semibold leading-[32px] text-text md:text-[36px] md:leading-[44px]">
                       What do you need help with today?
                     </Text>
                     <Text className="max-w-2xl text-center text-body text-muted">
@@ -371,7 +471,8 @@ export function AssistantChatShell({
                         key={suggestion}
                         accessibilityRole="button"
                         onPress={() => handleSuggestion(suggestion)}
-                        className="rounded-full border border-border bg-surface-2 px-4 py-2.5"
+                        style={{ maxWidth: '48%' }}
+                        className="rounded-md border border-border bg-surface-2 px-4 py-2.5"
                       >
                         <Text className="text-small text-text">{suggestion}</Text>
                       </Pressable>
@@ -456,9 +557,40 @@ export function AssistantChatShell({
                   onChangeText={setPrompt}
                   multiline
                   textAlignVertical="top"
-                  className="min-h-[72px] text-body text-text"
+                  style={{ minHeight: 80 }}
+                  className="text-body text-text"
                   {...({ id: 'assistant-chat-composer', name: 'assistant-chat-composer' } as unknown as Record<string, string>)}
                 />
+
+                {attachments.length > 0 ? (
+                  <View className="mt-3 flex-row flex-wrap gap-2">
+                    {attachments.map((a) => (
+                      <View
+                        key={a.id}
+                        className="flex-row items-center gap-1.5 rounded-md border border-border bg-surface-2 px-2 py-1.5"
+                      >
+                        {a.isImage && a.previewUrl ? (
+                          <Image
+                            source={{ uri: a.previewUrl }}
+                            style={{ width: 28, height: 28, borderRadius: 4 }}
+                            accessibilityLabel={a.filename}
+                          />
+                        ) : null}
+                        <Text className="max-w-[140px] text-caption text-text" numberOfLines={1}>
+                          {a.filename}
+                        </Text>
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel={`Remove ${a.filename}`}
+                          onPress={() => handleRemoveAttachment(a.id)}
+                          className="ml-0.5 rounded-full p-0.5 active:bg-surface"
+                        >
+                          <X size={12} color="#6B7280" />
+                        </Pressable>
+                      </View>
+                    ))}
+                  </View>
+                ) : null}
 
                 <View className="mt-3 flex-row items-center justify-between gap-3">
                   <View className="flex-row items-center gap-2">
@@ -480,6 +612,14 @@ export function AssistantChatShell({
                       }`}
                     >
                       {isDictating ? <Square size={18} color="#1F3A5F" /> : <Mic size={18} color="#1F3A5F" />}
+                    </Pressable>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="Attach a file"
+                      onPress={handleAttach}
+                      className="h-11 w-11 items-center justify-center rounded-full border border-border bg-surface-2"
+                    >
+                      <Paperclip size={18} color="#1F3A5F" />
                     </Pressable>
                   </View>
 

@@ -27,7 +27,9 @@ const transferSchema = z.object({
 });
 
 export async function stockOnHand(req: Request, res: Response) {
-  const { sizeId, locationId, sku } = req.query as { sizeId?: string; locationId?: string; sku?: string };
+  const { sizeId, locationId, sku, productName } = req.query as {
+    sizeId?: string; locationId?: string; sku?: string; productName?: string;
+  };
 
   if (sizeId && locationId) {
     const result = await pool.query(
@@ -37,18 +39,24 @@ export async function stockOnHand(req: Request, res: Response) {
     return res.json(result.rows[0] ?? { on_hand: 0, reserved: 0 });
   }
 
+  // sku param is treated as a broad search: matches sku_code OR product name so
+  // the AI can pass either a SKU code or a product name and get results.
+  const skuFilter = sku ?? null;
+  const nameFilter = productName ?? null;
+
   const result = await pool.query(
     `SELECT
-       sb.size_id,
-       sb.location_id,
+       p.name            AS product_name,
+       sk.color_name,
+       sz.size_label,
+       sk.sku_code,
+       l.name            AS location_name,
+       l.code            AS location_code,
        sb.on_hand,
        sb.reserved,
        (sb.on_hand - sb.reserved) AS available,
-       sz.sku_id,
-       sk.sku_code,
-       p.id AS product_id,
-       p.name AS product_name,
-       l.code AS location_code
+       sb.size_id,
+       sb.location_id
      FROM stock_balances sb
      JOIN sku_sizes sz ON sz.id = sb.size_id
      JOIN skus sk ON sk.id = sz.sku_id
@@ -56,10 +64,11 @@ export async function stockOnHand(req: Request, res: Response) {
      JOIN locations l ON l.id = sb.location_id
      WHERE sb.tenant_id = $1
        AND ($2::text IS NULL OR sb.location_id::text = $2::text)
-       AND ($3::text IS NULL OR sk.sku_code ILIKE '%' || $3::text || '%')
+       AND ($3::text IS NULL OR sk.sku_code ILIKE '%' || $3::text || '%' OR p.name ILIKE '%' || $3::text || '%')
+       AND ($4::text IS NULL OR p.name ILIKE '%' || $4::text || '%')
      ORDER BY sb.updated_at DESC
      LIMIT 500`,
-    [req.user!.tenantId, locationId ?? null, sku ?? null]
+    [req.user!.tenantId, locationId ?? null, skuFilter, nameFilter]
   );
 
   return res.json(result.rows);

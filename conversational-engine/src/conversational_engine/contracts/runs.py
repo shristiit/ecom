@@ -8,10 +8,16 @@ from pydantic import Field
 from conversational_engine.contracts.common import ContractModel
 
 
+class ImageAttachment(ContractModel):
+    data_url: str
+    filename: str | None = None
+
+
 class RunRequest(ContractModel):
     content: str
     conversation_id: UUID | None = None
     title: str | None = None
+    attachments: list[ImageAttachment] = Field(default_factory=list)
 
 
 class RunEvent(ContractModel):

@@ -14,10 +14,12 @@ export async function stockSummary(req: Request, res: Response) {
 
   const result = await pool.query(
     `SELECT
-       sk.sku_code,
-       p.name AS product_name,
+       p.name            AS product_name,
+       sk.color_name,
        sz.size_label,
-       l.code AS location_code,
+       sk.sku_code,
+       l.name            AS location_name,
+       l.code            AS location_code,
        sb.on_hand,
        sb.reserved,
        (sb.on_hand - sb.reserved) AS available
