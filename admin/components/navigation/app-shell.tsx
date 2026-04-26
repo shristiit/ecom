@@ -27,7 +27,22 @@ import { useAuthSession } from '@admin/features/auth';
 import { EntityQuickViewDrawer, GlobalCommandPalette, NotificationCenter } from '@admin/features/shared';
 
 type NavItem = {
-  href: '/' | '/dashboard' | '/products' | '/inventory' | '/orders' | '/billing' | '/master/locations' | '/users' | '/audit' | '/ai' | '/settings';
+  href:
+    | '/'
+    | '/dashboard'
+    | '/products'
+    | '/inventory'
+    | '/orders'
+    | '/billing'
+    | '/master/locations'
+    | '/users'
+    | '/audit'
+    | '/ai'
+    | '/settings'
+    | '/platform'
+    | '/platform/businesses'
+    | '/platform/admins'
+    | '/platform/audit';
   label: string;
   icon: LucideIcon;
   activePrefixes?: string[];
@@ -47,6 +62,13 @@ const NAV_ITEMS: NavItem[] = [
   { href: '/settings', label: 'Settings', icon: Settings },
 ];
 
+const PLATFORM_NAV_ITEMS: NavItem[] = [
+  { href: '/platform', label: 'Overview', icon: LayoutGrid, activePrefixes: ['/platform'] },
+  { href: '/platform/businesses', label: 'Businesses', icon: Building2, activePrefixes: ['/platform/businesses'] },
+  { href: '/platform/admins', label: 'Platform Admins', icon: Users, activePrefixes: ['/platform/admins'] },
+  { href: '/platform/audit', label: 'Platform Audit', icon: ShieldCheck, activePrefixes: ['/platform/audit'] },
+];
+
 const PAGE_TITLE_RULES = [
   { prefix: '/', title: 'Dashboard' },
   { prefix: '/dashboard', title: 'Dashboard' },
@@ -63,6 +85,13 @@ const PAGE_TITLE_RULES = [
   { prefix: '/settings', title: 'Settings' },
 ];
 
+const PLATFORM_PAGE_TITLE_RULES = [
+  { prefix: '/platform', title: 'Platform Overview' },
+  { prefix: '/platform/businesses', title: 'Businesses' },
+  { prefix: '/platform/admins', title: 'Platform Admins' },
+  { prefix: '/platform/audit', title: 'Platform Audit' },
+] as const;
+
 function isActivePath(pathname: string, href: string, activePrefixes?: string[]) {
   if (href === '/') return pathname === '/' || pathname === '/dashboard';
   const prefixes = activePrefixes?.length ? activePrefixes : [href];
@@ -70,6 +99,9 @@ function isActivePath(pathname: string, href: string, activePrefixes?: string[])
 }
 
 function getPageTitle(pathname: string) {
+  const platformMatch = PLATFORM_PAGE_TITLE_RULES.find((rule) => pathname === rule.prefix || pathname.startsWith(`${rule.prefix}/`));
+  if (platformMatch) return platformMatch.title;
+
   if (pathname === '/') return 'Dashboard';
 
   const match = PAGE_TITLE_RULES.find((rule) => pathname === rule.prefix || pathname.startsWith(`${rule.prefix}/`));
@@ -255,19 +287,21 @@ function TopNav({
                   <CircleHelp size={16} color="#334155" />
                   <Text className="text-small text-text">Help</Text>
                 </Pressable>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Switch tenant"
-                  accessibilityHint={`Changes the active tenant. Current tenant: ${tenantLabel}.`}
-                  className="flex-row items-center justify-between gap-2 px-3 py-2"
-                  onPress={() => {
-                    cycleTenant();
-                    setProfileMenuOpen(false);
-                  }}
-                >
-                  <Text className="text-small text-text">Switch tenant</Text>
-                  <Text className="text-caption text-muted">{tenantLabel}</Text>
-                </Pressable>
+                {user?.principalType === 'tenant_user' ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Switch tenant"
+                    accessibilityHint={`Changes the active tenant. Current tenant: ${tenantLabel}.`}
+                    className="flex-row items-center justify-between gap-2 px-3 py-2"
+                    onPress={() => {
+                      cycleTenant();
+                      setProfileMenuOpen(false);
+                    }}
+                  >
+                    <Text className="text-small text-text">Switch tenant</Text>
+                    <Text className="text-caption text-muted">{tenantLabel}</Text>
+                  </Pressable>
+                ) : null}
 
                 <View className="border-t border-border">
                   <Pressable
@@ -296,13 +330,14 @@ function TopNav({
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const { width } = useWindowDimensions();
-  const { hasAnyPermission } = useAuthSession();
+  const { hasAnyPermission, user } = useAuthSession();
 
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [quickViewOpen, setQuickViewOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
+  const isPlatformUser = user?.principalType === 'platform_admin';
   const isWeb = Platform.OS === 'web';
   const isDesktop = isWeb && width >= 1024;
   const showWebBurgerMenu = isWeb && !isDesktop;
@@ -313,11 +348,11 @@ export function AppShell({ children }: { children: ReactNode }) {
   const showInlineSearch = !hideSearch && !showCompactSearchCard;
   const navItems = useMemo(
     () =>
-      NAV_ITEMS.filter((item) => {
+      (isPlatformUser ? PLATFORM_NAV_ITEMS : NAV_ITEMS).filter((item) => {
         if (!item.permissions || item.permissions.length === 0) return true;
         return hasAnyPermission(item.permissions);
       }),
-    [hasAnyPermission],
+    [hasAnyPermission, isPlatformUser],
   );
 
   const mobileNavItems = useMemo(() => {

@@ -1,10 +1,10 @@
 import { Router } from 'express';
-import { authGuard, requirePermission, requireTenant } from '@backend/middlewares/auth.js';
+import { authGuard, requirePermission, requireTenantFeatureAccess, requireTenantUser } from '@backend/middlewares/auth.js';
 import * as service from '@backend/modules/reporting/service.js';
 
 const router = Router();
 
-router.use(authGuard, requireTenant);
+router.use(authGuard, requireTenantUser, requireTenantFeatureAccess('reporting'));
 
 router.get('/stock-summary', requirePermission('inventory.read'), service.stockSummary);
 router.get('/movement-summary', requirePermission('inventory.read'), service.movementSummary);

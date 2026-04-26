@@ -1,5 +1,6 @@
 import fetch from 'node-fetch';
 import { OPENAI_API_KEY, OPENAI_BASE_URL, OPENAI_MODEL } from '@backend/config/env.js';
+import { consumeAiTokens, estimateAiTokens, extractProviderTokenUsage } from '@backend/modules/platform/control-plane.js';
 import { logger } from '@backend/utils/logger.js';
 import { resolveNavigation } from '@backend/modules/chat/navigation.js';
 
@@ -93,12 +94,15 @@ ${input.text}`;
   }
 
   const payload = (await response.json()) as {
+    usage?: Record<string, unknown>;
     choices?: Array<{
       message?: {
         content?: string;
       };
     }>;
   };
+  const usage = extractProviderTokenUsage(payload);
+  await consumeAiTokens(input.tenantId, usage?.totalTokens ?? estimateAiTokens(prompt));
 
   const raw = payload.choices?.[0]?.message?.content;
   if (!raw) {

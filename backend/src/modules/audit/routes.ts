@@ -1,10 +1,10 @@
 import { Router } from 'express';
-import { authGuard, requireTenant, requirePermission } from '@backend/middlewares/auth.js';
+import { authGuard, requirePermission, requireTenantFeatureAccess, requireTenantUser } from '@backend/middlewares/auth.js';
 import * as ctrl from '@backend/modules/audit/service.js';
 
 const r = Router();
 
-r.use(authGuard, requireTenant);
+r.use(authGuard, requireTenantUser, requireTenantFeatureAccess('audit'));
 
 r.get('/query', requirePermission('audit.read'), ctrl.queryAudit);
 r.get('/export.csv', requirePermission('audit.read'), ctrl.exportCsv);
