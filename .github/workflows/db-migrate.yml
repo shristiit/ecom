@@ -1,0 +1,166 @@
+name: Database Migrate
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Service to run migrations for"
+        required: true
+        type: choice
+        default: backend
+        options:
+          - backend
+          - engine
+      direction:
+        description: "Migration direction"
+        required: true
+        type: choice
+        default: up
+        options:
+          - up
+          - down
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: db-migrate-${{ github.event.inputs.target }}
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION: eu-west-2
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve migration variables
+        id: vars
+        shell: bash
+        run: |
+          echo "target=${{ github.event.inputs.target }}" >> "$GITHUB_OUTPUT"
+          echo "direction=${{ github.event.inputs.direction }}" >> "$GITHUB_OUTPUT"
+          echo "image_tag=sha-${GITHUB_SHA::12}-migrate" >> "$GITHUB_OUTPUT"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push backend image
+        if: steps.vars.outputs.target == 'backend'
+        env:
+          BACKEND_REPOSITORY: ${{ vars.AWS_BACKEND_ECR_REPOSITORY }}
+          IMAGE_TAG: ${{ steps.vars.outputs.image_tag }}
+        run: |
+          docker build -f backend/Dockerfile -t "${BACKEND_REPOSITORY}:${IMAGE_TAG}" .
+          docker push "${BACKEND_REPOSITORY}:${IMAGE_TAG}"
+
+      - name: Register backend task definition
+        id: backend_task_def
+        if: steps.vars.outputs.target == 'backend'
+        env:
+          IMAGE_TAG: ${{ steps.vars.outputs.image_tag }}
+          BACKEND_DATABASE_URL: ${{ secrets.BACKEND_DATABASE_URL }}
+          BACKEND_JWT_SECRET: ${{ secrets.BACKEND_JWT_SECRET }}
+          BACKEND_OPENAI_API_KEY: ${{ secrets.BACKEND_OPENAI_API_KEY }}
+          BACKEND_AUTH0_CLIENT_SECRET: ${{ secrets.BACKEND_AUTH0_CLIENT_SECRET }}
+          BACKEND_SSO_GOOGLE_CLIENT_SECRET: ${{ secrets.BACKEND_SSO_GOOGLE_CLIENT_SECRET }}
+          BACKEND_SSO_AZUREAD_CLIENT_SECRET: ${{ secrets.BACKEND_SSO_AZUREAD_CLIENT_SECRET }}
+          BACKEND_SENTRY_DSN: ${{ secrets.BACKEND_SENTRY_DSN }}
+        run: |
+          TASK_DEFINITION_ARN="$(
+            bash scripts/aws-register-ecs-task-def.sh \
+              "${{ vars.AWS_BACKEND_TASK_FAMILY }}" \
+              "backend" \
+              "${{ vars.AWS_BACKEND_ECR_REPOSITORY }}:${IMAGE_TAG}"
+          )"
+          echo "task_definition_arn=${TASK_DEFINITION_ARN}" >> "$GITHUB_OUTPUT"
+
+      - name: Run backend migrate up
+        if: steps.vars.outputs.target == 'backend' && steps.vars.outputs.direction == 'up'
+        run: |
+          bash scripts/aws-run-ecs-task.sh \
+            "${{ vars.AWS_ECS_CLUSTER }}" \
+            "${{ vars.AWS_BACKEND_SERVICE }}" \
+            "${{ steps.backend_task_def.outputs.task_definition_arn }}" \
+            "backend" \
+            sh -lc "export PGSSLMODE=require; npm run db:ensure:runtime && npm run migrate:up:runtime"
+
+      - name: Run backend migrate down
+        if: steps.vars.outputs.target == 'backend' && steps.vars.outputs.direction == 'down'
+        run: |
+          bash scripts/aws-run-ecs-task.sh \
+            "${{ vars.AWS_ECS_CLUSTER }}" \
+            "${{ vars.AWS_BACKEND_SERVICE }}" \
+            "${{ steps.backend_task_def.outputs.task_definition_arn }}" \
+            "backend" \
+            sh -lc "export PGSSLMODE=require; npm run migrate:down:runtime"
+
+      - name: Build and push conversational-engine image
+        if: steps.vars.outputs.target == 'engine'
+        env:
+          ENGINE_REPOSITORY: ${{ vars.AWS_ENGINE_ECR_REPOSITORY }}
+          IMAGE_TAG: ${{ steps.vars.outputs.image_tag }}
+        run: |
+          docker build -f conversational-engine/Dockerfile -t "${ENGINE_REPOSITORY}:${IMAGE_TAG}" conversational-engine
+          docker push "${ENGINE_REPOSITORY}:${IMAGE_TAG}"
+
+      - name: Register conversational-engine task definition
+        id: engine_task_def
+        if: steps.vars.outputs.target == 'engine'
+        env:
+          IMAGE_TAG: ${{ steps.vars.outputs.image_tag }}
+          BACKEND_DATABASE_URL: ${{ secrets.BACKEND_DATABASE_URL }}
+          BACKEND_OPENAI_API_KEY: ${{ secrets.BACKEND_OPENAI_API_KEY }}
+          ENGINE_DATABASE_URL: ${{ secrets.ENGINE_DATABASE_URL }}
+          ENGINE_LLM_API_KEY: ${{ secrets.ENGINE_LLM_API_KEY }}
+          ENGINE_GEMINI_API_KEY: ${{ secrets.ENGINE_GEMINI_API_KEY }}
+          ENGINE_DEEPSEEK_API_KEY: ${{ secrets.ENGINE_DEEPSEEK_API_KEY }}
+        run: |
+          TASK_DEFINITION_ARN="$(
+            bash scripts/aws-register-ecs-task-def.sh \
+              "${{ vars.AWS_ENGINE_TASK_FAMILY }}" \
+              "conversational-engine" \
+              "${{ vars.AWS_ENGINE_ECR_REPOSITORY }}:${IMAGE_TAG}"
+          )"
+          echo "task_definition_arn=${TASK_DEFINITION_ARN}" >> "$GITHUB_OUTPUT"
+
+      - name: Run conversational-engine migrate up
+        if: steps.vars.outputs.target == 'engine' && steps.vars.outputs.direction == 'up'
+        run: |
+          bash scripts/aws-run-ecs-task.sh \
+            "${{ vars.AWS_ECS_CLUSTER }}" \
+            "${{ vars.AWS_ENGINE_SERVICE }}" \
+            "${{ steps.engine_task_def.outputs.task_definition_arn }}" \
+            "conversational-engine" \
+            sh -lc "PYTHONPATH=src uv run python -m conversational_engine.scripts.ensure_db && uv run alembic upgrade head"
+
+      - name: Run conversational-engine migrate down
+        if: steps.vars.outputs.target == 'engine' && steps.vars.outputs.direction == 'down'
+        run: |
+          bash scripts/aws-run-ecs-task.sh \
+            "${{ vars.AWS_ECS_CLUSTER }}" \
+            "${{ vars.AWS_ENGINE_SERVICE }}" \
+            "${{ steps.engine_task_def.outputs.task_definition_arn }}" \
+            "conversational-engine" \
+            sh -lc "uv run alembic downgrade -1"
+
+      - name: Write migration summary
+        shell: bash
+        run: |
+          {
+            echo "## Database migration"
+            echo
+            echo "- Target: \`${{ steps.vars.outputs.target }}\`"
+            echo "- Direction: \`${{ steps.vars.outputs.direction }}\`"
+            echo "- Image tag: \`${{ steps.vars.outputs.image_tag }}\`"
+            echo "- Commit: \`${GITHUB_SHA}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -9,6 +9,8 @@
     "test": "uv run pytest",
     "lint": "uv run ruff check .",
     "format": "uv run ruff format .",
-    "migrate": "uv run alembic upgrade head"
+    "migrate": "uv run alembic upgrade head",
+    "migrate:up": "uv run alembic upgrade head",
+    "migrate:down": "uv run alembic downgrade -1"
   }
 }

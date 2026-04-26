@@ -36,10 +36,11 @@ build_runtime_env_json() {
     backend)
       local database_url="${BACKEND_DATABASE_URL:-${DATABASE_URL:-}}"
       local jwt_secret="${BACKEND_JWT_SECRET:-${JWT_SECRET:-}}"
-      local openai_api_key="${BACKEND_OPENAI_API_KEY:-${OPENAI_API_KEY:-disabled}}"
-      local auth0_client_secret="${BACKEND_AUTH0_CLIENT_SECRET:-${AUTH0_CLIENT_SECRET:-disabled}}"
-      local google_client_secret="${BACKEND_SSO_GOOGLE_CLIENT_SECRET:-${SSO_GOOGLE_CLIENT_SECRET:-disabled}}"
-      local azuread_client_secret="${BACKEND_SSO_AZUREAD_CLIENT_SECRET:-${SSO_AZUREAD_CLIENT_SECRET:-disabled}}"
+      local openai_api_key="${BACKEND_OPENAI_API_KEY:-${OPENAI_API_KEY:-}}"
+      local auth0_client_secret="${BACKEND_AUTH0_CLIENT_SECRET:-${AUTH0_CLIENT_SECRET:-}}"
+      local google_client_secret="${BACKEND_SSO_GOOGLE_CLIENT_SECRET:-${SSO_GOOGLE_CLIENT_SECRET:-}}"
+      local azuread_client_secret="${BACKEND_SSO_AZUREAD_CLIENT_SECRET:-${SSO_AZUREAD_CLIENT_SECRET:-}}"
+      local sentry_dsn="${BACKEND_SENTRY_DSN:-${SENTRY_DSN:-}}"
 
       if [ -z "$database_url" ]; then
         echo "Missing BACKEND_DATABASE_URL or DATABASE_URL for backend task definition" >&2
@@ -60,19 +61,22 @@ build_runtime_env_json() {
         --arg auth0_client_secret "$auth0_client_secret" \
         --arg google_client_secret "$google_client_secret" \
         --arg azuread_client_secret "$azuread_client_secret" \
+        --arg sentry_dsn "$sentry_dsn" \
         '[
           {name:"DATABASE_URL",value:$database_url},
-          {name:"JWT_SECRET",value:$jwt_secret},
-          {name:"OPENAI_API_KEY",value:$openai_api_key},
-          {name:"AUTH0_CLIENT_SECRET",value:$auth0_client_secret},
-          {name:"SSO_GOOGLE_CLIENT_SECRET",value:$google_client_secret},
-          {name:"SSO_AZUREAD_CLIENT_SECRET",value:$azuread_client_secret}
-        ]'
+          {name:"JWT_SECRET",value:$jwt_secret}
+        ]
+        + (if $openai_api_key != "" then [{name:"OPENAI_API_KEY",value:$openai_api_key}] else [] end)
+        + (if $auth0_client_secret != "" then [{name:"AUTH0_CLIENT_SECRET",value:$auth0_client_secret}] else [] end)
+        + (if $google_client_secret != "" then [{name:"SSO_GOOGLE_CLIENT_SECRET",value:$google_client_secret}] else [] end)
+        + (if $azuread_client_secret != "" then [{name:"SSO_AZUREAD_CLIENT_SECRET",value:$azuread_client_secret}] else [] end)
+        + (if $sentry_dsn != "" then [{name:"SENTRY_DSN",value:$sentry_dsn}] else [] end)'
       ;;
     conversational-engine)
       local database_url="${ENGINE_DATABASE_URL:-${CONVERSATIONAL_ENGINE_DATABASE_URL:-${BACKEND_DATABASE_URL:-${DATABASE_URL:-}}}}"
-      local llm_api_key="${ENGINE_LLM_API_KEY:-${CONVERSATIONAL_ENGINE_LLM_API_KEY:-${BACKEND_OPENAI_API_KEY:-${OPENAI_API_KEY:-disabled}}}}"
-      local deepseek_api_key="${ENGINE_DEEPSEEK_API_KEY:-${CONVERSATIONAL_ENGINE_DEEPSEEK_API_KEY:-disabled}}"
+      local llm_api_key="${ENGINE_LLM_API_KEY:-${CONVERSATIONAL_ENGINE_LLM_API_KEY:-${BACKEND_OPENAI_API_KEY:-${OPENAI_API_KEY:-}}}}"
+      local gemini_api_key="${ENGINE_GEMINI_API_KEY:-${CONVERSATIONAL_ENGINE_GEMINI_API_KEY:-}}"
+      local deepseek_api_key="${ENGINE_DEEPSEEK_API_KEY:-${CONVERSATIONAL_ENGINE_DEEPSEEK_API_KEY:-}}"
 
       if [ -z "$database_url" ]; then
         echo "Missing ENGINE_DATABASE_URL, CONVERSATIONAL_ENGINE_DATABASE_URL, BACKEND_DATABASE_URL, or DATABASE_URL for engine task definition" >&2
@@ -84,12 +88,14 @@ build_runtime_env_json() {
       jq -nc \
         --arg database_url "$database_url" \
         --arg llm_api_key "$llm_api_key" \
+        --arg gemini_api_key "$gemini_api_key" \
         --arg deepseek_api_key "$deepseek_api_key" \
         '[
-          {name:"CONVERSATIONAL_ENGINE_DATABASE_URL",value:$database_url},
-          {name:"CONVERSATIONAL_ENGINE_LLM_API_KEY",value:$llm_api_key},
-          {name:"CONVERSATIONAL_ENGINE_DEEPSEEK_API_KEY",value:$deepseek_api_key}
-        ]'
+          {name:"CONVERSATIONAL_ENGINE_DATABASE_URL",value:$database_url}
+        ]
+        + (if $llm_api_key != "" then [{name:"CONVERSATIONAL_ENGINE_LLM_API_KEY",value:$llm_api_key}] else [] end)
+        + (if $gemini_api_key != "" then [{name:"CONVERSATIONAL_ENGINE_GEMINI_API_KEY",value:$gemini_api_key}] else [] end)
+        + (if $deepseek_api_key != "" then [{name:"CONVERSATIONAL_ENGINE_DEEPSEEK_API_KEY",value:$deepseek_api_key}] else [] end)'
       ;;
     *)
       jq -nc '[]'

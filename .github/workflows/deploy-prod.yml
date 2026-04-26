@@ -16,6 +16,7 @@ on:
           - backend
           - engine
           - admin
+          - superadmin
       force_rebuild:
         description: "Force a fresh rebuild of the selected target"
         required: true
@@ -59,14 +60,14 @@ jobs:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
 
       - name: Setup pnpm
-        if: steps.vars.outputs.target == 'all' || steps.vars.outputs.target == 'admin'
+        if: steps.vars.outputs.target == 'all' || steps.vars.outputs.target == 'admin' || steps.vars.outputs.target == 'superadmin'
         uses: pnpm/action-setup@v4
         with:
           version: 10.13.1
           run_install: false
 
       - name: Setup Node.js
-        if: steps.vars.outputs.target == 'all' || steps.vars.outputs.target == 'admin'
+        if: steps.vars.outputs.target == 'all' || steps.vars.outputs.target == 'admin' || steps.vars.outputs.target == 'superadmin'
         uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -74,7 +75,7 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
 
       - name: Install workspace dependencies
-        if: steps.vars.outputs.target == 'all' || steps.vars.outputs.target == 'admin'
+        if: steps.vars.outputs.target == 'all' || steps.vars.outputs.target == 'admin' || steps.vars.outputs.target == 'superadmin'
         run: pnpm install --frozen-lockfile
 
       - name: Login to Amazon ECR
@@ -101,6 +102,7 @@ jobs:
           BACKEND_AUTH0_CLIENT_SECRET: ${{ secrets.BACKEND_AUTH0_CLIENT_SECRET }}
           BACKEND_SSO_GOOGLE_CLIENT_SECRET: ${{ secrets.BACKEND_SSO_GOOGLE_CLIENT_SECRET }}
           BACKEND_SSO_AZUREAD_CLIENT_SECRET: ${{ secrets.BACKEND_SSO_AZUREAD_CLIENT_SECRET }}
+          BACKEND_SENTRY_DSN: ${{ secrets.BACKEND_SENTRY_DSN }}
         run: |
           TASK_DEFINITION_ARN="$(
             bash scripts/aws-register-ecs-task-def.sh \
@@ -147,6 +149,7 @@ jobs:
           BACKEND_OPENAI_API_KEY: ${{ secrets.BACKEND_OPENAI_API_KEY }}
           ENGINE_DATABASE_URL: ${{ secrets.ENGINE_DATABASE_URL }}
           ENGINE_LLM_API_KEY: ${{ secrets.ENGINE_LLM_API_KEY }}
+          ENGINE_GEMINI_API_KEY: ${{ secrets.ENGINE_GEMINI_API_KEY }}
           ENGINE_DEEPSEEK_API_KEY: ${{ secrets.ENGINE_DEEPSEEK_API_KEY }}
         run: |
           TASK_DEFINITION_ARN="$(
@@ -183,12 +186,29 @@ jobs:
           EXPO_PUBLIC_API_URL: https://api.stockaisle.com/api
           EXPO_PUBLIC_CONVERSATIONAL_ENGINE_URL: https://engine.stockaisle.com
           EXPO_PUBLIC_ENABLE_MFA: "false"
+          EXPO_PUBLIC_PORTAL_MODE: business
           EXPO_PUBLIC_SSO_URL: ""
         run: pnpm --filter admin build:prod
 
       - name: Deploy admin static assets
         if: steps.vars.outputs.target == 'all' || steps.vars.outputs.target == 'admin'
         run: bash scripts/aws-deploy-static.sh admin/dist "${{ vars.AWS_ADMIN_BUCKET }}" "${{ vars.AWS_ADMIN_DISTRIBUTION_ID }}"
+
+      - name: Build superadmin site
+        if: steps.vars.outputs.target == 'all' || steps.vars.outputs.target == 'superadmin'
+        env:
+          ADMIN_PROD_API_URL: https://api.stockaisle.com/api
+          EXPO_PUBLIC_API_URL: https://api.stockaisle.com/api
+          EXPO_PUBLIC_CONVERSATIONAL_ENGINE_URL: https://engine.stockaisle.com
+          EXPO_PUBLIC_ENABLE_MFA: "false"
+          EXPO_PUBLIC_PLATFORM_HOSTNAME: master.stockaisle.com
+          EXPO_PUBLIC_PORTAL_MODE: platform
+          EXPO_PUBLIC_SSO_URL: ""
+        run: pnpm --filter superadmin build:prod
+
+      - name: Deploy superadmin static assets
+        if: steps.vars.outputs.target == 'all' || steps.vars.outputs.target == 'superadmin'
+        run: bash scripts/aws-deploy-static.sh superadmin/dist "${{ vars.AWS_SUPERADMIN_BUCKET }}" "${{ vars.AWS_SUPERADMIN_DISTRIBUTION_ID }}"
 
       - name: Write deployment summary
         shell: bash

@@ -210,6 +210,11 @@ resource "aws_s3_bucket" "admin" {
   tags   = local.common_tags
 }
 
+resource "aws_s3_bucket" "superadmin" {
+  bucket = local.superadmin_bucket_name
+  tags   = local.common_tags
+}
+
 resource "aws_s3_bucket" "media" {
   bucket = local.media_bucket_name
   tags   = local.common_tags
@@ -217,6 +222,14 @@ resource "aws_s3_bucket" "media" {
 
 resource "aws_s3_bucket_versioning" "admin" {
   bucket = aws_s3_bucket.admin.id
+
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_versioning" "superadmin" {
+  bucket = aws_s3_bucket.superadmin.id
 
   versioning_configuration {
     status = "Enabled"
@@ -241,6 +254,16 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "admin" {
   }
 }
 
+resource "aws_s3_bucket_server_side_encryption_configuration" "superadmin" {
+  bucket = aws_s3_bucket.superadmin.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
 resource "aws_s3_bucket_server_side_encryption_configuration" "media" {
   bucket = aws_s3_bucket.media.id
 
@@ -253,6 +276,14 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "media" {
 
 resource "aws_s3_bucket_public_access_block" "admin" {
   bucket                  = aws_s3_bucket.admin.id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_public_access_block" "superadmin" {
+  bucket                  = aws_s3_bucket.superadmin.id
   block_public_acls       = true
   block_public_policy     = true
   ignore_public_acls      = true
@@ -293,6 +324,65 @@ resource "aws_cloudfront_distribution" "admin" {
     allowed_methods        = ["GET", "HEAD", "OPTIONS"]
     cached_methods         = ["GET", "HEAD"]
     target_origin_id       = "admin-origin"
+    viewer_protocol_policy = "redirect-to-https"
+    compress               = true
+
+    forwarded_values {
+      query_string = true
+
+      cookies {
+        forward = "none"
+      }
+    }
+  }
+
+  custom_error_response {
+    error_code            = 403
+    response_code         = 200
+    response_page_path    = "/index.html"
+    error_caching_min_ttl = 0
+  }
+
+  custom_error_response {
+    error_code            = 404
+    response_code         = 200
+    response_page_path    = "/index.html"
+    error_caching_min_ttl = 0
+  }
+
+  restrictions {
+    geo_restriction {
+      restriction_type = "none"
+    }
+  }
+
+  viewer_certificate {
+    acm_certificate_arn      = aws_acm_certificate_validation.cloudfront.certificate_arn
+    minimum_protocol_version = "TLSv1.2_2021"
+    ssl_support_method       = "sni-only"
+  }
+
+  tags = local.common_tags
+}
+
+resource "aws_cloudfront_distribution" "superadmin" {
+  enabled             = true
+  is_ipv6_enabled     = true
+  comment             = "Superadmin site for ${local.superadmin_domain}"
+  default_root_object = "index.html"
+  aliases             = [local.superadmin_domain]
+  price_class         = "PriceClass_100"
+
+  origin {
+    domain_name              = aws_s3_bucket.superadmin.bucket_regional_domain_name
+    origin_access_control_id = aws_cloudfront_origin_access_control.s3.id
+    origin_id                = "superadmin-origin"
+  }
+
+  default_cache_behavior {
+    allowed_methods        = ["GET", "HEAD", "OPTIONS"]
+    cached_methods         = ["GET", "HEAD"]
+    target_origin_id       = "superadmin-origin"
     viewer_protocol_policy = "redirect-to-https"
     compress               = true
 
@@ -401,6 +491,29 @@ resource "aws_s3_bucket_policy" "admin" {
   policy = data.aws_iam_policy_document.admin_bucket.json
 }
 
+data "aws_iam_policy_document" "superadmin_bucket" {
+  statement {
+    actions   = ["s3:GetObject"]
+    resources = ["${aws_s3_bucket.superadmin.arn}/*"]
+
+    principals {
+      type        = "Service"
+      identifiers = ["cloudfront.amazonaws.com"]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "AWS:SourceArn"
+      values   = [aws_cloudfront_distribution.superadmin.arn]
+    }
+  }
+}
+
+resource "aws_s3_bucket_policy" "superadmin" {
+  bucket = aws_s3_bucket.superadmin.id
+  policy = data.aws_iam_policy_document.superadmin_bucket.json
+}
+
 data "aws_iam_policy_document" "media_bucket" {
   statement {
     actions   = ["s3:GetObject"]
@@ -434,6 +547,19 @@ resource "aws_route53_record" "admin" {
     evaluate_target_health = false
     name                   = aws_cloudfront_distribution.admin.domain_name
     zone_id                = aws_cloudfront_distribution.admin.hosted_zone_id
+  }
+}
+
+resource "aws_route53_record" "superadmin" {
+  allow_overwrite = true
+  zone_id         = data.aws_route53_zone.primary.zone_id
+  name            = local.superadmin_domain
+  type            = "A"
+
+  alias {
+    evaluate_target_health = false
+    name                   = aws_cloudfront_distribution.superadmin.domain_name
+    zone_id                = aws_cloudfront_distribution.superadmin.hosted_zone_id
   }
 }
 

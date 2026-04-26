@@ -13,6 +13,7 @@ name_prefix="${project}-${environment}"
 namespace_name="svc.stockaisle.internal"
 
 admin_domain="admin.${domain_name}"
+superadmin_domain="master.${domain_name}"
 api_domain="api.${domain_name}"
 engine_domain="engine.${domain_name}"
 media_domain="media.${domain_name}"
@@ -21,6 +22,7 @@ backend_repo="${project}/backend"
 engine_repo="${project}/conversational-engine"
 
 admin_bucket="${name_prefix}-admin-${account_id}"
+superadmin_bucket="${name_prefix}-superadmin-${account_id}"
 media_bucket="${name_prefix}-media-${account_id}"
 
 alb_name="${name_prefix}-alb"
@@ -549,9 +551,11 @@ delete_service_discovery
 delete_alb_stack
 
 delete_cloudfront_distribution_by_alias "$admin_domain"
+delete_cloudfront_distribution_by_alias "$superadmin_domain"
 delete_cloudfront_distribution_by_alias "$media_domain"
 
 delete_bucket "$admin_bucket"
+delete_bucket "$superadmin_bucket"
 delete_bucket "$media_bucket"
 
 delete_oac
