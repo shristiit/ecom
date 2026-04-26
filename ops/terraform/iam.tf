@@ -179,6 +179,8 @@ data "aws_iam_policy_document" "github_actions_deploy" {
     resources = [
       aws_s3_bucket.admin.arn,
       "${aws_s3_bucket.admin.arn}/*",
+      aws_s3_bucket.superadmin.arn,
+      "${aws_s3_bucket.superadmin.arn}/*",
     ]
   }
 
@@ -190,7 +192,10 @@ data "aws_iam_policy_document" "github_actions_deploy" {
       "cloudfront:GetDistribution",
       "cloudfront:GetDistributionConfig",
     ]
-    resources = [aws_cloudfront_distribution.admin.arn]
+    resources = [
+      aws_cloudfront_distribution.admin.arn,
+      aws_cloudfront_distribution.superadmin.arn,
+    ]
   }
 }
 

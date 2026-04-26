@@ -43,6 +43,11 @@ output "admin_bucket_name" {
   value       = aws_s3_bucket.admin.bucket
 }
 
+output "superadmin_bucket_name" {
+  description = "S3 bucket for the superadmin site."
+  value       = aws_s3_bucket.superadmin.bucket
+}
+
 output "media_bucket_name" {
   description = "S3 bucket for product media."
   value       = aws_s3_bucket.media.bucket
@@ -51,6 +56,11 @@ output "media_bucket_name" {
 output "admin_distribution_id" {
   description = "CloudFront distribution ID for admin.stockaisle.com."
   value       = aws_cloudfront_distribution.admin.id
+}
+
+output "superadmin_distribution_id" {
+  description = "CloudFront distribution ID for master.stockaisle.com."
+  value       = aws_cloudfront_distribution.superadmin.id
 }
 
 output "media_distribution_id" {

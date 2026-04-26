@@ -13,6 +13,7 @@ account_id="$(aws sts get-caller-identity --query 'Account' --output text)"
 name_prefix="${project}-${environment}"
 namespace_name="svc.stockaisle.internal"
 admin_domain="admin.${domain_name}"
+superadmin_domain="master.${domain_name}"
 media_domain="media.${domain_name}"
 
 backend_repo="${project}/backend"
@@ -22,6 +23,7 @@ backend_log_group="/aws/ecs/${name_prefix}-backend"
 engine_log_group="/aws/ecs/${name_prefix}-engine"
 
 admin_bucket="${name_prefix}-admin-${account_id}"
+superadmin_bucket="${name_prefix}-superadmin-${account_id}"
 media_bucket="${name_prefix}-media-${account_id}"
 
 alb_name="${name_prefix}-alb"
@@ -299,10 +301,12 @@ if normalize_id "$alb_arn" >/dev/null; then
 fi
 
 import_if_present 'aws_s3_bucket.admin' "$(describe_bucket_name "$admin_bucket")"
+import_if_present 'aws_s3_bucket.superadmin' "$(describe_bucket_name "$superadmin_bucket")"
 import_if_present 'aws_s3_bucket.media' "$(describe_bucket_name "$media_bucket")"
 
 import_if_present 'aws_cloudfront_origin_access_control.s3' "$(describe_oac_id)"
 import_if_present 'aws_cloudfront_distribution.admin' "$(describe_distribution_id_by_alias "$admin_domain")"
+import_if_present 'aws_cloudfront_distribution.superadmin' "$(describe_distribution_id_by_alias "$superadmin_domain")"
 import_if_present 'aws_cloudfront_distribution.media' "$(describe_distribution_id_by_alias "$media_domain")"
 
 import_if_present 'aws_iam_role.ecs_task_execution' "$(describe_iam_role_name "${name_prefix}-ecs-execution")"

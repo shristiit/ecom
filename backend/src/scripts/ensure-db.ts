@@ -33,12 +33,45 @@ function quoteIdentifier(identifier: string): string {
   return `"${identifier.replace(/"/g, '""')}"`;
 }
 
+function isMissingDatabaseError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+
+  const code = 'code' in error ? String((error as { code?: unknown }).code ?? '') : '';
+  if (code === '3D000') {
+    return true;
+  }
+
+  return /database .* does not exist/i.test(error.message);
+}
+
+async function canConnect(connectionString: string): Promise<boolean> {
+  const client = new Client(buildClientConfig(connectionString));
+
+  try {
+    await client.connect();
+    await client.query('SELECT 1');
+    return true;
+  } catch (error) {
+    if (isMissingDatabaseError(error)) {
+      return false;
+    }
+    throw error;
+  } finally {
+    await client.end().catch(() => undefined);
+  }
+}
+
 async function main() {
   const databaseUrl = getDatabaseUrl();
   const databaseName = getDatabaseName(databaseUrl);
 
   if (databaseName === 'postgres') {
     console.log('DATABASE_URL already points at postgres; skipping database creation');
+    return;
+  }
+
+  if (await canConnect(databaseUrl.toString())) {
+    console.log(`Database ${databaseName} already exists and is reachable`);
     return;
   }
 
