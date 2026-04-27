@@ -211,11 +211,7 @@ async function clearTenantData(client: PoolClient, tenantId: string) {
     'ai_workflows',
     'ai_conversations',
     'audit_records',
-    'conversation_turns',
-    'approvals',
-    'transaction_specs',
     'inventory_transactions',
-    'conversations',
     'reservations',
     'idempotency_keys',
     'order_items',
@@ -477,13 +473,12 @@ async function insertInventoryTransaction(
     confirmedBy?: string | null;
     approvedBy?: string | null;
     beforeAfter: Record<string, unknown>;
-    conversationId?: string | null;
   },
 ) {
   const result = await client.query(
     `INSERT INTO inventory_transactions
-     (tenant_id, type, size_id, sku_id, product_id, from_location_id, to_location_id, quantity, unit, reason, event_time, recorded_time, created_by, confirmed_by, approved_by, before_after, conversation_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), $12, $13, $14, $15, $16)
+     (tenant_id, type, size_id, sku_id, product_id, from_location_id, to_location_id, quantity, unit, reason, event_time, recorded_time, created_by, confirmed_by, approved_by, before_after)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), $12, $13, $14, $15)
      RETURNING id`,
     [
       params.tenantId,
@@ -501,7 +496,6 @@ async function insertInventoryTransaction(
       params.confirmedBy ?? params.createdBy,
       params.approvedBy ?? null,
       params.beforeAfter,
-      params.conversationId ?? null,
     ],
   );
 
@@ -1083,70 +1077,71 @@ async function seedChatAndAudit(
 ) {
   const aiOperator = users.find((user) => user.roleName === 'ai_operator') ?? users[0];
   const aiApprover = users.find((user) => user.roleName === 'ai_approver') ?? users[0];
-  const adminRoleId = roleIdByName.get('admin');
-  if (!adminRoleId) {
-    throw new Error('Admin role missing for approval seed');
-  }
-
-  const conversationRes = await client.query(
-    `INSERT INTO conversations (tenant_id, created_by, created_at, updated_at)
-     VALUES ($1, $2, $3, $4)
-     RETURNING id`,
-    [tenantId, aiOperator.id, recentDate(10), recentDate(1)],
-  );
-  const conversationId = conversationRes.rows[0].id as string;
-
-  await client.query(
-    `INSERT INTO conversation_turns (tenant_id, conversation_id, role, content, metadata)
-     VALUES
-     ($1, $2, 'user', $3, '{}'),
-     ($1, $2, 'assistant', $4, $5)`,
-    [
-      tenantId,
-      conversationId,
-      'Move 30 units from London Central Warehouse to Soho Flagship for the weekend launch.',
-      'Transfer requires approval because requested quantity is above the policy threshold.',
-      {
-        intent: 'TRANSFER_STOCK',
-        confidence: 0.93,
-      },
-    ],
-  );
+  void roleIdByName;
 
   const transferSize = faker.helpers.arrayElement(sizes);
-  const transferSpecRes = await client.query(
-    `INSERT INTO transaction_specs
-     (tenant_id, intent, entities, quantities, constraints, confidence, governance_decision, status, created_by, conversation_id, created_at, updated_at)
-     VALUES ($1, 'TRANSFER_STOCK', $2, $3, $4, $5, $6, 'approved', $7, $8, $9, $10)
+  const approvalRes = await client.query(
+    `INSERT INTO ai_action_requests
+     (tenant_id, requested_by, approved_by, action_type, tool_name, status, summary, reason, preview, execution_payload, result, created_at, updated_at)
+     VALUES ($1, $2, $3, 'inventory.transfer_stock', 'inventory.transfer_stock', 'approved', $4, $5, $6, $7, $8, $9, $10)
      RETURNING id`,
     [
       tenantId,
+      aiOperator.id,
+      aiApprover.id,
+      'Transfer stock to Soho for the weekend launch.',
+      'Phase 1 requires approval for every write action.',
       {
-        sizeId: transferSize.id,
+        tool: 'inventory.transfer_stock',
+        arguments: {
+          fromLocationId: warehouseLocations[0]?.id ?? null,
+          toLocationId: warehouseLocations[1]?.id ?? null,
+          sizeId: transferSize.id,
+          quantity: 30,
+          reason: 'seed_rebalance',
+        },
+      },
+      {
         fromLocationId: warehouseLocations[0]?.id ?? null,
         toLocationId: warehouseLocations[1]?.id ?? null,
+        sizeId: transferSize.id,
+        quantity: 30,
         reason: 'seed_rebalance',
       },
-      { qty: 30, unit: 'unit' },
-      {},
-      0.93,
-      { requiresApproval: true, reason: 'Quantity 30 over threshold 25' },
-      aiOperator.id,
-      conversationId,
-      recentDate(10),
+      { status: 'success' },
+      recentDate(9),
       recentDate(1),
     ],
   );
-
-  const transactionSpecId = transferSpecRes.rows[0].id as string;
-  const approvalRes = await client.query(
-    `INSERT INTO approvals
-     (tenant_id, status, required_role_id, requested_by, approved_by, transaction_spec_id, created_at, updated_at)
-     VALUES ($1, 'approved', $2, $3, $4, $5, $6, $7)
-     RETURNING id`,
-    [tenantId, adminRoleId, aiOperator.id, aiApprover.id, transactionSpecId, recentDate(9), recentDate(1)],
-  );
   const approvalId = approvalRes.rows[0].id as string;
+
+  await client.query(
+    `INSERT INTO ai_audit_events
+     (tenant_id, approval_request_id, actor_id, event_type, payload, created_at)
+     VALUES
+     ($1, $2, $3, 'approval.submitted', $4, $5),
+     ($1, $2, $6, 'approval.decided', $7, $8)`,
+    [
+      tenantId,
+      approvalId,
+      aiOperator.id,
+      {
+        actionType: 'inventory.transfer_stock',
+        toolName: 'inventory.transfer_stock',
+        status: 'pending',
+        summary: 'Transfer stock to Soho for the weekend launch.',
+      },
+      recentDate(9),
+      aiApprover.id,
+      {
+        actionType: 'inventory.transfer_stock',
+        toolName: 'inventory.transfer_stock',
+        status: 'approved',
+        summary: 'Transfer stock to Soho for the weekend launch.',
+      },
+      recentDate(1),
+    ],
+  );
 
   const stockBefore = await getBalance(client, tenantId, transferSize.id, warehouseLocations[0].id);
   const transferQty = Math.min(12, Math.max(1, stockBefore.onHand));
@@ -1168,53 +1163,9 @@ async function seedChatAndAudit(
     confirmedBy: aiOperator.id,
     approvedBy: aiApprover.id,
     beforeAfter: fromChange,
-    conversationId,
   });
 
-  const writeOffConversationRes = await client.query(
-    `INSERT INTO conversations (tenant_id, created_by, created_at, updated_at)
-     VALUES ($1, $2, $3, $4)
-     RETURNING id`,
-    [tenantId, aiOperator.id, recentDate(6), recentDate(2)],
-  );
-  const writeOffConversationId = writeOffConversationRes.rows[0].id as string;
   const writeOffSize = faker.helpers.arrayElement(sizes);
-
-  await client.query(
-    `INSERT INTO conversation_turns (tenant_id, conversation_id, role, content, metadata)
-     VALUES
-     ($1, $2, 'user', $3, '{}'),
-     ($1, $2, 'assistant', $4, $5)`,
-    [
-      tenantId,
-      writeOffConversationId,
-      'Write off 4 damaged units from the Manchester overflow rack.',
-      'Drafted a write-off request and captured the damaged stock reason.',
-      { intent: 'WRITE_OFF', confidence: 0.88 },
-    ],
-  );
-
-  await client.query(
-    `INSERT INTO transaction_specs
-     (tenant_id, intent, entities, quantities, constraints, confidence, governance_decision, status, created_by, conversation_id, created_at, updated_at)
-     VALUES ($1, 'WRITE_OFF', $2, $3, $4, $5, $6, 'confirmed', $7, $8, $9, $10)`,
-    [
-      tenantId,
-      {
-        sizeId: writeOffSize.id,
-        locationId: warehouseLocations[1]?.id ?? null,
-        reason: 'damaged stock',
-      },
-      { qty: 4, unit: 'unit' },
-      {},
-      0.88,
-      { requiresApproval: false },
-      aiOperator.id,
-      writeOffConversationId,
-      recentDate(6),
-      recentDate(2),
-    ],
-  );
 
   const writeOffChange = await applyBalanceDelta(client, tenantId, writeOffSize.id, warehouseLocations[1].id, { onHand: -4 });
   const writeOffTransactionId = await insertInventoryTransaction(client, {
@@ -1230,7 +1181,6 @@ async function seedChatAndAudit(
     createdBy: aiOperator.id,
     confirmedBy: aiOperator.id,
     beforeAfter: writeOffChange,
-    conversationId: writeOffConversationId,
   });
 
   const auditTargets = [transferTransactionId, writeOffTransactionId, ...existingTransactions.slice(0, 3).map((entry) => entry.id)];
@@ -1368,7 +1318,7 @@ async function run() {
     for (const customer of customers.filter((entry) => entry.authProvider === 'local').slice(0, 4)) {
       console.log(`- ${customer.role}: ${customer.email}`);
     }
-    console.log(`Sample approval id: ${approvalId}`);
+    console.log(`Sample approval request id: ${approvalId}`);
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;

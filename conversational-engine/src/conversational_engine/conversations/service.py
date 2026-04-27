@@ -13,7 +13,6 @@ from conversational_engine.contracts.auth import AuthContext
 from conversational_engine.contracts.common import WorkflowStatus
 from conversational_engine.contracts.runs import RunRequest
 from conversational_engine.db.repository import EngineRepository
-from conversational_engine.orchestrator.service import OrchestratorService
 from conversational_engine.runtime.service import AgentRuntimeService
 
 from .approval_executor import RuntimeApprovalExecutor
@@ -27,12 +26,10 @@ class ConversationService:
         self,
         repository: EngineRepository,
         backend_client: BackendClient,
-        orchestrator: OrchestratorService,
         runtime_service: AgentRuntimeService,
     ) -> None:
         self._repository = repository
         self._backend_client = backend_client
-        self._orchestrator = orchestrator
         self._outcome_store = ConversationOutcomeStore(repository)
         self._runtime_runner = ConversationRuntimeRunner(
             repository=repository,
@@ -131,10 +128,7 @@ class ConversationService:
             )
 
         conversation, _existing_workflow = conversation_lookup
-        if (
-            workflow.status == WorkflowStatus.AWAITING_CONFIRMATION
-            and workflow.extracted_entities.get('_workflowEngine') == 'runtime'
-        ):
+        if workflow.extracted_entities.get('_workflowEngine') == 'runtime':
             outcome = await self._runtime_decision_handler.apply(
                 auth=auth,
                 conversation_id=conversation.id,
@@ -143,7 +137,11 @@ class ConversationService:
                 decision=decision,
             )
         else:
-            outcome = await self._orchestrator.handle_decision(auth, conversation, workflow, decision)
+            return WorkflowDecisionResponse(
+                workflow_id=workflow_id,
+                accepted=False,
+                message='This workflow does not support runtime decisions.',
+            )
         self._outcome_store.store(
             auth=auth,
             conversation_id=conversation.id,

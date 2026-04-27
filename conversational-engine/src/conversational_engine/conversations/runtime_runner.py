@@ -135,6 +135,7 @@ class ConversationRuntimeRunner:
             user_message=content,
             extracted_entities=runtime_entities,
             recent_messages=recent_messages,
+            workflow_status=workflow.status,
             emit=emit,
             run_id=run.id,
             image_data_urls=image_data_urls,

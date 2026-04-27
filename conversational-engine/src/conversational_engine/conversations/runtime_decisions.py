@@ -11,7 +11,8 @@ from conversational_engine.contracts.common import (
     WorkflowStatus,
 )
 from conversational_engine.orchestrator.service import OrchestratorOutcome
-from conversational_engine.runtime.renderer import render_approval_pending, render_tool_result
+from conversational_engine.runtime.renderer import render_approval_pending, render_navigation_blocks, render_tool_result
+from conversational_engine.runtime.state_update import build_post_action_blocks, mark_task_status
 from conversational_engine.tools.catalog import SemanticToolCatalog
 
 logger = logging.getLogger(__name__)
@@ -202,7 +203,7 @@ class RuntimeDecisionHandler:
                 ),
                 status=WorkflowStatus.AWAITING_APPROVAL,
                 current_task='awaiting_approval',
-                extracted_entities=memory,
+                extracted_entities=mark_task_status(memory, 'awaiting_approval'),
                 missing_fields=[],
                 active_approval_id=approval.id,
             )
@@ -229,14 +230,50 @@ class RuntimeDecisionHandler:
         memory.pop('activeApprovalStatus', None)
         memory.pop('_pendingApprovalUpdateOriginal', None)
         memory.pop('_approvalOperation', None)
+        try:
+            await self._backend_client.record_audit_event(
+                access_token=auth.access_token or '',
+                tenant_id=auth.tenant_id,
+                payload={
+                    'conversationId': str(conversation_id),
+                    'workflowId': str(workflow_id),
+                    'approvalRequestId': str(active_approval_id) if isinstance(active_approval_id, str) and active_approval_id else None,
+                    'eventType': 'execution_result',
+                    'payload': {
+                        'status': 'success',
+                        'toolName': tool_name,
+                        'actionType': tool_name,
+                        'summary': str(memory.get('summary') or tool_name),
+                        'executionPayload': execution_payload,
+                        'result': result,
+                    },
+                },
+            )
+        except Exception:
+            logger.exception('Failed to persist execution audit event for workflow %s', workflow_id)
+        post_action_blocks = render_navigation_blocks(build_post_action_blocks(_post_actions_from_memory(memory)))
+        next_entities = mark_task_status(memory, 'completed', clear_post_actions=True)
         return OrchestratorOutcome(
-            blocks=render_tool_result(
-                'Confirmation recorded and the requested action has been executed.',
-                tool_name,
-                result,
-            ),
+            blocks=[
+                *render_tool_result(
+                    'Confirmation recorded and the requested action has been executed.',
+                    tool_name,
+                    result,
+                ),
+                *post_action_blocks,
+            ],
             status=WorkflowStatus.COMPLETED,
             current_task='completed',
-            extracted_entities=memory,
+            extracted_entities=next_entities,
             missing_fields=[],
         )
+
+
+def _post_actions_from_memory(memory: dict[str, object]) -> list[dict[str, object]]:
+    task_context = memory.get('taskContext')
+    if not isinstance(task_context, dict):
+        return []
+    post_actions = task_context.get('postActions')
+    if not isinstance(post_actions, list):
+        return []
+    return [action for action in post_actions if isinstance(action, dict)]
