@@ -16,6 +16,7 @@ async function getBcrypt() {
 const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1),
+  rememberMe: z.boolean().optional().default(false),
 });
 
 const tenantStatusSchema = z.object({
@@ -133,8 +134,19 @@ export async function login(req: Request, res: Response) {
 
   await query(`UPDATE platform_admins SET last_login_at = NOW() WHERE id = $1`, [admin.id]);
 
-  const accessToken = signAccessToken({ sub: admin.id, principalType: 'platform_admin' });
-  const refreshToken = signRefreshToken({ sub: admin.id, principalType: 'platform_admin' });
+  const accessToken = signAccessToken({
+    sub: admin.id,
+    principalType: 'platform_admin',
+    rememberMe: parsed.data.rememberMe,
+  });
+  const refreshToken = signRefreshToken(
+    {
+      sub: admin.id,
+      principalType: 'platform_admin',
+      rememberMe: parsed.data.rememberMe,
+    },
+    { rememberMe: parsed.data.rememberMe },
+  );
   res.json({ accessToken, refreshToken });
 }
 
