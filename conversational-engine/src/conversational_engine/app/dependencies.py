@@ -4,6 +4,7 @@ from conversational_engine.agents.executor import ExecutorAgent
 from conversational_engine.agents.narrator import NarratorAgent
 from conversational_engine.agents.planner import PlannerAgent
 from conversational_engine.agents.reviewer import ReviewerAgent
+from conversational_engine.agents.state_updater import StateUpdateAgent
 from conversational_engine.clients.backend import BackendClient
 from conversational_engine.config.settings import get_settings
 from conversational_engine.conversations.service import ConversationService
@@ -56,6 +57,7 @@ def get_agent_runtime_service() -> AgentRuntimeService:
         planner=PlannerAgent(router),
         executor=ExecutorAgent(router),
         reviewer=ReviewerAgent(router),
+        state_updater=StateUpdateAgent(router),
         narrator=NarratorAgent(router),
         memory_service=LayeredMemoryService(repository),
         training_data_service=TrainingDataService(repository),

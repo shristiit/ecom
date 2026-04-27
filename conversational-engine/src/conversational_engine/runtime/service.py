@@ -10,6 +10,7 @@ from conversational_engine.agents.executor import ExecutorAgent
 from conversational_engine.agents.narrator import NarratorAgent
 from conversational_engine.agents.planner import PlannerAgent
 from conversational_engine.agents.reviewer import ReviewerAgent
+from conversational_engine.agents.state_updater import StateUpdateAgent
 from conversational_engine.clients.backend import BackendClient
 from conversational_engine.contracts.auth import AuthContext
 from conversational_engine.contracts.common import PendingActionType, TextBlock, WorkflowStatus
@@ -53,6 +54,7 @@ class AgentRuntimeService:
         executor: ExecutorAgent,
         reviewer: ReviewerAgent,
         narrator: NarratorAgent,
+        state_updater: StateUpdateAgent | None = None,
         memory_service: LayeredMemoryService,
         training_data_service: TrainingDataService,
         retrieval_service: RetrievalService,
@@ -61,6 +63,7 @@ class AgentRuntimeService:
         self._planner = planner
         self._executor = executor
         self._reviewer = reviewer
+        self._state_updater = state_updater
         self._narrator = narrator
         self._memory_service = memory_service
         self._training_data_service = training_data_service
@@ -94,6 +97,7 @@ class AgentRuntimeService:
             state_update = await self._run_state_update(
                 user_message=user_message,
                 extracted_entities=extracted_entities,
+                recent_messages=recent_messages,
                 conversation_id=conversation_id,
                 workflow_id=workflow_id,
                 emit=emit,
@@ -646,6 +650,7 @@ class AgentRuntimeService:
         *,
         user_message: str,
         extracted_entities: dict[str, object],
+        recent_messages: list[dict[str, object]],
         conversation_id: UUID,
         workflow_id: UUID,
         emit: EventSink,
@@ -662,7 +667,9 @@ class AgentRuntimeService:
         state_update = await resolve_state_update(
             user_message=user_message,
             extracted_entities=extracted_entities,
+            recent_messages=recent_messages,
             retrieval_service=self._retrieval_service,
+            state_updater=self._state_updater,
         )
         emit(
             'phase.completed',

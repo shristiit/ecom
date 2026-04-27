@@ -140,6 +140,27 @@ class FakeRetrievalService:
         return []
 
 
+class FakeStateUpdater:
+    def __init__(self, decisions: dict[str, dict[str, object]] | None = None) -> None:
+        self._decisions = decisions or {}
+
+    async def decide(self, **kwargs):
+        message = str(kwargs.get('user_message') or '')
+        return self._decisions.get(
+            message,
+            {
+                'useActiveWorkflow': False,
+                'primaryRoute': 'read',
+                'primaryIntent': 'inventory.stock_on_hand',
+                'confidence': 0.8,
+                'rationale': 'Default fake state update.',
+                'entityPatches': {},
+                'navigationQuery': None,
+                'postActionQuery': None,
+            },
+        )
+
+
 class FakeBackendClient:
     async def check_ai_usage_quota(self, *args, **kwargs):
         del args, kwargs
@@ -391,6 +412,23 @@ async def test_runtime_service_updates_pending_confirmation_in_place():
         executor=FakeExecutor('inventory.transfer_stock', {'quantity': 5}),
         reviewer=FakeReviewer(),
         narrator=FakeNarrator(),  # type: ignore[arg-type]
+        state_updater=FakeStateUpdater(
+            {
+                'actually make it 10 and use Camden as the source': {
+                    'useActiveWorkflow': True,
+                    'primaryRoute': 'mutation',
+                    'primaryIntent': 'inventory.transfer_stock',
+                    'confidence': 0.96,
+                    'rationale': 'This is an edit to the pending transfer.',
+                    'entityPatches': {
+                        'quantity': 10,
+                        'fromLocationId': 'Camden',
+                    },
+                    'navigationQuery': None,
+                    'postActionQuery': None,
+                }
+            }
+        ),  # type: ignore[arg-type]
         memory_service=FakeMemoryService(),  # type: ignore[arg-type]
         training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
         retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
@@ -483,6 +521,20 @@ async def test_runtime_service_reuses_completed_read_context_for_this_follow_up(
         executor=FakeExecutor('inventory.stock_on_hand', {'productName': 'Monarch Soft Overshirt'}),
         reviewer=FakeReviewer(message='Here are the variants.'),
         narrator=FakeNarrator(),  # type: ignore[arg-type]
+        state_updater=FakeStateUpdater(
+            {
+                'what sizes we have in this': {
+                    'useActiveWorkflow': True,
+                    'primaryRoute': 'read',
+                    'primaryIntent': 'inventory.stock_on_hand',
+                    'confidence': 0.94,
+                    'rationale': 'Follow-up question refers to the active product context.',
+                    'entityPatches': {},
+                    'navigationQuery': None,
+                    'postActionQuery': None,
+                }
+            }
+        ),  # type: ignore[arg-type]
         memory_service=FakeMemoryService(),  # type: ignore[arg-type]
         training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
         retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
@@ -518,4 +570,70 @@ async def test_runtime_service_reuses_completed_read_context_for_this_follow_up(
     follow_task_context = follow_up.extracted_entities['taskContext']
     assert follow_task_context['primaryIntent'] == 'inventory.stock_on_hand'
     assert follow_task_context['entities']['productName'] == 'Monarch Soft Overshirt'
+
+
+async def test_runtime_service_uses_state_updater_for_completed_read_totals():
+    service = AgentRuntimeService(
+        backend_client=FakeBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeExecutor('inventory.stock_on_hand', {'productName': 'Monarch Tasty Parka'}),
+        reviewer=FakeReviewer(message='Here is the total stock.'),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        state_updater=FakeStateUpdater(
+            {
+                'in total how much ?': {
+                    'useActiveWorkflow': True,
+                    'primaryRoute': 'read',
+                    'primaryIntent': 'inventory.stock_on_hand',
+                    'confidence': 0.92,
+                    'rationale': 'This asks for the total of the active product discussion.',
+                    'entityPatches': {},
+                    'navigationQuery': None,
+                    'postActionQuery': None,
+                },
+                'stock of this product': {
+                    'useActiveWorkflow': True,
+                    'primaryRoute': 'read',
+                    'primaryIntent': 'inventory.stock_on_hand',
+                    'confidence': 0.93,
+                    'rationale': 'This refers to the active product without renaming it.',
+                    'entityPatches': {},
+                    'navigationQuery': None,
+                    'postActionQuery': None,
+                },
+            }
+        ),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    extracted_entities = {
+        'taskContext': {
+            'primaryRoute': 'read',
+            'primaryIntent': 'inventory.stock_on_hand',
+            'entities': {
+                'productName': 'Monarch Tasty Parka',
+                'sizeLabels': ['XS', 'S', 'M', 'L', 'XL'],
+            },
+            'missingFields': [],
+            'postActions': [],
+            'clarificationCount': 0,
+            'status': 'completed',
+        }
+    }
+
+    follow_up = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='stock of this product',
+        extracted_entities=extracted_entities,
+        recent_messages=[],
+        workflow_status=WorkflowStatus.COMPLETED,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert follow_up.extracted_entities['taskContext']['entities']['productName'] == 'Monarch Tasty Parka'
     assert follow_up.status == WorkflowStatus.COMPLETED

@@ -2,9 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from conversational_engine.retrieval.service import RetrievalService
+
+if TYPE_CHECKING:
+    from conversational_engine.agents.state_updater import StateUpdateAgent
 
 ROUTE_NAVIGATION = 'navigation'
 ROUTE_READ = 'read'
@@ -117,45 +120,61 @@ async def resolve_state_update(
     *,
     user_message: str,
     extracted_entities: dict[str, Any],
+    recent_messages: list[dict[str, object]],
     retrieval_service: RetrievalService,
+    state_updater: StateUpdateAgent | None = None,
 ) -> RuntimeStateUpdate:
     task_context = task_context_from_entities(extracted_entities)
     prior_entities = task_context.get('entities')
     merged_entities = dict(prior_entities) if isinstance(prior_entities, dict) else {}
     text = user_message.strip()
-    normalized = _normalize(text)
-    action_text, post_action_text = _split_post_action_text(text)
-    patches = _extract_entity_patches(text, normalized)
+    decision = None
+    if state_updater is not None:
+        try:
+            decision = await state_updater.decide(
+                user_message=text,
+                task_context=task_context,
+                recent_messages=recent_messages,
+            )
+        except Exception:
+            decision = None
 
-    contextual_reference = _looks_like_contextual_reference(normalized)
-    has_prior_entities = bool(merged_entities)
-    task_status = str(task_context.get('status') or '')
-    has_active_workflow = bool(task_context.get('primaryIntent') or has_prior_entities)
-    is_workflow_edit = bool(
-        (
-            task_status in {'drafting', 'awaiting_confirmation', 'awaiting_approval'}
-            and has_active_workflow
-            and (patches or post_action_text or _looks_like_contextual_edit(normalized))
-        )
-        or (
-            task_status == 'completed'
-            and contextual_reference
-            and has_prior_entities
-            and task_context.get('primaryIntent')
-        )
+    action_text, post_action_text = _split_post_action_text(text)
+    route_fallback, intent_fallback, fallback_rationale, fallback_confidence = _resolve_primary_route_and_intent(
+        action_text or text
     )
 
+    decision_patches = decision.get('entityPatches') if isinstance(decision, dict) else None
+    patches = dict(decision_patches) if isinstance(decision_patches, dict) else {}
+
+    is_workflow_edit = bool(decision.get('useActiveWorkflow')) if isinstance(decision, dict) else False
     if is_workflow_edit:
-        primary_route = str(task_context.get('primaryRoute') or ROUTE_MUTATION)
-        primary_intent = str(task_context.get('primaryIntent') or 'inventory.transfer_stock')
-        rationale = 'Applied this turn as an update to the active workflow context.'
-        confidence = 0.9
+        primary_route = str(decision.get('primaryRoute') or task_context.get('primaryRoute') or route_fallback)
+        primary_intent = str(decision.get('primaryIntent') or task_context.get('primaryIntent') or intent_fallback)
+        rationale = str(
+            decision.get('rationale') or 'Applied this turn as an update to the active workflow context.'
+        ) if isinstance(decision, dict) else 'Applied this turn as an update to the active workflow context.'
+        confidence = _coerce_confidence(decision.get('confidence') if isinstance(decision, dict) else None, 0.9)
         used_memory = True
     else:
-        primary_route, primary_intent, rationale, confidence = _resolve_primary_route_and_intent(action_text or text)
-        used_memory = False
+        primary_route = str(decision.get('primaryRoute') or route_fallback) if isinstance(decision, dict) else route_fallback
+        primary_intent = str(decision.get('primaryIntent') or intent_fallback) if isinstance(decision, dict) else intent_fallback
+        rationale = str(decision.get('rationale') or fallback_rationale) if isinstance(decision, dict) else fallback_rationale
+        confidence = _coerce_confidence(decision.get('confidence') if isinstance(decision, dict) else None, fallback_confidence)
+        used_memory = bool(decision and decision.get('useActiveWorkflow'))
 
-    if primary_route == ROUTE_MUTATION and post_action_text:
+    navigation_query = (
+        str(decision.get('navigationQuery')).strip()
+        if isinstance(decision, dict) and isinstance(decision.get('navigationQuery'), str) and str(decision.get('navigationQuery')).strip()
+        else None
+    )
+    post_action_query = (
+        str(decision.get('postActionQuery')).strip()
+        if isinstance(decision, dict) and isinstance(decision.get('postActionQuery'), str) and str(decision.get('postActionQuery')).strip()
+        else post_action_text
+    )
+
+    if primary_route == ROUTE_MUTATION and post_action_query:
         primary_route = ROUTE_MIXED
         rationale = f'{rationale} Queued a post-action navigation step after the mutation succeeds.'
 
@@ -169,13 +188,13 @@ async def resolve_state_update(
     new_post_actions: list[dict[str, Any]] = []
 
     if primary_route == ROUTE_NAVIGATION:
-        navigation_rows = await _resolve_navigation_rows(text, task_context, retrieval_service)
+        navigation_rows = await _resolve_navigation_rows(navigation_query or text, task_context, retrieval_service)
         if navigation_rows:
             task_context['lastResolvedRoute'] = navigation_rows[0]
-    elif post_action_text:
-        navigation_rows = await _resolve_navigation_rows(post_action_text, task_context, retrieval_service)
+    elif post_action_query:
+        navigation_rows = await _resolve_navigation_rows(post_action_query, task_context, retrieval_service)
         if navigation_rows:
-            new_post_actions = [{'type': 'navigate', 'query': post_action_text, 'route': navigation_rows[0]}]
+            new_post_actions = [{'type': 'navigate', 'query': post_action_query, 'route': navigation_rows[0]}]
             existing_actions = task_context.get('postActions')
             task_context['postActions'] = [*existing_actions] if isinstance(existing_actions, list) else []
             task_context['postActions'].extend(new_post_actions)
@@ -210,6 +229,12 @@ def _normalize(value: str) -> str:
     return ' '.join(value.lower().strip().split())
 
 
+def _coerce_confidence(value: object, default: float) -> float:
+    if isinstance(value, (int, float)):
+        return max(0.0, min(float(value), 1.0))
+    return default
+
+
 def _split_post_action_text(text: str) -> tuple[str, str | None]:
     lowered = text.lower()
     match = re.search(r'\b(?:and then|then)\s+(show|open|take me to|go to|navigate to)\b(.+)$', lowered)
@@ -220,46 +245,6 @@ def _split_post_action_text(text: str) -> tuple[str, str | None]:
     if trailing:
         return '', text.strip()
     return text, None
-
-
-def _extract_entity_patches(text: str, normalized: str) -> dict[str, Any]:
-    patches: dict[str, Any] = {}
-
-    quantity_match = re.search(
-        r'\b(?:actually make it|actually change it to|change it to|make it|make that|change that to)\s+(\d+)\b',
-        normalized,
-    )
-    if quantity_match:
-        patches['quantity'] = int(quantity_match.group(1))
-
-    source_match = re.search(r'\buse\s+(.+?)\s+as the source\b', text, re.IGNORECASE)
-    if source_match:
-        patches['fromLocationId'] = source_match.group(1).strip()
-
-    destination_match = re.search(r'\buse\s+(.+?)\s+as the destination\b', text, re.IGNORECASE)
-    if destination_match:
-        patches['toLocationId'] = destination_match.group(1).strip()
-
-    location_match = re.search(r'\buse\s+(.+?)\s+as the location\b', text, re.IGNORECASE)
-    if location_match:
-        patches['locationId'] = location_match.group(1).strip()
-
-    product_match = re.search(r'\bthis\s+([A-Za-z0-9][A-Za-z0-9\s\'&-]{2,})$', text.strip())
-    if product_match:
-        patches['productName'] = product_match.group(1).strip()
-
-    return patches
-
-
-def _looks_like_contextual_edit(normalized: str) -> bool:
-    return any(
-        token in normalized
-        for token in ('actually', 'instead', 'make it', 'change it', 'use ', 'after', 'there')
-    )
-
-
-def _looks_like_contextual_reference(normalized: str) -> bool:
-    return bool(re.search(r'\b(this|that|there|it)\b', normalized))
 
 
 def _resolve_primary_route_and_intent(text: str) -> tuple[str, str, str, float]:
