@@ -4,7 +4,8 @@ from conversational_engine.clients.backend import BackendClient
 from conversational_engine.contracts.auth import AuthContext
 from conversational_engine.contracts.common import ErrorBlock, WorkflowStatus
 from conversational_engine.orchestrator.service import OrchestratorOutcome
-from conversational_engine.runtime.renderer import render_tool_result
+from conversational_engine.runtime.renderer import render_navigation_blocks, render_tool_result
+from conversational_engine.runtime.state_update import build_post_action_blocks, mark_task_status
 from conversational_engine.tools.catalog import SemanticToolCatalog
 
 
@@ -14,6 +15,14 @@ class RuntimeApprovalExecutor:
 
     async def execute(self, *, auth: AuthContext, approval) -> OrchestratorOutcome:
         if approval.status == 'rejected':
+            rejected_entities = mark_task_status(
+                {
+                    'lastApprovalId': str(approval.id),
+                    'lastApprovalStatus': approval.status,
+                },
+                'completed',
+                clear_post_actions=True,
+            )
             return OrchestratorOutcome(
                 blocks=[
                     ErrorBlock(
@@ -23,10 +32,7 @@ class RuntimeApprovalExecutor:
                 ],
                 status=WorkflowStatus.FAILED,
                 current_task='approval_rejected',
-                extracted_entities={
-                    'lastApprovalId': str(approval.id),
-                    'lastApprovalStatus': approval.status,
-                },
+                extracted_entities=rejected_entities,
                 missing_fields=[],
                 active_approval_id=None,
             )
@@ -66,19 +72,56 @@ class RuntimeApprovalExecutor:
                 active_approval_id=None,
             )
 
-        return OrchestratorOutcome(
-            blocks=render_tool_result(
-                'Approval granted and the requested action has been executed.',
-                approval.tool_name,
-                result,
-            ),
-            status=WorkflowStatus.COMPLETED,
-            current_task='approval_execution_completed',
-            extracted_entities={
+        task_context = approval.preview.get('taskContext') if isinstance(approval.preview, dict) else None
+        try:
+            await self._backend_client.record_audit_event(
+                access_token=auth.access_token or '',
+                tenant_id=auth.tenant_id,
+                payload={
+                    'conversationId': str(approval.conversation_id) if approval.conversation_id else None,
+                    'workflowId': str(approval.workflow_id) if approval.workflow_id else None,
+                    'approvalRequestId': str(approval.id),
+                    'eventType': 'execution_result',
+                    'payload': {
+                        'status': 'success',
+                        'toolName': approval.tool_name,
+                        'actionType': approval.action_type,
+                        'summary': approval.summary,
+                        'executionPayload': approval.execution_payload,
+                        'result': result,
+                    },
+                },
+            )
+        except Exception:
+            pass
+        next_entities = mark_task_status(
+            {
                 'lastApprovalId': str(approval.id),
                 'lastApprovalStatus': approval.status,
                 'lastToolName': approval.tool_name,
+                'taskContext': task_context if isinstance(task_context, dict) else {},
             },
+            'completed',
+            clear_post_actions=True,
+        )
+        post_actions = []
+        if isinstance(task_context, dict):
+            raw_post_actions = task_context.get('postActions')
+            if isinstance(raw_post_actions, list):
+                post_actions = [action for action in raw_post_actions if isinstance(action, dict)]
+
+        return OrchestratorOutcome(
+            blocks=[
+                *render_tool_result(
+                    'Approval granted and the requested action has been executed.',
+                    approval.tool_name,
+                    result,
+                ),
+                *render_navigation_blocks(build_post_action_blocks(post_actions)),
+            ],
+            status=WorkflowStatus.COMPLETED,
+            current_task='approval_execution_completed',
+            extracted_entities=next_entities,
             missing_fields=[],
             active_approval_id=None,
         )

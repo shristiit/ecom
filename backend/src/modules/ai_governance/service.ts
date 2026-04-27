@@ -107,7 +107,7 @@ export async function createApprovalRequest(req: Request, res: Response) {
   );
 
   const approval = result.rows[0];
-  await recordApprovalAuditEvent(req.user!.tenantId, req.user!.id, 'approval_requested', {
+  await recordApprovalAuditEvent(req.user!.tenantId, req.user!.id, 'approval.submitted', {
     conversationId: approval.conversation_id,
     workflowId: approval.workflow_id,
     approvalRequestId: approval.id,
@@ -224,7 +224,7 @@ export async function decideApproval(req: Request, res: Response) {
   if (result.rowCount === 0) return res.status(404).json({ message: 'Approval request not found' });
 
   const approval = result.rows[0];
-  await recordApprovalAuditEvent(req.user!.tenantId, req.user!.id, 'approval_decision', {
+  await recordApprovalAuditEvent(req.user!.tenantId, req.user!.id, 'approval.decided', {
     conversationId: approval.conversation_id,
     workflowId: approval.workflow_id,
     approvalRequestId: approval.id,

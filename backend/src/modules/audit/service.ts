@@ -74,19 +74,19 @@ const unifiedAuditQuery = `
         ELSE COALESCE(ae.approval_request_id::text, ae.id::text)
       END AS entity_id,
       CASE
-        WHEN ae.event_type = 'approval_requested' THEN 'warning'
+        WHEN ae.event_type = 'approval.submitted' THEN 'warning'
         WHEN COALESCE(ae.payload->>'status', 'success') IN ('failed', 'failure', 'error') THEN 'failure'
         WHEN COALESCE(ae.payload->>'status', '') = 'warning' THEN 'warning'
         ELSE 'success'
       END AS result,
       CASE
-        WHEN ae.event_type = 'approval_requested' THEN COALESCE(arq.requested_by::text, ae.actor_id::text)
-        WHEN ae.event_type = 'approval_decision' THEN COALESCE(arq.approved_by::text, ae.actor_id::text)
+        WHEN ae.event_type = 'approval.submitted' THEN COALESCE(arq.requested_by::text, ae.actor_id::text)
+        WHEN ae.event_type = 'approval.decided' THEN COALESCE(arq.approved_by::text, ae.actor_id::text)
         ELSE ae.actor_id::text
       END AS actor_id,
       CASE
-        WHEN ae.event_type = 'approval_requested' THEN COALESCE(requested_user.email, event_actor.email)
-        WHEN ae.event_type = 'approval_decision' THEN COALESCE(approved_user.email, event_actor.email)
+        WHEN ae.event_type = 'approval.submitted' THEN COALESCE(requested_user.email, event_actor.email)
+        WHEN ae.event_type = 'approval.decided' THEN COALESCE(approved_user.email, event_actor.email)
         ELSE event_actor.email
       END AS actor_email,
       COALESCE(
@@ -135,7 +135,7 @@ const unifiedAuditQuery = `
     LEFT JOIN users approved_user ON approved_user.id = arq.approved_by
     LEFT JOIN users event_actor ON event_actor.id = ae.actor_id
     WHERE ae.tenant_id = $1
-      AND ae.event_type IN ('approval_requested', 'approval_decision', 'execution_result')
+      AND ae.event_type IN ('approval.submitted', 'approval.decided', 'execution_result')
       AND ($3::timestamptz IS NULL OR ae.created_at >= $3)
       AND ($4::timestamptz IS NULL OR ae.created_at <= $4)
   ) audit_events

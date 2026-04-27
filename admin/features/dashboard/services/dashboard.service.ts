@@ -1,4 +1,4 @@
-import { aiService } from '@admin/features/ai';
+import { assistantService } from '@admin/features/assistant/services/assistant.service';
 import { inventoryService } from '@admin/features/inventory/services/inventory.service';
 import { ordersService } from '@admin/features/orders/services/orders.service';
 import type { DashboardAlert, DashboardKpi, DashboardOverview } from '../types/dashboard.types';
@@ -117,7 +117,7 @@ export const dashboardService = {
       inventoryService.listMovements(),
       ordersService.listPurchaseOrders({ page: 1, pageSize: 50 }),
       ordersService.listSalesOrders({ page: 1, pageSize: 50 }),
-      aiService.listApprovals().catch(() => []),
+      assistantService.listApprovals().catch(() => []),
     ]);
 
     const stockRows = stock.items;

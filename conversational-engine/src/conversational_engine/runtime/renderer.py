@@ -128,3 +128,16 @@ def render_failure(message: str) -> list[MessageBlock]:
             message=message,
         )
     ]
+
+
+def render_navigation_blocks(routes: list[dict[str, str]]) -> list[MessageBlock]:
+    blocks: list[MessageBlock] = []
+    for route in routes:
+        blocks.append(
+            NavigationBlock(
+                label=route.get('label') or 'Open screen',
+                href=route.get('href') or '/',
+                description=route.get('description') or '',
+            )
+        )
+    return blocks

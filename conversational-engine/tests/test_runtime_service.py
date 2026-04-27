@@ -111,7 +111,41 @@ class FakeTrainingService:
         del kwargs
 
 
+class FakeRetrievalService:
+    async def resolve_navigation(self, query: str):
+        normalized = query.lower()
+        if 'movement' in normalized:
+            return [
+                {
+                    'label': 'Inventory Movements',
+                    'href': '/inventory/movements',
+                    'description': 'Inventory movement history page.',
+                }
+            ]
+        if 'purchase' in normalized:
+            return [
+                {
+                    'label': 'Purchase Orders',
+                    'href': '/orders/purchase',
+                    'description': 'Purchase order listing page.',
+                }
+            ]
+        return []
+
+
 class FakeBackendClient:
+    async def check_ai_usage_quota(self, *args, **kwargs):
+        del args, kwargs
+        return {'allowed': True}
+
+    async def record_ai_usage(self, *args, **kwargs):
+        del args, kwargs
+        return {'ok': True}
+
+    async def record_audit_event(self, *args, **kwargs):
+        del args, kwargs
+        return {'ok': True}
+
     async def stock_on_hand(self, *args, **kwargs):
         del args, kwargs
         return [{'sku_code': 'TSHIRT-BLACK', 'location_code': 'WH-LON', 'available': 12}]
@@ -196,6 +230,7 @@ async def test_runtime_service_completes_read_flow():
         narrator=FakeNarrator(),  # type: ignore[arg-type]
         memory_service=FakeMemoryService(),  # type: ignore[arg-type]
         training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
     )
 
     outcome = await service.execute(
@@ -205,6 +240,7 @@ async def test_runtime_service_completes_read_flow():
         user_message='show stock for black t-shirt',
         extracted_entities={},
         recent_messages=[],
+        workflow_status=WorkflowStatus.IDLE,
         emit=lambda event_type, payload: events.append((event_type, payload)),
         run_id=uuid4(),
     )
@@ -233,6 +269,7 @@ async def test_runtime_service_requests_approval_for_high_risk_writes():
         narrator=FakeNarrator(),  # type: ignore[arg-type]
         memory_service=FakeMemoryService(),  # type: ignore[arg-type]
         training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
     )
 
     outcome = await service.execute(
@@ -242,6 +279,7 @@ async def test_runtime_service_requests_approval_for_high_risk_writes():
         user_message='move 10 units to showroom',
         extracted_entities={},
         recent_messages=[],
+        workflow_status=WorkflowStatus.IDLE,
         emit=lambda event_type, payload: events.append((event_type, payload)),
         run_id=uuid4(),
     )
@@ -260,6 +298,7 @@ async def test_runtime_service_handles_trace_attempts_without_crashing():
         narrator=FakeNarrator(),  # type: ignore[arg-type]
         memory_service=FakeMemoryService(),  # type: ignore[arg-type]
         training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
     )
 
     outcome = await service.execute(
@@ -269,8 +308,132 @@ async def test_runtime_service_handles_trace_attempts_without_crashing():
         user_message='show stock for black t-shirt',
         extracted_entities={},
         recent_messages=[],
+        workflow_status=WorkflowStatus.IDLE,
         emit=lambda *_args, **_kwargs: None,
         run_id=uuid4(),
     )
 
     assert outcome.status == WorkflowStatus.COMPLETED
+
+
+async def test_runtime_service_returns_navigation_blocks_without_tool_execution():
+    events: list[tuple[str, dict[str, object]]] = []
+    service = AgentRuntimeService(
+        backend_client=FakeBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeExecutor('inventory.stock_on_hand', {'sku': 'TSHIRT-BLACK'}),
+        reviewer=FakeReviewer(),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='take me to purchase orders',
+        extracted_entities={},
+        recent_messages=[],
+        workflow_status=WorkflowStatus.IDLE,
+        emit=lambda event_type, payload: events.append((event_type, payload)),
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.COMPLETED
+    assert any(block.type == BlockType.NAVIGATION for block in outcome.blocks)
+    assert not any(event_type == 'tool.called' for event_type, _payload in events)
+    assert any(event_type == 'route.resolved' for event_type, _payload in events)
+
+
+async def test_runtime_service_updates_pending_confirmation_in_place():
+    service = AgentRuntimeService(
+        backend_client=FakeBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeExecutor('inventory.transfer_stock', {'quantity': 5}),
+        reviewer=FakeReviewer(),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    extracted_entities = {
+        '_workflowEngine': 'runtime',
+        'toolName': 'inventory.transfer_stock',
+        'executionPayload': {
+            'fromLocationId': 'WH-01',
+            'toLocationId': 'SOHO',
+            'quantity': 5,
+            'reason': 'rebalance',
+        },
+        'taskContext': {
+            'primaryRoute': 'mutation',
+            'primaryIntent': 'inventory.transfer_stock',
+            'entities': {
+                'fromLocationId': 'WH-01',
+                'toLocationId': 'SOHO',
+                'quantity': 5,
+            },
+            'missingFields': [],
+            'postActions': [],
+            'clarificationCount': 0,
+            'status': 'awaiting_confirmation',
+        },
+    }
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='actually make it 10 and use Camden as the source',
+        extracted_entities=extracted_entities,
+        recent_messages=[],
+        workflow_status=WorkflowStatus.AWAITING_CONFIRMATION,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.AWAITING_CONFIRMATION
+    assert any(block.type == BlockType.CONFIRMATION_REQUIRED for block in outcome.blocks)
+    assert outcome.extracted_entities['executionPayload']['quantity'] == 10
+    assert outcome.extracted_entities['executionPayload']['fromLocationId'] == 'Camden'
+
+
+async def test_runtime_service_executes_post_navigation_after_success():
+    service = AgentRuntimeService(
+        backend_client=FakeBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeExecutor(
+            'inventory.transfer_stock',
+            {
+                'fromLocationId': 'WH-01',
+                'toLocationId': 'SOHO',
+                'quantity': 5,
+                'reason': 'rebalance',
+            },
+        ),
+        reviewer=FakeReviewer(message='Transfer prepared successfully.'),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='transfer 5 units to Soho and then show movements',
+        extracted_entities={},
+        recent_messages=[],
+        workflow_status=WorkflowStatus.IDLE,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.AWAITING_CONFIRMATION
+    task_context = outcome.extracted_entities['taskContext']
+    assert task_context['primaryRoute'] == 'mixed'
+    assert task_context['postActions']
