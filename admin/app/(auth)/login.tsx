@@ -1,16 +1,26 @@
 import { Link } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { KeyboardAvoidingView, Platform, Pressable, Text, View } from 'react-native';
 import { AppButton, AppInput } from '@admin/components/ui';
 import { AuthScreenShell, useAuthSession } from '@admin/features/auth';
+import { sessionStorage } from '@admin/features/auth/services/session-storage';
 
 export default function LoginScreen() {
   const { signIn, signInWithSso, portalMode } = useAuthSession();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [ssoSubmitting, setSsoSubmitting] = useState(false);
+
+  useEffect(() => {
+    const notice = sessionStorage.readAuthNotice();
+    if (notice) {
+      setError(notice);
+      sessionStorage.clearAuthNotice();
+    }
+  }, []);
 
   const handleLogin = async () => {
     setError(null);
@@ -22,7 +32,8 @@ export default function LoginScreen() {
 
     try {
       setSubmitting(true);
-      await signIn({ email, password });
+      sessionStorage.clearAuthNotice();
+      await signIn({ email, password, rememberMe });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to sign in.');
     } finally {
@@ -63,6 +74,20 @@ export default function LoginScreen() {
             onChangeText={setPassword}
             placeholder="••••••••"
           />
+
+          <Pressable
+            accessibilityRole="checkbox"
+            accessibilityState={{ checked: rememberMe }}
+            accessibilityLabel="Remember me"
+            accessibilityHint="Keeps this browser signed in for longer unless you log out."
+            className="flex-row items-center gap-3"
+            onPress={() => setRememberMe((current) => !current)}
+          >
+            <View className={`h-5 w-5 items-center justify-center rounded border ${rememberMe ? 'border-primary bg-primary' : 'border-border bg-surface'}`}>
+              {rememberMe ? <View className="h-2.5 w-2.5 rounded-sm bg-white" /> : null}
+            </View>
+            <Text className="text-small text-text">Remember me</Text>
+          </Pressable>
 
           {error ? <Text className="text-caption text-error">{error}</Text> : null}
 
