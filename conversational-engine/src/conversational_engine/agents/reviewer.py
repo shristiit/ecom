@@ -14,8 +14,9 @@ REVIEWER_SCHEMA = {
         'assistantMessage': {'type': 'string'},
         'feedback': {'type': ['string', 'null']},
         'requiredInputs': {'type': 'array', 'items': {'type': 'string'}},
+        'includeTable': {'type': 'boolean'},
     },
-    'required': ['action', 'assistantMessage', 'feedback', 'requiredInputs'],
+    'required': ['action', 'assistantMessage', 'feedback', 'requiredInputs', 'includeTable'],
 }
 
 
@@ -41,7 +42,11 @@ class ReviewerAgent:
                     content=(
                         'You are the reviewer agent for an internal inventory AI runtime. '
                         'Check whether the tool result satisfies the user goal, whether another tool step is needed, '
-                        'or whether the user must clarify something.'
+                        'or whether the user must clarify something. '
+                        'Also decide whether the final response should include the raw row table. '
+                        'Set includeTable to true only when the user is clearly asking for detailed records, a listing, '
+                        'or the answer materially depends on showing the underlying rows. '
+                        'For simple summary, comparison, count, lowest/highest, or direct factual answers, prefer includeTable=false.'
                     ),
                 ),
                 ProviderMessage(

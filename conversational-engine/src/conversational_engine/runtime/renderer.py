@@ -26,11 +26,17 @@ def render_clarification(message: str, required_inputs: list[str]) -> list[Messa
     ]
 
 
-def render_tool_result(message: str, tool_name: str, tool_result: dict[str, Any]) -> list[MessageBlock]:
+def render_tool_result(
+    message: str,
+    tool_name: str,
+    tool_result: dict[str, Any],
+    *,
+    include_table: bool = True,
+) -> list[MessageBlock]:
     blocks: list[MessageBlock] = [TextBlock(content=message)]
 
     rows = tool_result.get('rows')
-    if isinstance(rows, list) and rows and all(isinstance(row, dict) for row in rows):
+    if include_table and isinstance(rows, list) and rows and all(isinstance(row, dict) for row in rows):
         first = rows[0]
         columns = [TableColumn(key=key, label=key.replace('_', ' ').title()) for key in first.keys()]
         blocks.append(TableResultBlock(title=tool_name.replace('.', ' ').title(), columns=columns[:12], rows=rows[:25]))

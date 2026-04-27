@@ -74,9 +74,15 @@ class FakeExecutor:
 
 
 class FakeReviewer:
-    def __init__(self, action: str = 'complete', message: str = 'Here is the result.') -> None:
+    def __init__(
+        self,
+        action: str = 'complete',
+        message: str = 'Here is the result.',
+        include_table: bool = False,
+    ) -> None:
         self._action = action
         self._message = message
+        self._include_table = include_table
 
     async def review(self, **kwargs):
         del kwargs
@@ -85,6 +91,7 @@ class FakeReviewer:
             'assistantMessage': self._message,
             'feedback': None,
             'requiredInputs': [],
+            'includeTable': self._include_table,
         }
 
 
@@ -227,6 +234,36 @@ async def test_runtime_service_completes_read_flow():
         planner=FakePlanner(),
         executor=FakeExecutor('inventory.stock_on_hand', {'sku': 'TSHIRT-BLACK'}),
         reviewer=FakeReviewer(message='Stock is available in London.'),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='show stock for black t-shirt',
+        extracted_entities={},
+        recent_messages=[],
+        workflow_status=WorkflowStatus.IDLE,
+        emit=lambda event_type, payload: events.append((event_type, payload)),
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.COMPLETED
+    assert any(event_type == 'tool.called' for event_type, _payload in events)
+    assert not any(block.type == BlockType.TABLE_RESULT for block in outcome.blocks)
+
+
+async def test_runtime_service_includes_table_when_user_requests_full_details():
+    events: list[tuple[str, dict[str, object]]] = []
+    service = AgentRuntimeService(
+        backend_client=FakeBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeExecutor('inventory.stock_on_hand', {'sku': 'TSHIRT-BLACK'}),
+        reviewer=FakeReviewer(message='Stock is available in London.', include_table=True),
         narrator=FakeNarrator(),  # type: ignore[arg-type]
         memory_service=FakeMemoryService(),  # type: ignore[arg-type]
         training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
@@ -437,3 +474,48 @@ async def test_runtime_service_executes_post_navigation_after_success():
     task_context = outcome.extracted_entities['taskContext']
     assert task_context['primaryRoute'] == 'mixed'
     assert task_context['postActions']
+
+
+async def test_runtime_service_reuses_completed_read_context_for_this_follow_up():
+    service = AgentRuntimeService(
+        backend_client=FakeBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeExecutor('inventory.stock_on_hand', {'productName': 'Monarch Soft Overshirt'}),
+        reviewer=FakeReviewer(message='Here are the variants.'),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    first_outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='get me all the variants in this Monarch Soft Overshirt',
+        extracted_entities={},
+        recent_messages=[],
+        workflow_status=WorkflowStatus.IDLE,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    task_context = first_outcome.extracted_entities['taskContext']
+    assert task_context['entities']['productName'] == 'Monarch Soft Overshirt'
+
+    follow_up = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='what sizes we have in this',
+        extracted_entities=first_outcome.extracted_entities,
+        recent_messages=[],
+        workflow_status=WorkflowStatus.COMPLETED,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    follow_task_context = follow_up.extracted_entities['taskContext']
+    assert follow_task_context['primaryIntent'] == 'inventory.stock_on_hand'
+    assert follow_task_context['entities']['productName'] == 'Monarch Soft Overshirt'
+    assert follow_up.status == WorkflowStatus.COMPLETED

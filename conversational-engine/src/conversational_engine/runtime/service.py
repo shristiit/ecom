@@ -584,13 +584,27 @@ class AgentRuntimeService:
                                 extra={'label': getattr(route_block, 'label', '')},
                             ),
                         )
+                    completed_entities = self._merge_context_from_tool_interaction(
+                        current_entities=current_entities,
+                        tool_name=tool_name,
+                        tool_arguments=tool_arguments,
+                        tool_result=tool_result,
+                    )
                     return RuntimeOutcome(
-                        blocks=[*render_tool_result(message, tool_name, tool_result), *post_action_blocks],
+                        blocks=[
+                            *render_tool_result(
+                                message,
+                                tool_name,
+                                tool_result,
+                                include_table=bool(review.get('includeTable')),
+                            ),
+                            *post_action_blocks,
+                        ],
                         status=WorkflowStatus.COMPLETED,
                         current_task='completed',
                         extracted_entities=mark_task_status(
                             {
-                                **current_entities,
+                                **completed_entities,
                                 'lastToolName': tool_name,
                             },
                             'completed',
@@ -882,6 +896,58 @@ class AgentRuntimeService:
         if state_update.primary_route == ROUTE_NAVIGATION:
             return [entry for entry in schema_catalog if entry['name'] == 'navigation.find_screen']
         return [entry for entry in schema_catalog if entry['name'] != 'navigation.find_screen']
+
+    @staticmethod
+    def _merge_context_from_tool_interaction(
+        *,
+        current_entities: dict[str, object],
+        tool_name: str,
+        tool_arguments: dict[str, object],
+        tool_result: dict[str, object],
+    ) -> dict[str, object]:
+        merged = dict(current_entities)
+        task_context = task_context_from_entities(merged)
+        entities = dict(task_context.get('entities') or {})
+
+        if tool_name == 'inventory.stock_on_hand':
+            if isinstance(tool_arguments.get('productName'), str) and tool_arguments.get('productName'):
+                entities['productName'] = str(tool_arguments['productName'])
+            rows = tool_result.get('rows')
+            if isinstance(rows, list):
+                product_names = sorted(
+                    {
+                        str(row.get('product_name')).strip()
+                        for row in rows
+                        if isinstance(row, dict) and row.get('product_name')
+                    }
+                )
+                color_names = sorted(
+                    {
+                        str(row.get('color_name')).strip()
+                        for row in rows
+                        if isinstance(row, dict) and row.get('color_name')
+                    }
+                )
+                size_labels = sorted(
+                    {
+                        str(row.get('size_label')).strip()
+                        for row in rows
+                        if isinstance(row, dict) and row.get('size_label')
+                    }
+                )
+                if len(product_names) == 1:
+                    entities['productName'] = product_names[0]
+                if color_names:
+                    entities['colorNames'] = color_names
+                    entities['colorName'] = color_names[0]
+                if size_labels:
+                    entities['sizeLabels'] = size_labels
+                    entities['sizeLabel'] = size_labels[0]
+
+        task_context['entities'] = entities
+        merged.update(entities)
+        merged['taskContext'] = task_context
+        return apply_task_context(merged, task_context)
 
     @staticmethod
     def _event_payload(

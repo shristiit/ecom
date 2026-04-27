@@ -30,6 +30,7 @@ _MUTATION_PATTERNS: tuple[tuple[str, str], ...] = (
 )
 _READ_PATTERNS: tuple[tuple[str, str], ...] = (
     ('inventory.stock_on_hand', r'\b(stock|stock on hand|available)\b'),
+    ('inventory.stock_on_hand', r'\b(size|sizes|variant|variants|color|colors)\b'),
     ('reporting.stock_summary', r'\b(summary|report)\b'),
 )
 
@@ -126,10 +127,22 @@ async def resolve_state_update(
     action_text, post_action_text = _split_post_action_text(text)
     patches = _extract_entity_patches(text, normalized)
 
+    contextual_reference = _looks_like_contextual_reference(normalized)
+    has_prior_entities = bool(merged_entities)
+    task_status = str(task_context.get('status') or '')
+    has_active_workflow = bool(task_context.get('primaryIntent') or has_prior_entities)
     is_workflow_edit = bool(
-        task_context.get('status') in {'drafting', 'awaiting_confirmation', 'awaiting_approval'}
-        and (patches or post_action_text or _looks_like_contextual_edit(normalized))
-        and task_context.get('primaryIntent')
+        (
+            task_status in {'drafting', 'awaiting_confirmation', 'awaiting_approval'}
+            and has_active_workflow
+            and (patches or post_action_text or _looks_like_contextual_edit(normalized))
+        )
+        or (
+            task_status == 'completed'
+            and contextual_reference
+            and has_prior_entities
+            and task_context.get('primaryIntent')
+        )
     )
 
     if is_workflow_edit:
@@ -231,6 +244,10 @@ def _extract_entity_patches(text: str, normalized: str) -> dict[str, Any]:
     if location_match:
         patches['locationId'] = location_match.group(1).strip()
 
+    product_match = re.search(r'\bthis\s+([A-Za-z0-9][A-Za-z0-9\s\'&-]{2,})$', text.strip())
+    if product_match:
+        patches['productName'] = product_match.group(1).strip()
+
     return patches
 
 
@@ -239,6 +256,10 @@ def _looks_like_contextual_edit(normalized: str) -> bool:
         token in normalized
         for token in ('actually', 'instead', 'make it', 'change it', 'use ', 'after', 'there')
     )
+
+
+def _looks_like_contextual_reference(normalized: str) -> bool:
+    return bool(re.search(r'\b(this|that|there|it)\b', normalized))
 
 
 def _resolve_primary_route_and_intent(text: str) -> tuple[str, str, str, float]:
