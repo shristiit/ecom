@@ -79,10 +79,12 @@ class FakeReviewer:
         action: str = 'complete',
         message: str = 'Here is the result.',
         include_table: bool = False,
+        resolved_entities: dict[str, object] | None = None,
     ) -> None:
         self._action = action
         self._message = message
         self._include_table = include_table
+        self._resolved_entities = resolved_entities or {}
 
     async def review(self, **kwargs):
         del kwargs
@@ -92,6 +94,7 @@ class FakeReviewer:
             'feedback': None,
             'requiredInputs': [],
             'includeTable': self._include_table,
+            'resolvedEntities': self._resolved_entities,
         }
 
 
@@ -636,4 +639,62 @@ async def test_runtime_service_uses_state_updater_for_completed_read_totals():
     )
 
     assert follow_up.extracted_entities['taskContext']['entities']['productName'] == 'Monarch Tasty Parka'
+
+
+async def test_runtime_service_persists_focal_product_from_multi_product_summary():
+    service = AgentRuntimeService(
+        backend_client=FakeBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeExecutor('inventory.stock_on_hand', {}),
+        reviewer=FakeReviewer(
+            message='The product with the lowest stock is Monarch Fresh Short.',
+            resolved_entities={'productName': 'Monarch Fresh Short'},
+        ),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        state_updater=FakeStateUpdater(
+            {
+                'okay what other sizes we have in this product': {
+                    'useActiveWorkflow': True,
+                    'primaryRoute': 'read',
+                    'primaryIntent': 'inventory.stock_on_hand',
+                    'confidence': 0.95,
+                    'rationale': 'The user is referring to the focal product from the prior answer.',
+                    'entityPatches': {},
+                    'navigationQuery': None,
+                    'postActionQuery': None,
+                }
+            }
+        ),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    first_outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='get me the product with lowest stock',
+        extracted_entities={},
+        recent_messages=[],
+        workflow_status=WorkflowStatus.IDLE,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert first_outcome.extracted_entities['taskContext']['entities']['productName'] == 'Monarch Fresh Short'
+
+    follow_up = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='okay what other sizes we have in this product',
+        extracted_entities=first_outcome.extracted_entities,
+        recent_messages=[],
+        workflow_status=WorkflowStatus.COMPLETED,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert follow_up.extracted_entities['taskContext']['entities']['productName'] == 'Monarch Fresh Short'
     assert follow_up.status == WorkflowStatus.COMPLETED

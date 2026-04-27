@@ -593,6 +593,7 @@ class AgentRuntimeService:
                         tool_name=tool_name,
                         tool_arguments=tool_arguments,
                         tool_result=tool_result,
+                        resolved_entities=review.get('resolvedEntities'),
                     )
                     return RuntimeOutcome(
                         blocks=[
@@ -911,6 +912,7 @@ class AgentRuntimeService:
         tool_name: str,
         tool_arguments: dict[str, object],
         tool_result: dict[str, object],
+        resolved_entities: object = None,
     ) -> dict[str, object]:
         merged = dict(current_entities)
         task_context = task_context_from_entities(merged)
@@ -950,6 +952,11 @@ class AgentRuntimeService:
                 if size_labels:
                     entities['sizeLabels'] = size_labels
                     entities['sizeLabel'] = size_labels[0]
+
+        if isinstance(resolved_entities, dict):
+            for key, value in resolved_entities.items():
+                if isinstance(key, str) and value is not None:
+                    entities[key] = value
 
         task_context['entities'] = entities
         merged.update(entities)
