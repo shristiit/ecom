@@ -12,6 +12,7 @@ class FakeBackendClient:
     def __init__(self) -> None:
         self.payloads: list[dict[str, object]] = []
         self.invoice_payloads: list[dict[str, object]] = []
+        self.po_payloads: list[dict[str, object]] = []
         self.locations = [
             {'id': 'loc-1', 'name': 'Main Warehouse', 'code': 'WH1'},
             {'id': 'loc-2', 'name': 'Outlet Store', 'code': 'OUT'},
@@ -51,6 +52,11 @@ class FakeBackendClient:
     async def create_invoice(self, access_token: str, tenant_id: str | None, payload: dict[str, object]):
         del access_token, tenant_id
         self.invoice_payloads.append(payload)
+        return {'ok': True, 'payload': payload}
+
+    async def create_po(self, access_token: str, tenant_id: str | None, payload: dict[str, object]):
+        del access_token, tenant_id
+        self.po_payloads.append(payload)
         return {'ok': True, 'payload': payload}
 
     async def list_locations(self, access_token: str, tenant_id: str | None):
@@ -115,6 +121,10 @@ async def test_product_tool_normalizes_flat_variant_payload_for_backend_compose(
                 'category': '',
                 'brand': '',
                 'basePrice': 100,
+                'priceVisible': True,
+                'inventoryMode': 'local',
+                'maxBackorderQty': None,
+                'pickupEnabled': False,
                 'categoryId': None,
                 'status': 'active',
             },
@@ -139,6 +149,11 @@ async def test_product_tool_preserves_backend_native_compose_payload():
             'category': '',
             'brand': '',
             'basePrice': 100,
+            'priceVisible': True,
+            'inventoryMode': 'local',
+            'maxBackorderQty': None,
+            'pickupEnabled': False,
+            'categoryId': None,
             'status': 'active',
         },
         'styleMedia': [],
@@ -148,6 +163,91 @@ async def test_product_tool_preserves_backend_native_compose_payload():
     await catalog.invoke('products.create_product', payload)
 
     assert backend.payloads == [payload]
+
+
+async def test_product_tool_normalizes_nested_approval_style_payload():
+    backend = FakeBackendClient()
+    catalog = SemanticToolCatalog(backend=backend, auth=make_auth())  # type: ignore[arg-type]
+
+    result = await catalog.invoke(
+        'products.create_product',
+        {
+            'product': {
+                'styleCode': 'FFS-001',
+                'name': 'Field Fresh Short',
+                'category': 'Shirts',
+                'categoryId': 'Shirts',
+                'basePrice': 100,
+                'status': 'active',
+            },
+            'styleMedia': [],
+            'variants': [
+                {
+                    'colorName': 'Sand',
+                    'sizes': [
+                        {'size': 'm', 'locationId': 'loc-1', 'quantity': 5},
+                        {'sizeLabel': 'L', 'stockByLocation': [{'locationId': 'loc-1', 'quantity': 5}]},
+                    ],
+                }
+            ],
+        },
+    )
+
+    assert result['result']['ok'] is True
+    assert backend.payloads == [
+        {
+            'product': {
+                'styleCode': 'FFS-001',
+                'name': 'Field Fresh Short',
+                'category': 'Shirts',
+                'brand': '',
+                'basePrice': 100,
+                'priceVisible': True,
+                'inventoryMode': 'local',
+                'maxBackorderQty': None,
+                'pickupEnabled': False,
+                'categoryId': 'cat-1',
+                'status': 'active',
+            },
+            'styleMedia': [],
+            'variants': [
+                {
+                    'colorName': 'Sand',
+                    'sizes': [
+                        {'sizeLabel': 'M', 'stockByLocation': [{'locationId': 'loc-1', 'quantity': 5}]},
+                        {'sizeLabel': 'L', 'stockByLocation': [{'locationId': 'loc-1', 'quantity': 5}]},
+                    ],
+                }
+            ],
+        }
+    ]
+
+
+async def test_purchase_order_create_normalizes_name_based_lines_for_backend():
+    backend = FakeBackendClient()
+    catalog = SemanticToolCatalog(backend=backend, auth=make_auth())  # type: ignore[arg-type]
+
+    result = await catalog.invoke(
+        'purchasing.create_po',
+        {
+            'supplierId': 'Acme Supply',
+            'lines': [
+                {'productName': 'Field Fresh Short', 'colorName': 'Sand', 'sizeLabel': 'L', 'quantity': 5, 'unitCost': 21},
+                {'productName': 'Field Fresh Short', 'colorName': 'Clay', 'sizeLabel': 'M', 'quantity': 7, 'unitCost': 18},
+            ],
+        },
+    )
+
+    assert result['result']['ok'] is True
+    assert backend.po_payloads == [
+        {
+            'supplierId': 'sup-1',
+            'lines': [
+                {'sizeId': 'size-sand-l', 'qty': 5, 'unitCost': 21},
+                {'sizeId': 'size-clay-m', 'qty': 7, 'unitCost': 18},
+            ],
+        }
+    ]
 
 
 async def test_sales_create_invoice_normalizes_name_based_lines_for_backend():

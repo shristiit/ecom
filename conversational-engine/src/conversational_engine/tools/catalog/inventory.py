@@ -5,8 +5,9 @@ from typing import Any
 from conversational_engine.clients.backend import BackendClient
 from conversational_engine.contracts.auth import AuthContext
 from conversational_engine.tools.definitions import SemanticTool
+
 from .resolvers import EntityResolver
-from .utils import object_schema
+from .utils import ToolPreparationError, object_schema
 
 _SIZE_FIELDS = ('productName', 'colorName', 'sizeLabel')
 
@@ -43,34 +44,69 @@ def build_inventory_tools(
         ]
         return {'rows': rows}
 
-    async def transfer_stock(payload: dict[str, Any]) -> dict[str, Any]:
+    async def prepare_transfer_stock(payload: dict[str, Any]) -> dict[str, Any]:
+        if not payload.get('fromLocationId'):
+            raise ToolPreparationError('Which source location should stock move from?', ['from_location_id'])
+        if not payload.get('toLocationId'):
+            raise ToolPreparationError('Which destination location should stock move to?', ['to_location_id'])
+        if payload.get('quantity') is None:
+            raise ToolPreparationError('How many units should move?', ['quantity'])
+
         resolved = dict(payload)
         if from_loc := str(payload.get('fromLocationId') or '').strip():
             resolved['fromLocationId'] = await resolver.location(from_loc)
         if to_loc := str(payload.get('toLocationId') or '').strip():
             resolved['toLocationId'] = await resolver.location(to_loc)
-        resolved['sizeId'] = await resolver.size_from_payload(payload)
+        try:
+            resolved['sizeId'] = await resolver.size_from_payload(payload)
+        except ValueError as exc:
+            raise ToolPreparationError(str(exc), ['sku_and_size']) from exc
         for key in _SIZE_FIELDS:
             resolved.pop(key, None)
-        return {'result': await backend.transfer_stock(token, tenant, resolved)}
+        return resolved
+
+    async def transfer_stock(payload: dict[str, Any]) -> dict[str, Any]:
+        return {'result': await backend.transfer_stock(token, tenant, payload)}
+
+    async def prepare_adjust_stock(payload: dict[str, Any]) -> dict[str, Any]:
+        if not payload.get('locationId'):
+            raise ToolPreparationError('Which location is affected?', ['location_id'])
+        if payload.get('quantity') is None:
+            raise ToolPreparationError('How many units should be changed?', ['quantity'])
+
+        resolved = dict(payload)
+        if loc := str(payload.get('locationId') or '').strip():
+            resolved['locationId'] = await resolver.location(loc)
+        try:
+            resolved['sizeId'] = await resolver.size_from_payload(payload)
+        except ValueError as exc:
+            raise ToolPreparationError(str(exc), ['sku_and_size']) from exc
+        for key in _SIZE_FIELDS:
+            resolved.pop(key, None)
+        return resolved
 
     async def adjust_stock(payload: dict[str, Any]) -> dict[str, Any]:
+        return {'result': await backend.adjust_stock(token, tenant, payload)}
+
+    async def prepare_receive_stock(payload: dict[str, Any]) -> dict[str, Any]:
+        if not payload.get('locationId'):
+            raise ToolPreparationError('Which location is affected?', ['location_id'])
+        if payload.get('quantity') is None:
+            raise ToolPreparationError('How many units should be received?', ['quantity'])
+
         resolved = dict(payload)
         if loc := str(payload.get('locationId') or '').strip():
             resolved['locationId'] = await resolver.location(loc)
-        resolved['sizeId'] = await resolver.size_from_payload(payload)
+        try:
+            resolved['sizeId'] = await resolver.size_from_payload(payload)
+        except ValueError as exc:
+            raise ToolPreparationError(str(exc), ['sku_and_size']) from exc
         for key in _SIZE_FIELDS:
             resolved.pop(key, None)
-        return {'result': await backend.adjust_stock(token, tenant, resolved)}
+        return resolved
 
     async def receive_stock(payload: dict[str, Any]) -> dict[str, Any]:
-        resolved = dict(payload)
-        if loc := str(payload.get('locationId') or '').strip():
-            resolved['locationId'] = await resolver.location(loc)
-        resolved['sizeId'] = await resolver.size_from_payload(payload)
-        for key in _SIZE_FIELDS:
-            resolved.pop(key, None)
-        return {'result': await backend.receive_stock(token, tenant, resolved)}
+        return {'result': await backend.receive_stock(token, tenant, payload)}
 
     async def stock_summary(payload: dict[str, Any]) -> dict[str, Any]:
         resolved = dict(payload)
@@ -120,12 +156,13 @@ def build_inventory_tools(
                     'quantity': {'type': 'integer'},
                     'reason': {'type': 'string'},
                 },
-                ['fromLocationId', 'toLocationId', 'quantity', 'reason'],
+                ['fromLocationId', 'toLocationId', 'quantity'],
             ),
             risk_level='high',
             side_effect=True,
             output_mode='mutation',
             executor=transfer_stock,
+            preparer=prepare_transfer_stock,
         ),
         'inventory.adjust_stock': SemanticTool(
             name='inventory.adjust_stock',
@@ -141,12 +178,13 @@ def build_inventory_tools(
                     'quantity': {'type': 'integer'},
                     'reason': {'type': 'string'},
                 },
-                ['locationId', 'quantity', 'reason'],
+                ['locationId', 'quantity'],
             ),
             risk_level='high',
             side_effect=True,
             output_mode='mutation',
             executor=adjust_stock,
+            preparer=prepare_adjust_stock,
         ),
         'inventory.receive_stock': SemanticTool(
             name='inventory.receive_stock',
@@ -162,12 +200,13 @@ def build_inventory_tools(
                     'quantity': {'type': 'integer'},
                     'reason': {'type': 'string'},
                 },
-                ['locationId', 'quantity', 'reason'],
+                ['locationId', 'quantity'],
             ),
             risk_level='medium',
             side_effect=True,
             output_mode='mutation',
             executor=receive_stock,
+            preparer=prepare_receive_stock,
         ),
         'reporting.stock_summary': SemanticTool(
             name='reporting.stock_summary',

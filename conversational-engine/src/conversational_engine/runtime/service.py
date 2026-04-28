@@ -36,6 +36,7 @@ from conversational_engine.runtime.state_update import (
     task_context_from_entities,
 )
 from conversational_engine.tools.catalog import SemanticToolCatalog
+from conversational_engine.tools.catalog.utils import ToolPreparationError
 from conversational_engine.training.service import TrainingDataService
 
 EventSink = Callable[[str, dict[str, object]], None]
@@ -455,6 +456,7 @@ class AgentRuntimeService:
                 if tool.side_effect:
                     return await self._prepare_confirmation(
                         auth=auth,
+                        catalog=catalog,
                         conversation_id=conversation_id,
                         workflow_id=workflow_id,
                         state_update=state_update,
@@ -779,6 +781,7 @@ class AgentRuntimeService:
         )
         return await self._prepare_confirmation(
             auth=auth,
+            catalog=SemanticToolCatalog(backend=self._backend_client, auth=auth),
             conversation_id=conversation_id,
             workflow_id=workflow_id,
             state_update=state_update,
@@ -793,6 +796,7 @@ class AgentRuntimeService:
         self,
         *,
         auth: AuthContext,
+        catalog: SemanticToolCatalog,
         conversation_id: UUID,
         workflow_id: UUID,
         state_update: RuntimeStateUpdate,
@@ -808,7 +812,40 @@ class AgentRuntimeService:
             and bool(active_approval_id)
             and current_entities.get('activeApprovalStatus') == 'pending'
         )
-        quantity = tool_arguments.get('quantity')
+        try:
+            prepared_arguments = await catalog.prepare(tool_name, tool_arguments)
+        except ToolPreparationError as exc:
+            required = [str(item) for item in exc.missing_fields]
+            emit(
+                'clarification.requested',
+                self._event_payload(
+                    conversation_id=conversation_id,
+                    workflow_id=workflow_id,
+                    route=state_update.primary_route,
+                    intent=state_update.primary_intent,
+                    tool_name=tool_name,
+                    missing_fields=required,
+                    status='needs_input',
+                ),
+            )
+            draft_entities = {
+                **current_entities,
+                'toolName': tool_name,
+                'executionPayload': tool_arguments,
+            }
+            next_entities = mark_task_status(
+                apply_task_context(draft_entities, increment_clarification_count(task_context_from_entities(draft_entities))),
+                'drafting',
+            )
+            return RuntimeOutcome(
+                blocks=render_clarification(exc.prompt, required),
+                status=WorkflowStatus.NEEDS_INPUT,
+                current_task='clarification_requested',
+                extracted_entities=next_entities,
+                missing_fields=required,
+            )
+
+        quantity = prepared_arguments.get('quantity')
         evaluation = await self._backend_client.evaluate_approval(
             access_token=auth.access_token or '',
             tenant_id=auth.tenant_id,
@@ -832,7 +869,7 @@ class AgentRuntimeService:
             ],
             '_pendingPrompt': confirmation_prompt,
             'toolName': tool_name,
-            'executionPayload': tool_arguments,
+            'executionPayload': prepared_arguments,
             'preview': {
                 'tool': tool_name,
                 'arguments': tool_arguments,

@@ -311,9 +311,9 @@ class InventoryAgent(Agent):
     def _missing_fields(intent: str, memory: dict[str, object]) -> list[str]:
         required = []
         if intent == 'stock_transfer':
-            required = ['from_location_id', 'to_location_id', 'sku_and_size', 'quantity', 'reason']
+            required = ['from_location_id', 'to_location_id', 'sku_and_size', 'quantity']
         elif intent in {'stock_adjustment', 'stock_receipt'}:
-            required = ['location_id', 'sku_and_size', 'quantity', 'reason']
+            required = ['location_id', 'sku_and_size', 'quantity']
 
         missing: list[str] = []
         for field in required:
@@ -327,8 +327,6 @@ class InventoryAgent(Agent):
                 missing.append(field)
             elif field == 'quantity' and memory.get('quantity') is None:
                 missing.append(field)
-            elif field == 'reason' and not memory.get('reason'):
-                missing.append(field)
         return missing
 
     @staticmethod
@@ -339,13 +337,11 @@ class InventoryAgent(Agent):
                 'to_location_id': 'Which destination location should stock move to?',
                 'sku_and_size': 'Which SKU and size should move? Reply like `SKUCODE/SIZE`.',
                 'quantity': 'How many units should move?',
-                'reason': 'What reason should be recorded for this transfer?',
             }
             return prompts[missing_fields[0]]
         prompts = {
             'location_id': 'Which location is affected?',
             'sku_and_size': 'Which SKU and size is affected? Reply like `SKUCODE/SIZE`.',
             'quantity': 'How many units should be changed?',
-            'reason': 'What reason should be recorded?',
         }
         return prompts[missing_fields[0]]

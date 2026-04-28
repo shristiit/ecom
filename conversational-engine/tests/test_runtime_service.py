@@ -14,6 +14,11 @@ from conversational_engine.runtime.service import AgentRuntimeService
 
 pytestmark = pytest.mark.anyio
 
+LOCATION_A = '11111111-1111-1111-1111-111111111111'
+LOCATION_B = '22222222-2222-2222-2222-222222222222'
+LOCATION_C = '33333333-3333-3333-3333-333333333333'
+SIZE_1 = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+
 
 class FakePlanner:
     def __init__(self, action: str = 'tool') -> None:
@@ -213,6 +218,14 @@ class FakeBackendClient:
         del args, kwargs
         return {'ok': True}
 
+    async def list_locations(self, *args, **kwargs):
+        del args, kwargs
+        return [
+            {'id': LOCATION_A, 'name': 'Warehouse A', 'code': 'WH-01'},
+            {'id': LOCATION_B, 'name': 'Soho Store', 'code': 'SOHO'},
+            {'id': LOCATION_C, 'name': 'Camden Store', 'code': 'Camden'},
+        ]
+
     async def evaluate_approval(self, *args, **kwargs):
         del args, kwargs
         return GovernanceEvaluationResponse(requires_approval=False, reason=None)
@@ -323,11 +336,10 @@ async def test_runtime_service_requests_approval_for_high_risk_writes():
         executor=FakeExecutor(
             'inventory.transfer_stock',
             {
-                'fromLocationId': 'loc-a',
-                'toLocationId': 'loc-b',
-                'sizeId': 'size-1',
+                'fromLocationId': 'WH-01',
+                'toLocationId': 'SOHO',
+                'sizeId': SIZE_1,
                 'quantity': 10,
-                'reason': 'rebalance',
             },
         ),
         reviewer=FakeReviewer(),
@@ -352,6 +364,8 @@ async def test_runtime_service_requests_approval_for_high_risk_writes():
     assert outcome.status == WorkflowStatus.AWAITING_CONFIRMATION
     assert not any(event_type == 'approval.requested' for event_type, _payload in events)
     assert any(block.type == BlockType.CONFIRMATION_REQUIRED for block in outcome.blocks)
+    assert outcome.extracted_entities['executionPayload']['fromLocationId'] == LOCATION_A
+    assert outcome.extracted_entities['executionPayload']['toLocationId'] == LOCATION_B
 
 
 async def test_runtime_service_handles_trace_attempts_without_crashing():
@@ -447,6 +461,7 @@ async def test_runtime_service_updates_pending_confirmation_in_place():
         'executionPayload': {
             'fromLocationId': 'WH-01',
             'toLocationId': 'SOHO',
+            'sizeId': SIZE_1,
             'quantity': 5,
             'reason': 'rebalance',
         },
@@ -456,6 +471,7 @@ async def test_runtime_service_updates_pending_confirmation_in_place():
             'entities': {
                 'fromLocationId': 'WH-01',
                 'toLocationId': 'SOHO',
+                'sizeId': SIZE_1,
                 'quantity': 5,
             },
             'missingFields': [],
@@ -480,7 +496,7 @@ async def test_runtime_service_updates_pending_confirmation_in_place():
     assert outcome.status == WorkflowStatus.AWAITING_CONFIRMATION
     assert any(block.type == BlockType.CONFIRMATION_REQUIRED for block in outcome.blocks)
     assert outcome.extracted_entities['executionPayload']['quantity'] == 10
-    assert outcome.extracted_entities['executionPayload']['fromLocationId'] == 'Camden'
+    assert outcome.extracted_entities['executionPayload']['fromLocationId'] == LOCATION_C
 
 
 async def test_runtime_service_executes_post_navigation_after_success():
@@ -492,6 +508,7 @@ async def test_runtime_service_executes_post_navigation_after_success():
             {
                 'fromLocationId': 'WH-01',
                 'toLocationId': 'SOHO',
+                'sizeId': SIZE_1,
                 'quantity': 5,
                 'reason': 'rebalance',
             },
@@ -519,6 +536,42 @@ async def test_runtime_service_executes_post_navigation_after_success():
     task_context = outcome.extracted_entities['taskContext']
     assert task_context['primaryRoute'] == 'mixed'
     assert task_context['postActions']
+
+
+async def test_runtime_service_clarifies_missing_required_fields_before_confirmation():
+    service = AgentRuntimeService(
+        backend_client=FakeApprovalBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeExecutor(
+            'products.create_product',
+            {
+                'styleCode': 'TEE-100',
+                'name': 'Sample Tee',
+                'basePrice': 100,
+            },
+        ),
+        reviewer=FakeReviewer(),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='create a product called Sample Tee',
+        extracted_entities={},
+        recent_messages=[],
+        workflow_status=WorkflowStatus.IDLE,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.NEEDS_INPUT
+    assert any(block.type == BlockType.CLARIFICATION for block in outcome.blocks)
+    assert 'color_name' in outcome.missing_fields
 
 
 async def test_runtime_service_reuses_completed_read_context_for_this_follow_up():

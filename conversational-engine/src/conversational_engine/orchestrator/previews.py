@@ -275,6 +275,7 @@ def build_preview_payload(auth: AuthContext, memory: dict[str, object]) -> dict[
                 'category': memory.get('category', ''),
                 'brand': memory.get('brand', ''),
                 'basePrice': memory['basePrice'],
+                'pickupEnabled': bool(memory.get('pickupEnabled', False)),
                 'categoryId': memory.get('categoryId'),
                 'status': memory.get('status', 'active'),
             },

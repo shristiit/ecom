@@ -8,7 +8,7 @@ from conversational_engine.retrieval.navigation_targets import NAVIGATION_TARGET
 from conversational_engine.tools.definitions import SemanticTool
 
 from .resolvers import EntityResolver
-from .utils import object_schema, search_rows
+from .utils import ToolPreparationError, object_schema, search_rows
 
 
 def build_commerce_tools(
@@ -47,50 +47,114 @@ def build_commerce_tools(
         ][:5]
         return {'rows': rows}
 
-    async def create_po(payload: dict[str, Any]) -> dict[str, Any]:
+    async def prepare_create_po(payload: dict[str, Any]) -> dict[str, Any]:
         resolved = dict(payload)
-        if supplier := str(payload.get('supplierId') or '').strip():
-            resolved['supplierId'] = await resolver.supplier(supplier)
-        return {'result': await backend.create_po(token, tenant, resolved)}
+        supplier = str(payload.get('supplierId') or '').strip()
+        if not supplier:
+            raise ToolPreparationError('Which supplier should this purchase order use?', ['supplier_id'])
+        resolved['supplierId'] = await resolver.supplier(supplier)
 
-    async def create_invoice(payload: dict[str, Any]) -> dict[str, Any]:
-        resolved = dict(payload)
-        if customer := str(payload.get('customerId') or '').strip():
-            resolved['customerId'] = await resolver.customer(customer)
         raw_lines = payload.get('lines')
-        if isinstance(raw_lines, list):
-            resolved_lines: list[dict[str, Any]] = []
-            for raw_line in raw_lines:
-                if not isinstance(raw_line, dict):
-                    continue
-                normalized_line = dict(raw_line)
-                line_size_id = str(raw_line.get('sizeId') or '').strip()
-                qty = raw_line.get('qty', raw_line.get('quantity'))
-                unit_price = raw_line.get('unitPrice')
+        if not isinstance(raw_lines, list) or not raw_lines:
+            raise ToolPreparationError(
+                'Reply with PO lines in the format `SKUCODE/SIZE xQTY @UNIT_COST`, separated by commas.',
+                ['lines'],
+            )
 
-                if not line_size_id or unit_price is None:
+        resolved_lines: list[dict[str, Any]] = []
+        for raw_line in raw_lines:
+            if not isinstance(raw_line, dict):
+                raise ToolPreparationError(
+                    'Reply with PO lines in the format `SKUCODE/SIZE xQTY @UNIT_COST`, separated by commas.',
+                    ['lines'],
+                )
+
+            qty = raw_line.get('qty', raw_line.get('quantity'))
+            unit_cost = raw_line.get('unitCost', raw_line.get('cost'))
+            if qty is None or int(qty) <= 0 or unit_cost is None:
+                raise ToolPreparationError(
+                    'Each PO line needs an item, quantity, and unit cost.',
+                    ['lines'],
+                )
+
+            size_id = str(raw_line.get('sizeId') or '').strip()
+            if size_id:
+                resolved_size_id = size_id
+            else:
+                try:
+                    resolved_size_id = await resolver.size_from_payload(raw_line)
+                except ValueError as exc:
+                    raise ToolPreparationError(str(exc), ['lines']) from exc
+
+            resolved_lines.append(
+                {
+                    'sizeId': resolved_size_id,
+                    'qty': int(qty),
+                    'unitCost': int(unit_cost),
+                }
+            )
+
+        resolved['lines'] = resolved_lines
+        return resolved
+
+    async def create_po(payload: dict[str, Any]) -> dict[str, Any]:
+        return {'result': await backend.create_po(token, tenant, payload)}
+
+    async def prepare_create_invoice(payload: dict[str, Any]) -> dict[str, Any]:
+        resolved = dict(payload)
+        customer = str(payload.get('customerId') or '').strip()
+        if not customer:
+            raise ToolPreparationError('Which customer should this sales order use?', ['customer_id'])
+        resolved['customerId'] = await resolver.customer(customer)
+
+        raw_lines = payload.get('lines')
+        if not isinstance(raw_lines, list) or not raw_lines:
+            raise ToolPreparationError(
+                'Reply with sales order lines that include item, size, and quantity.',
+                ['lines'],
+            )
+
+        resolved_lines: list[dict[str, Any]] = []
+        for raw_line in raw_lines:
+            if not isinstance(raw_line, dict):
+                raise ToolPreparationError(
+                    'Reply with sales order lines that include item, size, and quantity.',
+                    ['lines'],
+                )
+
+            line_size_id = str(raw_line.get('sizeId') or '').strip()
+            qty = raw_line.get('qty', raw_line.get('quantity'))
+            unit_price = raw_line.get('unitPrice')
+
+            if qty is None or int(qty) <= 0:
+                raise ToolPreparationError('Each sales order line needs an item and quantity.', ['lines'])
+
+            if not line_size_id or unit_price is None:
+                try:
                     details = await resolver.sku_size_details(
                         str(raw_line.get('productName') or '').strip(),
                         str(raw_line.get('sizeLabel') or '').strip(),
                         str(raw_line.get('colorName') or '').strip() or None,
                     )
-                    normalized_line['sizeId'] = str(details['sizeId'])
-                    if unit_price is None:
-                        unit_price = details['unitPrice']
-                else:
-                    normalized_line['sizeId'] = line_size_id
+                except ValueError as exc:
+                    raise ToolPreparationError(str(exc), ['lines']) from exc
+                line_size_id = str(details['sizeId'])
+                if unit_price is None:
+                    unit_price = details['unitPrice']
 
-                normalized_line['qty'] = int(qty) if qty is not None else 0
-                normalized_line['unitPrice'] = int(unit_price) if unit_price is not None else 0
-                resolved_lines.append(
-                    {
-                        'sizeId': normalized_line['sizeId'],
-                        'qty': normalized_line['qty'],
-                        'unitPrice': normalized_line['unitPrice'],
-                    }
-                )
-            resolved['lines'] = resolved_lines
-        return {'result': await backend.create_invoice(token, tenant, resolved)}
+            resolved_lines.append(
+                {
+                    'sizeId': line_size_id,
+                    'qty': int(qty),
+                    'unitPrice': int(unit_price),
+                }
+            )
+
+        resolved['lines'] = resolved_lines
+        return resolved
+
+    async def create_invoice(payload: dict[str, Any]) -> dict[str, Any]:
+        return {'result': await backend.create_invoice(token, tenant, payload)}
 
     return {
         'master.search_locations': SemanticTool(
@@ -153,6 +217,7 @@ def build_commerce_tools(
             side_effect=True,
             output_mode='mutation',
             executor=create_po,
+            preparer=prepare_create_po,
         ),
         'sales.create_invoice': SemanticTool(
             name='sales.create_invoice',
@@ -168,5 +233,6 @@ def build_commerce_tools(
             side_effect=True,
             output_mode='mutation',
             executor=create_invoice,
+            preparer=prepare_create_invoice,
         ),
     }

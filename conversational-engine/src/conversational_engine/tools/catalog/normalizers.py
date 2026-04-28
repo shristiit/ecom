@@ -34,17 +34,11 @@ def normalize_product_create_payload(payload: dict[str, Any]) -> dict[str, Any]:
     """
     Accepts the AI's flexible variant shape and converts it to the backend-native
     { product, styleMedia, variants: [{ colorName, sizes: [...] }] } structure.
-    Passes through unchanged if it already matches the backend shape.
+    Also normalizes nested approval-style payloads so partially-native shapes still
+    satisfy the backend contract.
     """
-    product = payload.get('product')
+    product = payload.get('product') if isinstance(payload.get('product'), dict) else payload
     variants = payload.get('variants')
-
-    if (
-        isinstance(product, dict)
-        and isinstance(variants, list)
-        and all(isinstance(v, dict) and isinstance(v.get('sizes'), list) for v in variants)
-    ):
-        return payload
 
     grouped_variants: dict[tuple[str, str | None, str | None], dict[str, Any]] = {}
     flat_variants = variants if isinstance(variants, list) else []
@@ -86,13 +80,17 @@ def normalize_product_create_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
     return {
         'product': {
-            'styleCode': payload.get('styleCode'),
-            'name': payload.get('name'),
-            'category': payload.get('category', ''),
-            'brand': payload.get('brand', ''),
-            'basePrice': payload.get('basePrice'),
-            'categoryId': payload.get('categoryId'),
-            'status': payload.get('status', 'active'),
+            'styleCode': product.get('styleCode'),
+            'name': product.get('name'),
+            'category': product.get('category', ''),
+            'brand': product.get('brand', ''),
+            'basePrice': product.get('basePrice'),
+            'priceVisible': product.get('priceVisible', True),
+            'inventoryMode': product.get('inventoryMode', 'local'),
+            'maxBackorderQty': product.get('maxBackorderQty'),
+            'pickupEnabled': product.get('pickupEnabled', False),
+            'categoryId': product.get('categoryId'),
+            'status': product.get('status', 'active'),
         },
         'styleMedia': (
             [item for item in payload.get('styleMedia', []) if isinstance(item, dict)]

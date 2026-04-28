@@ -58,3 +58,10 @@ def object_schema(properties: dict[str, Any], required: list[str] | None = None)
         'properties': properties,
         'required': required or [],
     }
+
+
+class ToolPreparationError(ValueError):
+    def __init__(self, prompt: str, missing_fields: list[str] | None = None) -> None:
+        super().__init__(prompt)
+        self.prompt = prompt
+        self.missing_fields = missing_fields or []
