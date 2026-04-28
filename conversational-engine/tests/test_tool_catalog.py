@@ -11,6 +11,7 @@ pytestmark = pytest.mark.anyio
 class FakeBackendClient:
     def __init__(self) -> None:
         self.payloads: list[dict[str, object]] = []
+        self.invoice_payloads: list[dict[str, object]] = []
         self.locations = [
             {'id': 'loc-1', 'name': 'Main Warehouse', 'code': 'WH1'},
             {'id': 'loc-2', 'name': 'Outlet Store', 'code': 'OUT'},
@@ -27,10 +28,29 @@ class FakeBackendClient:
             {'id': 'cat-1', 'name': 'Shirts'},
             {'id': 'cat-2', 'name': 'Shoes'},
         ]
+        self.products = [{'id': 'prod-1', 'name': 'Field Fresh Short'}]
+        self.product_detail = {
+            'product': {'id': 'prod-1', 'base_price': 42},
+            'skus': [
+                {'id': 'sku-sand', 'color_name': 'Sand', 'price_override': 50},
+                {'id': 'sku-clay', 'color_name': 'Clay', 'price_override': None},
+            ],
+            'sizes': [
+                {'id': 'size-sand-l', 'sku_id': 'sku-sand', 'size_label': 'L', 'price_override': 55},
+                {'id': 'size-sand-m', 'sku_id': 'sku-sand', 'size_label': 'M', 'price_override': None},
+                {'id': 'size-clay-l', 'sku_id': 'sku-clay', 'size_label': 'L', 'price_override': 44},
+                {'id': 'size-clay-m', 'sku_id': 'sku-clay', 'size_label': 'M', 'price_override': None},
+            ],
+        }
 
     async def create_product(self, access_token: str, tenant_id: str | None, payload: dict[str, object]):
         del access_token, tenant_id
         self.payloads.append(payload)
+        return {'ok': True, 'payload': payload}
+
+    async def create_invoice(self, access_token: str, tenant_id: str | None, payload: dict[str, object]):
+        del access_token, tenant_id
+        self.invoice_payloads.append(payload)
         return {'ok': True, 'payload': payload}
 
     async def list_locations(self, access_token: str, tenant_id: str | None):
@@ -48,6 +68,17 @@ class FakeBackendClient:
     async def list_categories(self, access_token: str, tenant_id: str | None):
         del access_token, tenant_id
         return self.categories
+
+    async def search_products(self, access_token: str, tenant_id: str | None, q: str | None = None, **kwargs):
+        del access_token, tenant_id, kwargs
+        if not q:
+            return self.products
+        return [product for product in self.products if q.lower() in str(product['name']).lower()]
+
+    async def get_product(self, access_token: str, tenant_id: str | None, product_id: str):
+        del access_token, tenant_id
+        assert product_id == 'prod-1'
+        return self.product_detail
 
 
 def make_auth() -> AuthContext:
@@ -117,6 +148,37 @@ async def test_product_tool_preserves_backend_native_compose_payload():
     await catalog.invoke('products.create_product', payload)
 
     assert backend.payloads == [payload]
+
+
+async def test_sales_create_invoice_normalizes_name_based_lines_for_backend():
+    backend = FakeBackendClient()
+    catalog = SemanticToolCatalog(backend=backend, auth=make_auth())  # type: ignore[arg-type]
+
+    result = await catalog.invoke(
+        'sales.create_invoice',
+        {
+            'customerId': 'bob@example.com',
+            'lines': [
+                {'productName': 'Field Fresh Short', 'colorName': 'Sand', 'sizeLabel': 'L', 'quantity': 5},
+                {'productName': 'Field Fresh Short', 'colorName': 'Sand', 'sizeLabel': 'M', 'quantity': 5},
+                {'productName': 'Field Fresh Short', 'colorName': 'Clay', 'sizeLabel': 'L', 'quantity': 5},
+                {'productName': 'Field Fresh Short', 'colorName': 'Clay', 'sizeLabel': 'M', 'quantity': 5},
+            ],
+        },
+    )
+
+    assert result['result']['ok'] is True
+    assert backend.invoice_payloads == [
+        {
+            'customerId': 'cust-2',
+            'lines': [
+                {'sizeId': 'size-sand-l', 'qty': 5, 'unitPrice': 55},
+                {'sizeId': 'size-sand-m', 'qty': 5, 'unitPrice': 50},
+                {'sizeId': 'size-clay-l', 'qty': 5, 'unitPrice': 44},
+                {'sizeId': 'size-clay-m', 'qty': 5, 'unitPrice': 42},
+            ],
+        }
+    ]
 
 
 @pytest.mark.parametrize(

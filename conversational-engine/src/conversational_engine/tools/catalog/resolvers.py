@@ -4,6 +4,7 @@ from typing import Any
 
 from conversational_engine.clients.backend import BackendClient
 from conversational_engine.contracts.auth import AuthContext
+
 from .utils import best_match, is_uuid
 
 
@@ -29,7 +30,7 @@ class EntityResolver:
         match = best_match(items, name_or_id, 'name', 'code')
         if match:
             return str(match['id'])
-        available = ', '.join(str(l.get('name') or l.get('code')) for l in items[:10])
+        available = ', '.join(str(location.get('name') or location.get('code')) for location in items[:10])
         raise ValueError(f'Location "{name_or_id}" not found. Available: {available}')
 
     async def supplier(self, name_or_id: str) -> str:
@@ -103,6 +104,62 @@ class EntityResolver:
             f'Size "{size_label}" not found for "{product_name}". Available: {available or "none"}'
         )
 
+    async def sku_size_details(
+        self,
+        product_name: str,
+        size_label: str,
+        color_name: str | None = None,
+    ) -> dict[str, int | str]:
+        """Resolve a sales-order line to a sku_size UUID and effective unit price."""
+        products = await self._backend.search_products(self._token, self._tenant, q=product_name)
+        if not products:
+            raise ValueError(f'Product "{product_name}" not found.')
+
+        full = await self._backend.get_product(self._token, self._tenant, str(products[0]['id']))
+        product = full.get('product') or {}
+        skus: list[dict[str, Any]] = full.get('skus') or []  # type: ignore[assignment]
+        sizes: list[dict[str, Any]] = full.get('sizes') or []  # type: ignore[assignment]
+
+        if color_name:
+            cnl = color_name.lower()
+            colour_skus = [s for s in skus if cnl in str(s.get('color_name') or '').lower()]
+            candidate_skus = colour_skus or skus
+        else:
+            candidate_skus = skus
+
+        candidate_ids = {str(s['id']) for s in candidate_skus}
+        sku_by_id = {str(s['id']): s for s in candidate_skus}
+        sl = size_label.upper().strip()
+
+        def effective_unit_price(size: dict[str, Any]) -> int:
+            sku = sku_by_id.get(str(size.get('sku_id')))
+            raw_price = size.get('price_override')
+            if raw_price is None and isinstance(sku, dict):
+                raw_price = sku.get('price_override')
+            if raw_price is None:
+                raw_price = product.get('base_price')
+            if raw_price is None:
+                raise ValueError(
+                    f'Unit price is not configured for "{product_name}" {color_name or ""} {size_label}'.strip()
+                )
+            return int(raw_price)
+
+        for size in sizes:
+            if str(size.get('sku_id')) in candidate_ids:
+                if str(size.get('size_label') or '').upper().strip() == sl:
+                    return {'sizeId': str(size['id']), 'unitPrice': effective_unit_price(size)}
+        for size in sizes:
+            if str(size.get('sku_id')) in candidate_ids:
+                if sl in str(size.get('size_label') or '').upper():
+                    return {'sizeId': str(size['id']), 'unitPrice': effective_unit_price(size)}
+
+        available = ', '.join(
+            str(s.get('size_label')) for s in sizes if str(s.get('sku_id')) in candidate_ids
+        )
+        raise ValueError(
+            f'Size "{size_label}" not found for "{product_name}". Available: {available or "none"}'
+        )
+
     async def size_from_payload(self, payload: dict[str, Any]) -> str:
         """Return a sizeId UUID from a tool payload, resolving by name if necessary."""
         size_id = str(payload.get('sizeId') or '').strip()
@@ -115,4 +172,5 @@ class EntityResolver:
             raise ValueError(
                 'Provide either a sizeId UUID, or productName + sizeLabel (and optionally colorName).'
             )
-        return await self.sku_size(product_name, size_label, color_name)
+        details = await self.sku_size_details(product_name, size_label, color_name)
+        return str(details['sizeId'])

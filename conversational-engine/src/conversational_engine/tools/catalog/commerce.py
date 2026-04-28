@@ -6,6 +6,7 @@ from conversational_engine.clients.backend import BackendClient
 from conversational_engine.contracts.auth import AuthContext
 from conversational_engine.retrieval.navigation_targets import NAVIGATION_TARGETS
 from conversational_engine.tools.definitions import SemanticTool
+
 from .resolvers import EntityResolver
 from .utils import object_schema, search_rows
 
@@ -56,6 +57,39 @@ def build_commerce_tools(
         resolved = dict(payload)
         if customer := str(payload.get('customerId') or '').strip():
             resolved['customerId'] = await resolver.customer(customer)
+        raw_lines = payload.get('lines')
+        if isinstance(raw_lines, list):
+            resolved_lines: list[dict[str, Any]] = []
+            for raw_line in raw_lines:
+                if not isinstance(raw_line, dict):
+                    continue
+                normalized_line = dict(raw_line)
+                line_size_id = str(raw_line.get('sizeId') or '').strip()
+                qty = raw_line.get('qty', raw_line.get('quantity'))
+                unit_price = raw_line.get('unitPrice')
+
+                if not line_size_id or unit_price is None:
+                    details = await resolver.sku_size_details(
+                        str(raw_line.get('productName') or '').strip(),
+                        str(raw_line.get('sizeLabel') or '').strip(),
+                        str(raw_line.get('colorName') or '').strip() or None,
+                    )
+                    normalized_line['sizeId'] = str(details['sizeId'])
+                    if unit_price is None:
+                        unit_price = details['unitPrice']
+                else:
+                    normalized_line['sizeId'] = line_size_id
+
+                normalized_line['qty'] = int(qty) if qty is not None else 0
+                normalized_line['unitPrice'] = int(unit_price) if unit_price is not None else 0
+                resolved_lines.append(
+                    {
+                        'sizeId': normalized_line['sizeId'],
+                        'qty': normalized_line['qty'],
+                        'unitPrice': normalized_line['unitPrice'],
+                    }
+                )
+            resolved['lines'] = resolved_lines
         return {'result': await backend.create_invoice(token, tenant, resolved)}
 
     return {
