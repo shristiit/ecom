@@ -4,6 +4,7 @@ import pytest
 
 from conversational_engine.contracts.auth import AuthContext
 from conversational_engine.tools.catalog import SemanticToolCatalog
+from conversational_engine.tools.catalog.utils import ToolPreparationError
 
 pytestmark = pytest.mark.anyio
 
@@ -13,6 +14,13 @@ class FakeBackendClient:
         self.payloads: list[dict[str, object]] = []
         self.invoice_payloads: list[dict[str, object]] = []
         self.po_payloads: list[dict[str, object]] = []
+        self.receipt_payloads: list[dict[str, object]] = []
+        self.supplier_payloads: list[dict[str, object]] = []
+        self.supplier_updates: list[tuple[str, dict[str, object]]] = []
+        self.deleted_suppliers: list[str] = []
+        self.customer_payloads: list[dict[str, object]] = []
+        self.customer_updates: list[tuple[str, dict[str, object]]] = []
+        self.deleted_customers: list[str] = []
         self.locations = [
             {'id': 'loc-1', 'name': 'Main Warehouse', 'code': 'WH1'},
             {'id': 'loc-2', 'name': 'Outlet Store', 'code': 'OUT'},
@@ -58,6 +66,45 @@ class FakeBackendClient:
         del access_token, tenant_id
         self.po_payloads.append(payload)
         return {'ok': True, 'payload': payload}
+
+    async def receive_stock(self, access_token: str, tenant_id: str | None, payload: dict[str, object]):
+        del access_token, tenant_id
+        self.receipt_payloads.append(payload)
+        return {'ok': True, 'payload': payload}
+
+    async def create_supplier(self, access_token: str, tenant_id: str | None, payload: dict[str, object]):
+        del access_token, tenant_id
+        self.supplier_payloads.append(payload)
+        return {'ok': True, 'payload': payload}
+
+    async def update_supplier(
+        self, access_token: str, tenant_id: str | None, supplier_id: str, payload: dict[str, object]
+    ):
+        del access_token, tenant_id
+        self.supplier_updates.append((supplier_id, payload))
+        return {'ok': True, 'supplierId': supplier_id, 'payload': payload}
+
+    async def delete_supplier(self, access_token: str, tenant_id: str | None, supplier_id: str):
+        del access_token, tenant_id
+        self.deleted_suppliers.append(supplier_id)
+        return {'ok': True}
+
+    async def create_customer(self, access_token: str, tenant_id: str | None, payload: dict[str, object]):
+        del access_token, tenant_id
+        self.customer_payloads.append(payload)
+        return {'ok': True, 'payload': payload}
+
+    async def update_customer(
+        self, access_token: str, tenant_id: str | None, customer_id: str, payload: dict[str, object]
+    ):
+        del access_token, tenant_id
+        self.customer_updates.append((customer_id, payload))
+        return {'ok': True, 'customerId': customer_id, 'payload': payload}
+
+    async def delete_customer(self, access_token: str, tenant_id: str | None, customer_id: str):
+        del access_token, tenant_id
+        self.deleted_customers.append(customer_id)
+        return {'ok': True}
 
     async def list_locations(self, access_token: str, tenant_id: str | None):
         del access_token, tenant_id
@@ -232,8 +279,20 @@ async def test_purchase_order_create_normalizes_name_based_lines_for_backend():
         {
             'supplierId': 'Acme Supply',
             'lines': [
-                {'productName': 'Field Fresh Short', 'colorName': 'Sand', 'sizeLabel': 'L', 'quantity': 5, 'unitCost': 21},
-                {'productName': 'Field Fresh Short', 'colorName': 'Clay', 'sizeLabel': 'M', 'quantity': 7, 'unitCost': 18},
+                {
+                    'productName': 'Field Fresh Short',
+                    'colorName': 'Sand',
+                    'sizeLabel': 'L',
+                    'quantity': 5,
+                    'unitCost': 21,
+                },
+                {
+                    'productName': 'Field Fresh Short',
+                    'colorName': 'Clay',
+                    'sizeLabel': 'M',
+                    'quantity': 7,
+                    'unitCost': 18,
+                },
             ],
         },
     )
@@ -279,6 +338,142 @@ async def test_sales_create_invoice_normalizes_name_based_lines_for_backend():
             ],
         }
     ]
+
+
+async def test_sales_create_invoice_requires_color_and_size_when_product_is_ambiguous():
+    backend = FakeBackendClient()
+    catalog = SemanticToolCatalog(backend=backend, auth=make_auth())  # type: ignore[arg-type]
+
+    with pytest.raises(ToolPreparationError, match='Color is required'):
+        await catalog.invoke(
+            'sales.create_invoice',
+            {
+                'customerId': 'bob@example.com',
+                'lines': [
+                    {'productName': 'Field Fresh Short', 'quantity': 5},
+                ],
+            },
+        )
+
+
+async def test_inventory_receive_stock_expands_all_sizes_for_a_color():
+    backend = FakeBackendClient()
+    catalog = SemanticToolCatalog(backend=backend, auth=make_auth())  # type: ignore[arg-type]
+
+    result = await catalog.invoke(
+        'inventory.receive_stock',
+        {
+            'locationId': 'Main Warehouse',
+            'productName': 'Field Fresh Short',
+            'colorName': 'Sand',
+            'allSizes': True,
+            'quantity': 100,
+        },
+    )
+
+    assert result['result']['lineCount'] == 2
+    assert backend.receipt_payloads == [
+        {'locationId': 'loc-1', 'sizeId': 'size-sand-l', 'quantity': 100, 'reason': ''},
+        {'locationId': 'loc-1', 'sizeId': 'size-sand-m', 'quantity': 100, 'reason': ''},
+    ]
+
+
+async def test_master_create_supplier_requires_name_and_keeps_optional_fields():
+    backend = FakeBackendClient()
+    catalog = SemanticToolCatalog(backend=backend, auth=make_auth())  # type: ignore[arg-type]
+
+    result = await catalog.invoke(
+        'master.create_supplier',
+        {'name': 'Acme Supply', 'email': 'ops@acme.example', 'phone': '555-0101'},
+    )
+
+    assert result['result']['ok'] is True
+    assert backend.supplier_payloads == [{'name': 'Acme Supply', 'email': 'ops@acme.example', 'phone': '555-0101'}]
+
+
+async def test_master_create_customer_accepts_optional_fields():
+    backend = FakeBackendClient()
+    catalog = SemanticToolCatalog(backend=backend, auth=make_auth())  # type: ignore[arg-type]
+
+    result = await catalog.invoke(
+        'master.create_customer',
+        {'name': 'Helen Barrows', 'email': 'helen41@yahoo.com', 'address': 'London'},
+    )
+
+    assert result['result']['ok'] is True
+    assert backend.customer_payloads == [{'name': 'Helen Barrows', 'email': 'helen41@yahoo.com', 'address': 'London'}]
+
+
+async def test_master_update_supplier_resolves_name_and_accepts_partial_patch():
+    backend = FakeBackendClient()
+    catalog = SemanticToolCatalog(backend=backend, auth=make_auth())  # type: ignore[arg-type]
+
+    result = await catalog.invoke(
+        'master.update_supplier',
+        {'supplierId': 'Acme Supply', 'patch': {'phone': '555-0101'}},
+    )
+
+    assert result['result']['ok'] is True
+    assert backend.supplier_updates == [('sup-1', {'phone': '555-0101'})]
+
+
+async def test_master_update_customer_resolves_email_and_accepts_partial_patch():
+    backend = FakeBackendClient()
+    catalog = SemanticToolCatalog(backend=backend, auth=make_auth())  # type: ignore[arg-type]
+
+    result = await catalog.invoke(
+        'master.update_customer',
+        {'customerId': 'bob@example.com', 'patch': {'phone': '555-0202'}},
+    )
+
+    assert result['result']['ok'] is True
+    assert backend.customer_updates == [('cust-2', {'phone': '555-0202'})]
+
+
+async def test_master_delete_supplier_resolves_by_name():
+    backend = FakeBackendClient()
+    catalog = SemanticToolCatalog(backend=backend, auth=make_auth())  # type: ignore[arg-type]
+
+    result = await catalog.invoke('master.delete_supplier', {'supplierId': 'Acme Supply'})
+
+    assert result['result']['ok'] is True
+    assert backend.deleted_suppliers == ['sup-1']
+
+
+async def test_master_delete_customer_accepts_uuid():
+    backend = FakeBackendClient()
+    catalog = SemanticToolCatalog(backend=backend, auth=make_auth())  # type: ignore[arg-type]
+
+    result = await catalog.invoke(
+        'master.delete_customer',
+        {'customerId': '123e4567-e89b-42d3-a456-426614174000'},
+    )
+
+    assert result['result']['ok'] is True
+    assert backend.deleted_customers == ['123e4567-e89b-42d3-a456-426614174000']
+
+
+@pytest.mark.parametrize(
+    ('tool_name', 'payload', 'message'),
+    [
+        ('master.create_supplier', {'email': 'ops@acme.example'}, 'What supplier name should I create?'),
+        ('master.create_customer', {'email': 'helen41@yahoo.com'}, 'What customer name should I create?'),
+        ('master.update_supplier', {'supplierId': 'Acme Supply'}, 'What supplier details should I change?'),
+        ('master.update_customer', {'customerId': 'bob@example.com'}, 'What customer details should I change?'),
+        ('master.delete_supplier', {}, 'Which supplier should I delete?'),
+        ('master.delete_customer', {}, 'Which customer should I delete?'),
+    ],
+)
+async def test_master_write_tools_reject_missing_required_fields(
+    tool_name: str,
+    payload: dict[str, object],
+    message: str,
+):
+    backend = FakeBackendClient()
+    catalog = SemanticToolCatalog(backend=backend, auth=make_auth())  # type: ignore[arg-type]
+
+    with pytest.raises(ToolPreparationError, match=message):
+        await catalog.invoke(tool_name, payload)
 
 
 @pytest.mark.parametrize(

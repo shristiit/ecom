@@ -174,6 +174,20 @@ class FakeStateUpdater:
 
 
 class FakeBackendClient:
+    def __init__(self) -> None:
+        self.customer_payloads: list[dict[str, object]] = []
+        self.customer_updates: list[tuple[str, dict[str, object]]] = []
+        self.receipt_payloads: list[dict[str, object]] = []
+        self.products = [{'id': 'prod-1', 'name': 'Field Fresh Short'}]
+        self.product_detail = {
+            'product': {'id': 'prod-1', 'base_price': 42},
+            'skus': [{'id': 'sku-sand', 'color_name': 'Sand', 'price_override': None}],
+            'sizes': [
+                {'id': 'size-sand-l', 'sku_id': 'sku-sand', 'size_label': 'L', 'price_override': None},
+                {'id': 'size-sand-m', 'sku_id': 'sku-sand', 'size_label': 'M', 'price_override': None},
+            ],
+        }
+
     async def check_ai_usage_quota(self, *args, **kwargs):
         del args, kwargs
         return {'allowed': True}
@@ -199,7 +213,11 @@ class FakeBackendClient:
         return {'ok': True}
 
     async def receive_stock(self, *args, **kwargs):
-        del args, kwargs
+        payload = kwargs.get('payload')
+        if payload is None and len(args) >= 3:
+            payload = args[2]
+        if isinstance(payload, dict):
+            self.receipt_payloads.append(payload)
         return {'ok': True}
 
     async def reporting_stock_summary(self, *args, **kwargs):
@@ -218,6 +236,22 @@ class FakeBackendClient:
         del args, kwargs
         return {'ok': True}
 
+    async def create_customer(self, access_token: str, tenant_id: str | None, payload: dict[str, object]):
+        del access_token, tenant_id
+        self.customer_payloads.append(payload)
+        return {'ok': True, 'payload': payload}
+
+    async def update_customer(
+        self, access_token: str, tenant_id: str | None, customer_id: str, payload: dict[str, object]
+    ):
+        del access_token, tenant_id
+        self.customer_updates.append((customer_id, payload))
+        return {'ok': True, 'customerId': customer_id, 'payload': payload}
+
+    async def delete_customer(self, *args, **kwargs):
+        del args, kwargs
+        return {'ok': True}
+
     async def list_locations(self, *args, **kwargs):
         del args, kwargs
         return [
@@ -225,6 +259,32 @@ class FakeBackendClient:
             {'id': LOCATION_B, 'name': 'Soho Store', 'code': 'SOHO'},
             {'id': LOCATION_C, 'name': 'Camden Store', 'code': 'Camden'},
         ]
+
+    async def list_suppliers(self, *args, **kwargs):
+        del args, kwargs
+        return [{'id': 'sup-1', 'name': 'Acme Supply', 'code': 'ACME'}]
+
+    async def list_customers(self, *args, **kwargs):
+        del args, kwargs
+        return [
+            {'id': 'cust-1', 'name': 'Helen Barrows', 'email': 'helen41@yahoo.com', 'code': 'HELEN'},
+            {'id': 'cust-2', 'name': 'Bob Smith', 'email': 'bob@example.com', 'code': 'BOB'},
+        ]
+
+    async def list_categories(self, *args, **kwargs):
+        del args, kwargs
+        return []
+
+    async def search_products(self, access_token: str, tenant_id: str | None, q: str | None = None, **kwargs):
+        del access_token, tenant_id, kwargs
+        if not q:
+            return self.products
+        return [product for product in self.products if q.lower() in str(product['name']).lower()]
+
+    async def get_product(self, access_token: str, tenant_id: str | None, product_id: str):
+        del access_token, tenant_id
+        assert product_id == 'prod-1'
+        return self.product_detail
 
     async def evaluate_approval(self, *args, **kwargs):
         del args, kwargs
@@ -366,6 +426,43 @@ async def test_runtime_service_requests_approval_for_high_risk_writes():
     assert any(block.type == BlockType.CONFIRMATION_REQUIRED for block in outcome.blocks)
     assert outcome.extracted_entities['executionPayload']['fromLocationId'] == LOCATION_A
     assert outcome.extracted_entities['executionPayload']['toLocationId'] == LOCATION_B
+
+
+async def test_runtime_service_requests_approval_for_customer_create():
+    events: list[tuple[str, dict[str, object]]] = []
+    service = AgentRuntimeService(
+        backend_client=FakeApprovalBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeExecutor(
+            'master.create_customer',
+            {'name': 'Helen Barrows', 'email': 'helen41@yahoo.com'},
+        ),
+        reviewer=FakeReviewer(),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='create a customer named Helen Barrows with email helen41@yahoo.com',
+        extracted_entities={},
+        recent_messages=[],
+        workflow_status=WorkflowStatus.IDLE,
+        emit=lambda event_type, payload: events.append((event_type, payload)),
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.AWAITING_CONFIRMATION
+    assert any(block.type == BlockType.CONFIRMATION_REQUIRED for block in outcome.blocks)
+    assert outcome.extracted_entities['executionPayload'] == {
+        'name': 'Helen Barrows',
+        'email': 'helen41@yahoo.com',
+    }
+    assert not any(event_type == 'approval.requested' for event_type, _payload in events)
 
 
 async def test_runtime_service_handles_trace_attempts_without_crashing():
@@ -572,6 +669,140 @@ async def test_runtime_service_clarifies_missing_required_fields_before_confirma
     assert outcome.status == WorkflowStatus.NEEDS_INPUT
     assert any(block.type == BlockType.CLARIFICATION for block in outcome.blocks)
     assert 'color_name' in outcome.missing_fields
+
+
+async def test_runtime_service_clarifies_missing_customer_name_before_confirmation():
+    service = AgentRuntimeService(
+        backend_client=FakeApprovalBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeExecutor(
+            'master.create_customer',
+            {'email': 'helen41@yahoo.com'},
+        ),
+        reviewer=FakeReviewer(),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='create a customer with email helen41@yahoo.com',
+        extracted_entities={},
+        recent_messages=[],
+        workflow_status=WorkflowStatus.IDLE,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.NEEDS_INPUT
+    assert any(block.type == BlockType.CLARIFICATION for block in outcome.blocks)
+    assert 'name' in outcome.missing_fields
+
+
+async def test_runtime_service_confirmation_edit_can_expand_inventory_receipt_to_all_sizes():
+    service = AgentRuntimeService(
+        backend_client=FakeApprovalBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeExecutor(
+            'inventory.receive_stock',
+            {
+                'locationId': 'Warehouse A',
+                'productName': 'Field Fresh Short',
+                'colorName': 'Sand',
+                'sizeLabel': 'L',
+                'quantity': 100,
+            },
+        ),
+        reviewer=FakeReviewer(),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        state_updater=FakeStateUpdater(
+            {
+                'all sizes not only l': {
+                    'useActiveWorkflow': True,
+                    'primaryRoute': 'mutation',
+                    'primaryIntent': 'inventory.receive_stock',
+                    'confidence': 0.95,
+                    'rationale': 'The user is editing the pending receipt.',
+                    'entityPatches': {},
+                    'navigationQuery': None,
+                    'postActionQuery': None,
+                }
+            }
+        ),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    first_outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='receive 100 units of Field Fresh Short Sand L in Warehouse A',
+        extracted_entities={},
+        recent_messages=[],
+        workflow_status=WorkflowStatus.IDLE,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert first_outcome.status == WorkflowStatus.AWAITING_CONFIRMATION
+    assert first_outcome.extracted_entities['executionPayload']['sizeId'] == 'size-sand-l'
+
+    edited_outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='all sizes not only l',
+        extracted_entities=first_outcome.extracted_entities,
+        recent_messages=[],
+        workflow_status=WorkflowStatus.AWAITING_CONFIRMATION,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert edited_outcome.status == WorkflowStatus.AWAITING_CONFIRMATION
+    assert edited_outcome.extracted_entities['executionPayload']['quantity'] == 200
+    assert edited_outcome.extracted_entities['executionPayload']['lines'] == [
+        {'sizeId': 'size-sand-l', 'quantity': 100, 'reason': ''},
+        {'sizeId': 'size-sand-m', 'quantity': 100, 'reason': ''},
+    ]
+
+
+async def test_runtime_service_clarifies_empty_customer_update_patch_before_confirmation():
+    service = AgentRuntimeService(
+        backend_client=FakeApprovalBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeExecutor(
+            'master.update_customer',
+            {'customerId': 'bob@example.com'},
+        ),
+        reviewer=FakeReviewer(),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='update customer bob@example.com',
+        extracted_entities={},
+        recent_messages=[],
+        workflow_status=WorkflowStatus.IDLE,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.NEEDS_INPUT
+    assert any(block.type == BlockType.CLARIFICATION for block in outcome.blocks)
+    assert 'patch' in outcome.missing_fields
 
 
 async def test_runtime_service_reuses_completed_read_context_for_this_follow_up():

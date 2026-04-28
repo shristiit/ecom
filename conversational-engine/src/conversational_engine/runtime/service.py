@@ -746,22 +746,49 @@ class AgentRuntimeService:
         if not state_update.is_workflow_edit and not state_update.new_post_actions:
             return None
 
-        updated_payload = dict(execution_payload)
+        preview = current_entities.get('preview')
+        preview_arguments = preview.get('arguments') if isinstance(preview, dict) else None
+        if isinstance(preview_arguments, dict):
+            updated_payload = dict(preview_arguments)
+            if 'locationId' not in updated_payload and execution_payload.get('locationId') is not None:
+                updated_payload['locationId'] = execution_payload['locationId']
+            if 'fromLocationId' not in updated_payload and execution_payload.get('fromLocationId') is not None:
+                updated_payload['fromLocationId'] = execution_payload['fromLocationId']
+            if 'toLocationId' not in updated_payload and execution_payload.get('toLocationId') is not None:
+                updated_payload['toLocationId'] = execution_payload['toLocationId']
+        else:
+            updated_payload = dict(execution_payload)
         task_entities = state_update.task_context.get('entities')
         if isinstance(task_entities, dict):
             for key, value in task_entities.items():
                 if key in {
+                    'allColors',
+                    'allSizes',
+                    'colorNames',
                     'quantity',
                     'fromLocationId',
                     'toLocationId',
+                    'lines',
                     'locationId',
                     'productName',
                     'colorName',
                     'sizeLabel',
+                    'sizeLabels',
                     'sku',
                     'reason',
                 } and value is not None:
                     updated_payload[key] = value
+
+        planner_text = state_update.planner_message.lower()
+        if tool_name == 'inventory.receive_stock':
+            if 'all sizes' in planner_text or 'every size' in planner_text:
+                updated_payload['allSizes'] = True
+                updated_payload.pop('sizeLabel', None)
+                updated_payload.pop('sizeId', None)
+            if 'all colors' in planner_text or 'every color' in planner_text:
+                updated_payload['allColors'] = True
+                updated_payload.pop('colorName', None)
+                updated_payload.pop('sizeId', None)
 
         summary_suffix = ''
         if state_update.new_post_actions:

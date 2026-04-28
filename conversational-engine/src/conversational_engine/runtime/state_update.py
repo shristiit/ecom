@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 import re
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from conversational_engine.retrieval.service import RetrievalService
@@ -22,6 +22,11 @@ _NAVIGATION_PREFIXES = (
     'show me ',
     'show ',
 )
+_MASTER_CREATE_VERBS = r'(create|add|new|onboard|register)'
+_MASTER_UPDATE_VERBS = r'(update|edit|change|rename)'
+_MASTER_DELETE_VERBS = r'(delete|remove)'
+_SUPPLIER_NOUNS = r'(supplier|vendor)'
+_CUSTOMER_NOUNS = r'(customer|client)'
 _MUTATION_PATTERNS: tuple[tuple[str, str], ...] = (
     ('inventory.transfer_stock', r'\b(transfer|move)\b'),
     ('inventory.receive_stock', r'\b(receive|receipt)\b'),
@@ -30,6 +35,30 @@ _MUTATION_PATTERNS: tuple[tuple[str, str], ...] = (
     ('purchasing.create_po', r'\b(purchase order|create po|create a po|draft po)\b'),
     ('sales.create_invoice', r'\b(invoice|sales order|create so|create invoice)\b'),
     ('products.create_product', r'\b(create product|create a product|new product)\b'),
+    (
+        'master.create_supplier',
+        rf'\b{_MASTER_CREATE_VERBS}\b.*\b{_SUPPLIER_NOUNS}\b|\b{_SUPPLIER_NOUNS}\b.*\b{_MASTER_CREATE_VERBS}\b',
+    ),
+    (
+        'master.update_supplier',
+        rf'\b{_MASTER_UPDATE_VERBS}\b.*\b{_SUPPLIER_NOUNS}\b|\b{_SUPPLIER_NOUNS}\b.*\b{_MASTER_UPDATE_VERBS}\b',
+    ),
+    (
+        'master.delete_supplier',
+        rf'\b{_MASTER_DELETE_VERBS}\b.*\b{_SUPPLIER_NOUNS}\b|\b{_SUPPLIER_NOUNS}\b.*\b{_MASTER_DELETE_VERBS}\b',
+    ),
+    (
+        'master.create_customer',
+        rf'\b{_MASTER_CREATE_VERBS}\b.*\b{_CUSTOMER_NOUNS}\b|\b{_CUSTOMER_NOUNS}\b.*\b{_MASTER_CREATE_VERBS}\b',
+    ),
+    (
+        'master.update_customer',
+        rf'\b{_MASTER_UPDATE_VERBS}\b.*\b{_CUSTOMER_NOUNS}\b|\b{_CUSTOMER_NOUNS}\b.*\b{_MASTER_UPDATE_VERBS}\b',
+    ),
+    (
+        'master.delete_customer',
+        rf'\b{_MASTER_DELETE_VERBS}\b.*\b{_CUSTOMER_NOUNS}\b|\b{_CUSTOMER_NOUNS}\b.*\b{_MASTER_DELETE_VERBS}\b',
+    ),
 )
 _READ_PATTERNS: tuple[tuple[str, str], ...] = (
     ('inventory.stock_on_hand', r'\b(stock|stock on hand|available)\b'),
@@ -86,7 +115,12 @@ def increment_clarification_count(task_context: dict[str, Any]) -> dict[str, Any
     return updated
 
 
-def mark_task_status(extracted_entities: dict[str, Any], status: str, *, clear_post_actions: bool = False) -> dict[str, Any]:
+def mark_task_status(
+    extracted_entities: dict[str, Any],
+    status: str,
+    *,
+    clear_post_actions: bool = False,
+) -> dict[str, Any]:
     updated = dict(extracted_entities)
     task_context = task_context_from_entities(updated)
     task_context['status'] = status
@@ -157,20 +191,35 @@ async def resolve_state_update(
         confidence = _coerce_confidence(decision.get('confidence') if isinstance(decision, dict) else None, 0.9)
         used_memory = True
     else:
-        primary_route = str(decision.get('primaryRoute') or route_fallback) if isinstance(decision, dict) else route_fallback
-        primary_intent = str(decision.get('primaryIntent') or intent_fallback) if isinstance(decision, dict) else intent_fallback
-        rationale = str(decision.get('rationale') or fallback_rationale) if isinstance(decision, dict) else fallback_rationale
-        confidence = _coerce_confidence(decision.get('confidence') if isinstance(decision, dict) else None, fallback_confidence)
+        primary_route = (
+            str(decision.get('primaryRoute') or route_fallback) if isinstance(decision, dict) else route_fallback
+        )
+        primary_intent = (
+            str(decision.get('primaryIntent') or intent_fallback) if isinstance(decision, dict) else intent_fallback
+        )
+        rationale = (
+            str(decision.get('rationale') or fallback_rationale)
+            if isinstance(decision, dict)
+            else fallback_rationale
+        )
+        confidence = _coerce_confidence(
+            decision.get('confidence') if isinstance(decision, dict) else None,
+            fallback_confidence,
+        )
         used_memory = bool(decision and decision.get('useActiveWorkflow'))
 
     navigation_query = (
         str(decision.get('navigationQuery')).strip()
-        if isinstance(decision, dict) and isinstance(decision.get('navigationQuery'), str) and str(decision.get('navigationQuery')).strip()
+        if isinstance(decision, dict)
+        and isinstance(decision.get('navigationQuery'), str)
+        and str(decision.get('navigationQuery')).strip()
         else None
     )
     post_action_query = (
         str(decision.get('postActionQuery')).strip()
-        if isinstance(decision, dict) and isinstance(decision.get('postActionQuery'), str) and str(decision.get('postActionQuery')).strip()
+        if isinstance(decision, dict)
+        and isinstance(decision.get('postActionQuery'), str)
+        and str(decision.get('postActionQuery')).strip()
         else post_action_text
     )
 
