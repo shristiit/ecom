@@ -104,20 +104,24 @@ class FakeNarrator:
 
 
 class FakeMemoryService:
-    def build(self, **kwargs):
+    async def build(self, **kwargs):
         del kwargs
 
         class Context:
             session_memory = {'tenantId': 'tenant-1'}
             workflow_memory = {'workflowId': 'workflow-1'}
-            tenant_memory = []
             recent_messages = []
+            latest_summary = None
+            recent_entities = []
+            business_memory = []
+            user_memory = []
+            semantic_memory = []
 
         return Context()
 
 
 class FakeTrainingService:
-    def record_trace(self, **kwargs):
+    async def record_trace(self, **kwargs):
         del kwargs
 
 

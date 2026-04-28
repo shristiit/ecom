@@ -5,10 +5,8 @@ from math import sqrt
 from pathlib import Path
 from uuid import uuid4
 
-from psycopg import connect
-from psycopg.rows import dict_row
-from psycopg.types.json import Jsonb
-
+from conversational_engine.ai.mongo_repository import SYSTEM_TENANT_ID
+from conversational_engine.ai.repository import AIRepository
 from conversational_engine.retrieval.navigation_targets import NAVIGATION_TARGETS
 
 
@@ -41,78 +39,63 @@ def _chunks(content: str) -> list[str]:
 
 
 class RetrievalService:
-    def __init__(self, database_url: str) -> None:
-        self._database_url = database_url
+    def __init__(self, repository: AIRepository) -> None:
+        self._repository = repository
         self._docs_dir = Path(__file__).resolve().parents[3] / 'docs' / 'help'
-
-    def _connection(self):
-        return connect(self._database_url, row_factory=dict_row)
 
     async def ensure_ingested(self) -> None:
         if not self._docs_dir.exists():
             return
-
-        with self._connection() as conn, conn.cursor() as cur:
-            for doc_path in sorted(self._docs_dir.glob('*.md')):
-                source_key = doc_path.name
-                title = doc_path.stem.replace('-', ' ').title()
-                content = doc_path.read_text(encoding='utf-8').strip()
-                document = cur.execute(
-                    """
-                    INSERT INTO ai_help_documents (id, source_key, title, document_type, metadata)
-                    VALUES (%s, %s, %s, %s, %s)
-                    ON CONFLICT (source_key)
-                    DO UPDATE SET title = EXCLUDED.title, updated_at = now()
-                    RETURNING id
-                    """,
-                    (
-                        uuid4(),
-                        source_key,
-                        title,
-                        'help_markdown',
-                        Jsonb({'path': str(doc_path)}),
-                    ),
-                ).fetchone()
-                document_id = document['id']
-                cur.execute('DELETE FROM ai_help_chunks WHERE document_id = %s', (document_id,))
-
-                for index, chunk in enumerate(_chunks(content)):
-                    cur.execute(
-                        """
-                        INSERT INTO ai_help_chunks (id, document_id, chunk_index, content, embedding, metadata)
-                        VALUES (%s, %s, %s, %s, %s, %s)
-                        """,
-                        (
-                            uuid4(),
-                            document_id,
-                            index,
-                            chunk,
-                            Jsonb(_embed(chunk)),
-                            Jsonb({'sourceKey': source_key}),
-                        ),
-                    )
-
-            conn.commit()
+        db = getattr(self._repository, 'database', None)
+        if db is None:
+            return
+        for doc_path in sorted(self._docs_dir.glob('*.md')):
+            source_key = doc_path.name
+            title = doc_path.stem.replace('-', ' ').title()
+            content = doc_path.read_text(encoding='utf-8').strip()
+            now_doc = {
+                '_id': source_key,
+                'tenantId': SYSTEM_TENANT_ID,
+                'sourceKey': source_key,
+                'title': title,
+                'documentType': 'help_markdown',
+                'status': 'active',
+                'metadata': {'path': str(doc_path)},
+            }
+            await db.ai_help_documents.update_one(
+                {'tenantId': SYSTEM_TENANT_ID, 'sourceKey': source_key},
+                {'$set': now_doc},
+                upsert=True,
+            )
+            document = await db.ai_help_documents.find_one({'tenantId': SYSTEM_TENANT_ID, 'sourceKey': source_key})
+            if document is None:
+                continue
+            await db.ai_help_chunks.delete_many({'tenantId': SYSTEM_TENANT_ID, 'documentId': document['_id']})
+            if not content:
+                continue
+            chunks = []
+            for index, chunk in enumerate(_chunks(content)):
+                chunks.append(
+                    {
+                        '_id': str(uuid4()),
+                        'tenantId': SYSTEM_TENANT_ID,
+                        'documentId': document['_id'],
+                        'chunkIndex': index,
+                        'content': chunk,
+                        'embedding': _embed(chunk),
+                        'metadata': {'sourceKey': source_key, 'title': title},
+                    }
+                )
+            if chunks:
+                await db.ai_help_chunks.insert_many(chunks)
 
     async def search(self, query: str) -> list[dict[str, object]]:
         await self.ensure_ingested()
+        db = getattr(self._repository, 'database', None)
+        if db is None:
+            return []
+        rows = await db.ai_help_chunks.find({'tenantId': SYSTEM_TENANT_ID}).sort('chunkIndex', 1).limit(200).to_list(length=200)
         query_embedding = _embed(query)
-
-        with self._connection() as conn, conn.cursor() as cur:
-            rows = cur.execute(
-                """
-                SELECT
-                  d.title,
-                  d.source_key,
-                  c.content,
-                  c.embedding
-                FROM ai_help_chunks c
-                JOIN ai_help_documents d ON d.id = c.document_id
-                ORDER BY c.created_at DESC
-                LIMIT 200
-                """
-            ).fetchall()
-
         scored: list[dict[str, object]] = []
         for row in rows:
             embedding = row.get('embedding')
@@ -121,13 +104,12 @@ class RetrievalService:
             score = _cosine(query_embedding, [float(value) for value in embedding])
             scored.append(
                 {
-                    'title': row['title'],
-                    'sourceKey': row['source_key'],
+                    'title': row.get('metadata', {}).get('title', ''),
+                    'sourceKey': row.get('metadata', {}).get('sourceKey', ''),
                     'content': row['content'],
                     'score': score,
                 }
             )
-
         scored.sort(key=lambda item: float(item['score']), reverse=True)
         return scored[:3]
 

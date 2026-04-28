@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from dataclasses import asdict
 import logging
@@ -86,6 +87,7 @@ class AgentRuntimeService:
         tool_history: list[dict[str, object]] = []
         catalog = SemanticToolCatalog(backend=self._backend_client, auth=auth)
         usage_entries: list[dict[str, object]] = []
+        trace_tasks: list[asyncio.Task[None]] = []
 
         await self._backend_client.check_ai_usage_quota(
             access_token=auth.access_token or '',
@@ -148,12 +150,15 @@ class AgentRuntimeService:
                     extracted_entities=navigation_entities,
                 )
 
-            memory = self._memory_service.build(
+            memory = await self._memory_service.build(
                 auth=auth,
                 workflow_id=str(workflow_id),
                 conversation_id=str(conversation_id),
+                workflow_status=workflow_status.value if workflow_status else None,
+                current_task=str(current_entities.get('currentTask') or state_update.primary_intent or ''),
                 recent_messages=recent_messages,
                 extracted_entities=current_entities,
+                missing_fields=list(current_entities.get('missingFields') or []),
             )
 
             for iteration in range(3):
@@ -192,14 +197,20 @@ class AgentRuntimeService:
                                     'rawPayload': trace.response.raw_payload,
                                 }
                             )
-                        self._training_data_service.record_trace(
-                            tenant_id=auth.tenant_id,
-                            run_id=run_id,
-                            agent_role=agent_role,
-                            provider_name=provider_name,
-                            model_name=model_name,
-                            stage=f'{agent_role}_iteration_{current_iteration + 1}',
-                            payload=payload,
+                        trace_tasks.append(
+                            asyncio.create_task(
+                                self._training_data_service.record_trace(
+                                    tenant_id=auth.tenant_id,
+                                    run_id=run_id,
+                                    conversation_id=conversation_id,
+                                    workflow_id=workflow_id,
+                                    agent_role=agent_role,
+                                    provider_name=provider_name,
+                                    model_name=model_name,
+                                    stage=f'{agent_role}_iteration_{current_iteration + 1}',
+                                    payload=payload,
+                                )
+                            )
                         )
 
                     return _record
@@ -216,7 +227,12 @@ class AgentRuntimeService:
                         memory={
                             'session': memory.session_memory,
                             'workflow': memory.workflow_memory,
-                            'tenant': memory.tenant_memory,
+                            'recentMessages': memory.recent_messages,
+                            'latestSummary': memory.latest_summary,
+                            'recentEntities': memory.recent_entities,
+                            'businessMemory': memory.business_memory,
+                            'userMemory': memory.user_memory,
+                            'semanticMemory': memory.semantic_memory,
                         },
                         tools=self._schema_catalog_for_state(catalog, state_update),
                         history=tool_history,
@@ -632,6 +648,8 @@ class AgentRuntimeService:
                 extracted_entities=extracted_entities,
             )
         finally:
+            if trace_tasks:
+                await asyncio.gather(*trace_tasks, return_exceptions=True)
             if usage_entries:
                 try:
                     await self._backend_client.record_ai_usage(

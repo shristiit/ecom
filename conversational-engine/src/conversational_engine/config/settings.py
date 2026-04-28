@@ -17,10 +17,75 @@ class Settings(BaseSettings):
     host: str = '0.0.0.0'
     port: int = 8000
     log_level: str = 'INFO'
+    ai_memory_backend: str = Field(
+        default='mongo',
+        validation_alias=AliasChoices('CONVERSATIONAL_ENGINE_AI_MEMORY_BACKEND', 'AI_MEMORY_BACKEND'),
+    )
 
     database_url: str = Field(
         default='postgres://user:pass@localhost:5432/stockaisle',
         validation_alias=AliasChoices('CONVERSATIONAL_ENGINE_DATABASE_URL', 'DATABASE_URL'),
+    )
+    mongo_uri: str = Field(
+        default='',
+        validation_alias=AliasChoices('CONVERSATIONAL_ENGINE_MONGO_URI', 'MONGO_URI'),
+    )
+    mongo_database: str = Field(
+        default='ecom_ai',
+        validation_alias=AliasChoices('CONVERSATIONAL_ENGINE_MONGO_DATABASE', 'MONGO_DATABASE'),
+    )
+    mongo_max_pool_size: int = Field(
+        default=100,
+        validation_alias=AliasChoices('CONVERSATIONAL_ENGINE_MONGO_MAX_POOL_SIZE', 'MONGO_MAX_POOL_SIZE'),
+    )
+    mongo_min_pool_size: int = Field(
+        default=0,
+        validation_alias=AliasChoices('CONVERSATIONAL_ENGINE_MONGO_MIN_POOL_SIZE', 'MONGO_MIN_POOL_SIZE'),
+    )
+    mongo_server_selection_timeout_ms: int = Field(
+        default=5000,
+        validation_alias=AliasChoices(
+            'CONVERSATIONAL_ENGINE_MONGO_SERVER_SELECTION_TIMEOUT_MS',
+            'MONGO_SERVER_SELECTION_TIMEOUT_MS',
+        ),
+    )
+    redis_url: str = Field(
+        default='',
+        validation_alias=AliasChoices('CONVERSATIONAL_ENGINE_REDIS_URL', 'REDIS_URL'),
+    )
+    aws_region: str = Field(
+        default='',
+        validation_alias=AliasChoices('CONVERSATIONAL_ENGINE_AWS_REGION', 'AWS_REGION'),
+    )
+    s3_chat_attachments_bucket: str = Field(
+        default='',
+        validation_alias=AliasChoices(
+            'CONVERSATIONAL_ENGINE_S3_CHAT_ATTACHMENTS_BUCKET',
+            'S3_CHAT_ATTACHMENTS_BUCKET',
+        ),
+    )
+    ai_vector_search_enabled: bool = Field(
+        default=False,
+        validation_alias=AliasChoices('CONVERSATIONAL_ENGINE_AI_VECTOR_SEARCH_ENABLED', 'AI_VECTOR_SEARCH_ENABLED'),
+    )
+    chat_attachment_max_bytes: int = Field(
+        default=10 * 1024 * 1024,
+        validation_alias=AliasChoices('CONVERSATIONAL_ENGINE_CHAT_ATTACHMENT_MAX_BYTES', 'CHAT_ATTACHMENT_MAX_BYTES'),
+    )
+    chat_recent_message_limit: int = Field(
+        default=20,
+        validation_alias=AliasChoices('CONVERSATIONAL_ENGINE_CHAT_RECENT_MESSAGE_LIMIT', 'CHAT_RECENT_MESSAGE_LIMIT'),
+    )
+    chat_max_context_messages: int = Field(
+        default=30,
+        validation_alias=AliasChoices('CONVERSATIONAL_ENGINE_CHAT_MAX_CONTEXT_MESSAGES', 'CHAT_MAX_CONTEXT_MESSAGES'),
+    )
+    chat_summary_trigger_messages: int = Field(
+        default=40,
+        validation_alias=AliasChoices(
+            'CONVERSATIONAL_ENGINE_CHAT_SUMMARY_TRIGGER_MESSAGES',
+            'CHAT_SUMMARY_TRIGGER_MESSAGES',
+        ),
     )
     backend_base_url: str = Field(
         default='http://localhost:4000/api',

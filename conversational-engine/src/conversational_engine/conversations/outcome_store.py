@@ -2,17 +2,19 @@ from __future__ import annotations
 
 from uuid import UUID
 
+from conversational_engine.ai.redis_cache import RedisActiveStateCache
+from conversational_engine.ai.repository import AIRepository
 from conversational_engine.contracts.auth import AuthContext
 from conversational_engine.contracts.common import MessageRole, WorkflowState
-from conversational_engine.db.repository import EngineRepository
 from conversational_engine.orchestrator.service import OrchestratorOutcome
 
 
 class ConversationOutcomeStore:
-    def __init__(self, repository: EngineRepository) -> None:
+    def __init__(self, repository: AIRepository, redis_cache: RedisActiveStateCache) -> None:
         self._repository = repository
+        self._redis_cache = redis_cache
 
-    def store(
+    async def store(
         self,
         *,
         auth: AuthContext,
@@ -21,7 +23,7 @@ class ConversationOutcomeStore:
         raw_text: str | None,
         outcome: OrchestratorOutcome,
     ) -> None:
-        self._repository.append_message(
+        await self._repository.append_message(
             tenant_id=auth.tenant_id,
             conversation_id=conversation_id,
             workflow_id=workflow_id,
@@ -29,7 +31,7 @@ class ConversationOutcomeStore:
             blocks=outcome.blocks,
             raw_text=raw_text,
         )
-        self._repository.save_workflow_state(
+        await self._repository.save_workflow_state(
             auth.tenant_id,
             workflow_id,
             status=outcome.status,
@@ -39,6 +41,9 @@ class ConversationOutcomeStore:
             active_preview_id=outcome.active_preview_id,
             active_approval_id=outcome.active_approval_id,
         )
+        workflow = await self._repository.find_workflow_by_id(auth.tenant_id, workflow_id)
+        if workflow is not None:
+            await self._redis_cache.set_workflow_state(auth.tenant_id, str(workflow_id), workflow)
 
     @staticmethod
     def sanitize_workflow(workflow: WorkflowState | None) -> WorkflowState | None:

@@ -17,6 +17,7 @@ class RunRequest(ContractModel):
     content: str
     conversation_id: UUID | None = None
     title: str | None = None
+    attachment_ids: list[str] = Field(default_factory=list)
     attachments: list[ImageAttachment] = Field(default_factory=list)
 
 

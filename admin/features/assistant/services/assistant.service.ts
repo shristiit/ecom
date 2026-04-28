@@ -1,4 +1,4 @@
-import { engineGet, enginePost, engineStream } from '@admin/lib/engine-client';
+import { engineGet, enginePost, engineStream, engineUpload } from '@admin/lib/engine-client';
 import type {
   AssistantApproval,
   AssistantConversation,
@@ -50,6 +50,19 @@ type HistoryRow = {
   status?: string | null;
 };
 
+type AttachmentUploadRow = {
+  attachment: {
+    id: string;
+    conversationId: string;
+    filename: string;
+    contentType: string;
+    sizeBytes: number;
+    status: string;
+    createdAt: string;
+    updatedAt: string;
+  };
+};
+
 export const assistantService = {
   async listConversations() {
     const payload = await engineGet<ConversationListResponse>('/api/chat/conversations');
@@ -70,22 +83,28 @@ export const assistantService = {
     return engineGet<AssistantConversation>(`/api/chat/conversations/${id}`);
   },
 
-  createConversation(input: { title?: string; initialMessage?: string | null }) {
-    return enginePost<AssistantConversation, { title?: string; initialMessage?: string | null }>(
+  createConversation(input: { title?: string; initialMessage?: string | null; attachmentIds?: string[] }) {
+    return enginePost<AssistantConversation, { title?: string; initialMessage?: string | null; attachmentIds?: string[] }>(
       '/api/chat/conversations',
       input,
     );
   },
 
-  sendMessage(input: { conversationId: string; content: string }) {
-    return enginePost<AssistantConversation, { content: string }>(
+  sendMessage(input: { conversationId: string; content: string; attachmentIds?: string[] }) {
+    return enginePost<AssistantConversation, { content: string; attachmentIds?: string[] }>(
       `/api/chat/conversations/${input.conversationId}/messages`,
-      { content: input.content },
+      { content: input.content, attachmentIds: input.attachmentIds },
     );
   },
 
   async streamRun(
-    input: { conversationId?: string; title?: string | null; content: string; attachments?: Array<{ dataUrl: string; filename?: string }> },
+    input: {
+      conversationId?: string;
+      title?: string | null;
+      content: string;
+      attachmentIds?: string[];
+      attachments?: Array<{ dataUrl: string; filename?: string }>;
+    },
     onEvent: (event: AssistantRunEvent) => void | Promise<void>,
   ): Promise<{ runId: string | null; conversationId: string | null; workflowId: string | null }> {
     let latestEvent: AssistantRunEvent | null = null;
@@ -103,6 +122,14 @@ export const assistantService = {
       conversationId: finalEvent?.conversationId ?? input.conversationId ?? null,
       workflowId: finalEvent?.workflowId ?? null,
     };
+  },
+
+  async uploadAttachment(input: { conversationId: string; file: File }) {
+    const formData = new FormData();
+    formData.append('conversation_id', input.conversationId);
+    formData.append('file', input.file);
+    const payload = await engineUpload<AttachmentUploadRow>('/api/chat/attachments', formData);
+    return payload.attachment;
   },
 
   decide(input: { workflowId: string; decision: string; note?: string }) {

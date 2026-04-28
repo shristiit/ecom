@@ -206,10 +206,6 @@ async function clearTenantData(client: PoolClient, tenantId: string) {
   const tables = [
     'ai_audit_events',
     'ai_action_requests',
-    'ai_conversation_messages',
-    'ai_workflow_memory',
-    'ai_workflows',
-    'ai_conversations',
     'audit_records',
     'inventory_transactions',
     'reservations',
