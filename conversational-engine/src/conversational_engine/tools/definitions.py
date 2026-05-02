@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 
 ToolExecutor = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
+ToolPreparer = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -16,3 +17,4 @@ class SemanticTool:
     side_effect: bool
     output_mode: str
     executor: ToolExecutor
+    preparer: ToolPreparer | None = None

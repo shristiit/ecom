@@ -5,6 +5,7 @@ from uuid import UUID
 from pydantic import Field
 
 from conversational_engine.contracts.common import (
+    AttachmentMetadata,
     ChatMessage,
     ContractModel,
     ConversationDetail,
@@ -30,15 +31,24 @@ class ConversationResponse(ContractModel):
     workflow: WorkflowState | None = None
     messages: list[ChatMessage] = Field(default_factory=list)
     pending_action: PendingAction | None = None
+    message_page: 'MessagePageInfo | None' = None
 
 
 class CreateConversationRequest(ContractModel):
     title: str | None = None
     initial_message: str | None = None
+    attachment_ids: list[str] = Field(default_factory=list)
 
 
 class SendMessageRequest(ContractModel):
     content: str
+    attachment_ids: list[str] = Field(default_factory=list)
+
+
+class MessagePageInfo(ContractModel):
+    next_cursor_created_at: str | None = None
+    next_cursor_id: str | None = None
+    has_more: bool = False
 
 
 class WorkflowDecisionRequest(ContractModel):
@@ -90,6 +100,10 @@ class ApprovalDecisionRequest(ContractModel):
 
 class ApprovalDecisionResponse(ContractModel):
     status: str
+
+
+class AttachmentUploadResponse(ContractModel):
+    attachment: AttachmentMetadata
 
 
 class GovernanceEvaluationResponse(ContractModel):

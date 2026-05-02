@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+import os
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
+
+os.environ.setdefault('CONVERSATIONAL_ENGINE_MONGO_URI', 'mongodb://localhost:27017')
 
 from conversational_engine.app.auth import require_auth_context
 from conversational_engine.app.dependencies import get_conversation_service

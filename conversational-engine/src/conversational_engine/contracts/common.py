@@ -181,4 +181,32 @@ class ChatMessage(ContractModel):
     id: UUID
     role: MessageRole
     blocks: list[MessageBlock] = Field(default_factory=list)
+    attachments: list['MessageAttachmentRef'] = Field(default_factory=list)
     created_at: datetime
+
+
+class MessageAttachmentRef(ContractModel):
+    attachment_id: str
+    filename: str
+    content_type: str
+    size_bytes: int
+    status: str = 'uploaded'
+
+
+class AttachmentMetadata(ContractModel):
+    id: str
+    tenant_id: str
+    conversation_id: str
+    message_id: str | None = None
+    uploaded_by: str
+    filename: str
+    content_type: str
+    size_bytes: int
+    s3_bucket: str
+    s3_key: str
+    sha256: str | None = None
+    status: str
+    metadata: dict[str, object] = Field(default_factory=dict)
+    expires_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime

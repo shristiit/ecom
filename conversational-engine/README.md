@@ -1,61 +1,42 @@
 # Conversational Engine
 
-Production Phase 1 conversational AI service for the inventory management platform.
+Mongo-first AI conversation service for StockAisle.
 
-This service owns:
-- chat request normalization
-- orchestration and agent routing
-- follow-up question handling
-- short-term workflow state
-- help retrieval orchestration
-- structured assistant response formatting
+## Responsibilities
 
-This service does not own:
-- business-truth reads for live operational state outside its tool wrappers
-- business-rule execution
+The Python conversational engine owns:
+- chat APIs
+- AI conversations, messages, workflows, runs, traces, summaries, memory, training datasets
+- Redis-backed active workflow cache
+- S3-backed chat attachments
+- Mongo-backed help retrieval content and semantic memory
+
+The service does not own:
+- business truth
 - direct business-table writes
+- Node/backend business persistence
 
-All inventory, products, purchasing, approvals, audit, and reporting actions must flow through backend APIs.
+All business reads and mutations still flow through backend HTTP APIs backed by PostgreSQL.
 
-## Status
+## Storage Split
 
-This initial slice establishes the production service foundation:
-- `uv`-managed Python package
-- FastAPI bootstrap
-- typed chat contracts
-- agent, tool, and provider interfaces
-- health endpoint
-- chat endpoint skeleton
-- Alembic scaffold for engine-owned persistence
-- seed help docs folder
-- pytest smoke and contract tests
+- PostgreSQL: tenants, users, roles, permissions, suppliers, customers, products, SKUs, stock, orders, invoices, payments, approvals, audits
+- MongoDB Atlas: all AI/conversation/memory data
+- Redis: active workflow state, run stream cache, short-lived locks
+- S3: uploaded chat attachment bytes
 
-Domain orchestration, backend tool wrapping, approvals, retrieval, and persistence integration are not implemented in this slice yet.
-
-## Layout
-
-```text
-src/conversational_engine/
-  app/
-  config/
-  contracts/
-  orchestrator/
-  agents/
-  tools/
-  memory/
-  retrieval/
-  providers/
-  prompts/
-  approval/
-  audit/
-  conversations/
-  utils/
-```
+See [docs/ai-architecture.md](/Users/Apple/Desktop/ecom/docs/ai-architecture.md) for the full design.
 
 ## Environment
 
 Copy `.env.example` and set:
-- `CONVERSATIONAL_ENGINE_DATABASE_URL`
+- `CONVERSATIONAL_ENGINE_AI_MEMORY_BACKEND=mongo`
+- `CONVERSATIONAL_ENGINE_MONGO_URI`
+- `CONVERSATIONAL_ENGINE_MONGO_DATABASE=ecom_ai`
+- `CONVERSATIONAL_ENGINE_REDIS_URL`
+- `CONVERSATIONAL_ENGINE_AWS_REGION`
+- `CONVERSATIONAL_ENGINE_S3_CHAT_ATTACHMENTS_BUCKET`
+- `CONVERSATIONAL_ENGINE_AI_VECTOR_SEARCH_ENABLED=false`
 - `CONVERSATIONAL_ENGINE_BACKEND_BASE_URL`
 - provider credentials as needed
 
@@ -80,26 +61,25 @@ pnpm dev
 pnpm build
 pnpm test
 pnpm lint
-pnpm migrate
+pnpm format
 ```
 
-## API Skeleton
+## API
 
 - `GET /health`
 - `GET /api/chat/conversations`
 - `GET /api/chat/conversations/{conversation_id}`
 - `POST /api/chat/conversations`
 - `POST /api/chat/conversations/{conversation_id}/messages`
+- `POST /api/chat/runs/stream`
 - `POST /api/chat/workflows/{workflow_id}/decision`
+- `GET /api/chat/approvals`
+- `POST /api/chat/approvals/{approval_id}/decision`
+- `POST /api/chat/attachments`
 
-## Persistence Plan
+## Notes
 
-Alembic migrations in this service will own:
-- `ai_conversations`
-- `ai_conversation_messages`
-- `ai_workflows`
-- `ai_workflow_memory`
-- `ai_help_documents`
-- `ai_help_chunks`
-
-The initial migration also enables `pgvector`.
+- Mongo indexes are created idempotently before repository use.
+- Redis is optional; when disabled the engine falls back to Mongo only.
+- Attachment IDs are the preferred contract. Inline image `dataUrl` payloads remain temporarily supported on `/api/chat/runs/stream`.
+- Legacy Postgres AI schema files remain in the repo for compatibility only and are no longer part of the runtime path.

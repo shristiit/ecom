@@ -1,19 +1,26 @@
 from __future__ import annotations
 
-import base64
+from datetime import datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import StreamingResponse
 
 from conversational_engine.app.auth import require_auth_context
-from conversational_engine.app.dependencies import get_app_settings, get_backend_client, get_conversation_service
+from conversational_engine.app.dependencies import (
+    get_app_settings,
+    get_attachment_service,
+    get_backend_client,
+    get_conversation_service,
+)
+from conversational_engine.ai.attachments import S3AttachmentService
 from conversational_engine.clients.backend import BackendClient
 from conversational_engine.config.settings import Settings
 from conversational_engine.contracts.api import (
     ApprovalDecisionRequest,
     ApprovalDecisionResponse,
     ApprovalItem,
+    AttachmentUploadResponse,
     ConversationListResponse,
     ConversationResponse,
     CreateConversationRequest,
@@ -42,16 +49,26 @@ async def list_conversations(
     auth: AuthContext = Depends(require_auth_context),
     service: ConversationService = Depends(get_conversation_service),
 ) -> ConversationListResponse:
-    return service.list_conversations(auth)
+    return await service.list_conversations(auth)
 
 
 @chat_router.get('/conversations/{conversation_id}', response_model=ConversationResponse)
 async def get_conversation(
     conversation_id: UUID,
+    message_limit: int | None = Query(default=None, ge=1, le=100),
+    before_created_at: str | None = Query(default=None),
+    before_id: str | None = Query(default=None),
     auth: AuthContext = Depends(require_auth_context),
     service: ConversationService = Depends(get_conversation_service),
 ) -> ConversationResponse:
-    conversation = service.get_conversation(auth, conversation_id)
+    parsed_before_created_at = datetime.fromisoformat(before_created_at.replace('Z', '+00:00')) if before_created_at else None
+    conversation = await service.get_conversation(
+        auth,
+        conversation_id,
+        message_limit=message_limit,
+        before_created_at=parsed_before_created_at,
+        before_id=before_id,
+    )
     if conversation is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Conversation not found')
     return conversation
@@ -63,7 +80,7 @@ async def create_conversation(
     auth: AuthContext = Depends(require_auth_context),
     service: ConversationService = Depends(get_conversation_service),
 ) -> ConversationResponse:
-    return await service.create_conversation(auth, request.title, request.initial_message)
+    return await service.create_conversation(auth, request.title, request.initial_message, request.attachment_ids)
 
 
 @chat_router.post('/conversations/{conversation_id}/messages', response_model=ConversationResponse)
@@ -73,7 +90,7 @@ async def post_message(
     auth: AuthContext = Depends(require_auth_context),
     service: ConversationService = Depends(get_conversation_service),
 ) -> ConversationResponse:
-    conversation = await service.post_message(auth, conversation_id, request.content)
+    conversation = await service.post_message(auth, conversation_id, request.content, request.attachment_ids)
     if conversation is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Conversation not found')
     return conversation
@@ -134,32 +151,17 @@ async def list_history(
     )
 
 
-_TEXT_TYPES = {'text/plain', 'text/csv', 'application/csv', 'text/tab-separated-values'}
-_IMAGE_TYPES = {'image/jpeg', 'image/png', 'image/webp', 'image/gif'}
-_MAX_BYTES = 5 * 1024 * 1024  # 5 MB
-
-
-@chat_router.post('/attachments')
+@chat_router.post('/attachments', response_model=AttachmentUploadResponse, status_code=status.HTTP_201_CREATED)
 async def upload_attachment(
+    conversation_id: UUID = Form(...),
     file: UploadFile = File(...),
     auth: AuthContext = Depends(require_auth_context),
-) -> dict:
-    content = await file.read()
-    if len(content) > _MAX_BYTES:
-        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail='File exceeds 5 MB limit.')
-
-    content_type = (file.content_type or 'application/octet-stream').split(';')[0].strip().lower()
-    filename = file.filename or 'attachment'
-
-    if content_type in _TEXT_TYPES:
-        text_content = content.decode('utf-8', errors='replace')
-        return {'filename': filename, 'content_type': content_type, 'text_content': text_content, 'is_image': False}
-
-    if content_type in _IMAGE_TYPES:
-        data_url = f'data:{content_type};base64,{base64.b64encode(content).decode()}'
-        return {'filename': filename, 'content_type': content_type, 'text_content': None, 'is_image': True, 'data_url': data_url}
-
-    raise HTTPException(
-        status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-        detail=f'Unsupported file type: {content_type}. Supported types: CSV, plain text, JPEG, PNG, WebP.',
+    attachment_service: S3AttachmentService = Depends(get_attachment_service),
+) -> AttachmentUploadResponse:
+    attachment = await attachment_service.upload_attachment(
+        tenant_id=auth.tenant_id,
+        conversation_id=str(conversation_id),
+        uploaded_by=auth.id,
+        file=file,
     )
+    return AttachmentUploadResponse(attachment=attachment)

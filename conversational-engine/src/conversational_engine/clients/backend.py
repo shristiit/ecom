@@ -58,11 +58,56 @@ class BackendClient:
     async def list_locations(self, access_token: str, tenant_id: str) -> list[dict[str, object]]:
         return await self._request('GET', '/master/locations', access_token, tenant_id)
 
+    async def create_location(self, access_token: str, tenant_id: str, payload: dict[str, object]) -> dict[str, object]:
+        return await self._request('POST', '/master/locations', access_token, tenant_id, json=payload)
+
+    async def update_location(
+        self,
+        access_token: str,
+        tenant_id: str,
+        location_id: str,
+        payload: dict[str, object],
+    ) -> dict[str, object]:
+        return await self._request('PATCH', f'/master/locations/{location_id}', access_token, tenant_id, json=payload)
+
+    async def delete_location(self, access_token: str, tenant_id: str, location_id: str) -> dict[str, object]:
+        return await self._request('DELETE', f'/master/locations/{location_id}', access_token, tenant_id, json={})
+
     async def list_suppliers(self, access_token: str, tenant_id: str) -> list[dict[str, object]]:
         return await self._request('GET', '/master/suppliers', access_token, tenant_id)
 
+    async def create_supplier(self, access_token: str, tenant_id: str, payload: dict[str, object]) -> dict[str, object]:
+        return await self._request('POST', '/master/suppliers', access_token, tenant_id, json=payload)
+
+    async def update_supplier(
+        self,
+        access_token: str,
+        tenant_id: str,
+        supplier_id: str,
+        payload: dict[str, object],
+    ) -> dict[str, object]:
+        return await self._request('PATCH', f'/master/suppliers/{supplier_id}', access_token, tenant_id, json=payload)
+
+    async def delete_supplier(self, access_token: str, tenant_id: str, supplier_id: str) -> dict[str, object]:
+        return await self._request('DELETE', f'/master/suppliers/{supplier_id}', access_token, tenant_id, json={})
+
     async def list_customers(self, access_token: str, tenant_id: str) -> list[dict[str, object]]:
         return await self._request('GET', '/master/customers', access_token, tenant_id)
+
+    async def create_customer(self, access_token: str, tenant_id: str, payload: dict[str, object]) -> dict[str, object]:
+        return await self._request('POST', '/master/customers', access_token, tenant_id, json=payload)
+
+    async def update_customer(
+        self,
+        access_token: str,
+        tenant_id: str,
+        customer_id: str,
+        payload: dict[str, object],
+    ) -> dict[str, object]:
+        return await self._request('PATCH', f'/master/customers/{customer_id}', access_token, tenant_id, json=payload)
+
+    async def delete_customer(self, access_token: str, tenant_id: str, customer_id: str) -> dict[str, object]:
+        return await self._request('DELETE', f'/master/customers/{customer_id}', access_token, tenant_id, json={})
 
     async def list_categories(self, access_token: str, tenant_id: str) -> list[dict[str, object]]:
         return await self._request('GET', '/master/categories', access_token, tenant_id)

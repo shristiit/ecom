@@ -686,11 +686,11 @@ class OrchestratorService:
         elif intent == 'so_update':
             required = ['invoice_id', 'changes']
         elif intent == 'stock_transfer':
-            required = ['from_location_id', 'to_location_id', 'sku_and_size', 'quantity', 'reason']
+            required = ['from_location_id', 'to_location_id', 'sku_and_size', 'quantity']
         elif intent in {'stock_adjustment', 'stock_receipt'}:
-            required = ['location_id', 'sku_and_size', 'quantity', 'reason']
+            required = ['location_id', 'sku_and_size', 'quantity']
         elif intent == 'product_create':
-            required = ['style_code', 'name', 'base_price', 'category', 'color_name', 'size_labels']
+            required = ['style_code', 'name', 'base_price', 'color_name', 'size_labels']
             if ('quantity' in memory) ^ ('locationId' in memory):
                 required.append('location_and_quantity')
             size_labels = memory.get('sizeLabels')
@@ -729,17 +729,13 @@ class OrchestratorService:
                 missing.append(field)
             elif field == 'sku_and_size' and not memory.get('sizeId'):
                 missing.append(field)
-            elif field == 'quantity' and not memory.get('quantity'):
-                missing.append(field)
-            elif field == 'reason' and not memory.get('reason'):
+            elif field == 'quantity' and memory.get('quantity') is None:
                 missing.append(field)
             elif field == 'style_code' and not memory.get('styleCode'):
                 missing.append(field)
             elif field == 'name' and not memory.get('name'):
                 missing.append(field)
             elif field == 'base_price' and memory.get('basePrice') is None:
-                missing.append(field)
-            elif field == 'category' and not memory.get('category'):
                 missing.append(field)
             elif field == 'color_name' and not memory.get('colorName'):
                 missing.append(field)
