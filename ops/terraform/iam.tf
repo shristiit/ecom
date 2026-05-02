@@ -85,6 +85,31 @@ resource "aws_iam_role" "engine_task" {
   tags = local.common_tags
 }
 
+data "aws_iam_policy_document" "engine_task" {
+  statement {
+    sid = "MediaBucketAccess"
+
+    actions = [
+      "s3:GetObject",
+      "s3:PutObject",
+      "s3:DeleteObject",
+    ]
+    resources = ["${aws_s3_bucket.media.arn}/*"]
+  }
+
+  statement {
+    sid       = "MediaBucketList"
+    actions   = ["s3:ListBucket"]
+    resources = [aws_s3_bucket.media.arn]
+  }
+}
+
+resource "aws_iam_role_policy" "engine_task" {
+  name   = "${local.name_prefix}-engine-media"
+  role   = aws_iam_role.engine_task.id
+  policy = data.aws_iam_policy_document.engine_task.json
+}
+
 data "aws_iam_policy_document" "github_actions_assume_role" {
   statement {
     actions = ["sts:AssumeRoleWithWebIdentity"]

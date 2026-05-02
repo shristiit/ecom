@@ -162,6 +162,8 @@ jobs:
           BACKEND_DATABASE_URL: ${{ secrets.BACKEND_DATABASE_URL }}
           BACKEND_OPENAI_API_KEY: ${{ secrets.BACKEND_OPENAI_API_KEY }}
           ENGINE_DATABASE_URL: ${{ secrets.ENGINE_DATABASE_URL }}
+          ENGINE_MONGO_URI: ${{ secrets.ENGINE_MONGO_URI }}
+          ENGINE_REDIS_URL: ${{ secrets.ENGINE_REDIS_URL }}
           ENGINE_LLM_API_KEY: ${{ secrets.ENGINE_LLM_API_KEY }}
           ENGINE_GEMINI_API_KEY: ${{ secrets.ENGINE_GEMINI_API_KEY }}
           ENGINE_DEEPSEEK_API_KEY: ${{ secrets.ENGINE_DEEPSEEK_API_KEY }}

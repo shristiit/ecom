@@ -74,6 +74,8 @@ build_runtime_env_json() {
       ;;
     conversational-engine)
       local database_url="${ENGINE_DATABASE_URL:-${CONVERSATIONAL_ENGINE_DATABASE_URL:-${BACKEND_DATABASE_URL:-${DATABASE_URL:-}}}}"
+      local mongo_uri="${ENGINE_MONGO_URI:-${CONVERSATIONAL_ENGINE_MONGO_URI:-${MONGO_URI:-}}}"
+      local redis_url="${ENGINE_REDIS_URL:-${CONVERSATIONAL_ENGINE_REDIS_URL:-${REDIS_URL:-}}}"
       local llm_api_key="${ENGINE_LLM_API_KEY:-${CONVERSATIONAL_ENGINE_LLM_API_KEY:-${BACKEND_OPENAI_API_KEY:-${OPENAI_API_KEY:-}}}}"
       local gemini_api_key="${ENGINE_GEMINI_API_KEY:-${CONVERSATIONAL_ENGINE_GEMINI_API_KEY:-}}"
       local deepseek_api_key="${ENGINE_DEEPSEEK_API_KEY:-${CONVERSATIONAL_ENGINE_DEEPSEEK_API_KEY:-}}"
@@ -83,16 +85,25 @@ build_runtime_env_json() {
         exit 1
       fi
 
+      if [ -z "$mongo_uri" ]; then
+        echo "Missing ENGINE_MONGO_URI, CONVERSATIONAL_ENGINE_MONGO_URI, or MONGO_URI for engine task definition" >&2
+        exit 1
+      fi
+
       database_url="$(ensure_sslmode_require "$database_url")"
 
       jq -nc \
         --arg database_url "$database_url" \
+        --arg mongo_uri "$mongo_uri" \
+        --arg redis_url "$redis_url" \
         --arg llm_api_key "$llm_api_key" \
         --arg gemini_api_key "$gemini_api_key" \
         --arg deepseek_api_key "$deepseek_api_key" \
         '[
-          {name:"CONVERSATIONAL_ENGINE_DATABASE_URL",value:$database_url}
+          {name:"CONVERSATIONAL_ENGINE_DATABASE_URL",value:$database_url},
+          {name:"CONVERSATIONAL_ENGINE_MONGO_URI",value:$mongo_uri}
         ]
+        + (if $redis_url != "" then [{name:"CONVERSATIONAL_ENGINE_REDIS_URL",value:$redis_url}] else [] end)
         + (if $llm_api_key != "" then [{name:"CONVERSATIONAL_ENGINE_LLM_API_KEY",value:$llm_api_key}] else [] end)
         + (if $gemini_api_key != "" then [{name:"CONVERSATIONAL_ENGINE_GEMINI_API_KEY",value:$gemini_api_key}] else [] end)
         + (if $deepseek_api_key != "" then [{name:"CONVERSATIONAL_ENGINE_DEEPSEEK_API_KEY",value:$deepseek_api_key}] else [] end)'
