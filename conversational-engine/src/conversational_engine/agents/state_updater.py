@@ -98,6 +98,25 @@ def _format_recent_messages(recent_messages: list[dict[str, Any]]) -> str:
                     content_parts.append(block['content'])
                 elif block_type == 'clarification' and isinstance(block.get('prompt'), str):
                     content_parts.append(block['prompt'])
+                elif block_type == 'preview':
+                    action_type = str(block.get('actionType') or '').strip()
+                    entities = block.get('entities')
+                    entity_parts: list[str] = []
+                    if isinstance(entities, list):
+                        for entity in entities:
+                            if not isinstance(entity, dict):
+                                continue
+                            label = str(entity.get('label') or '').strip()
+                            value = str(entity.get('value') or '').strip()
+                            if label and value:
+                                entity_parts.append(f'{label}={value}')
+                    summary = ', '.join(entity_parts)
+                    if action_type and summary:
+                        content_parts.append(f'preview: {action_type} ({summary})')
+                    elif action_type:
+                        content_parts.append(f'preview: {action_type}')
+                    elif summary:
+                        content_parts.append(f'preview: {summary}')
                 elif block_type == 'confirmation_required' and isinstance(block.get('prompt'), str):
                     content_parts.append(block['prompt'])
                 elif block_type == 'navigation' and isinstance(block.get('label'), str):

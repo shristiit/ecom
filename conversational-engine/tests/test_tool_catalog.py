@@ -11,10 +11,18 @@ pytestmark = pytest.mark.anyio
 
 class FakeBackendClient:
     def __init__(self) -> None:
+        self.location_payloads: list[dict[str, object]] = []
+        self.location_updates: list[tuple[str, dict[str, object]]] = []
+        self.deleted_locations: list[str] = []
         self.payloads: list[dict[str, object]] = []
         self.invoice_payloads: list[dict[str, object]] = []
+        self.invoice_dispatch_payloads: list[tuple[str, dict[str, object]]] = []
+        self.invoice_cancel_ids: list[str] = []
         self.po_payloads: list[dict[str, object]] = []
+        self.po_receive_payloads: list[tuple[str, dict[str, object]]] = []
+        self.po_close_ids: list[str] = []
         self.receipt_payloads: list[dict[str, object]] = []
+        self.write_off_payloads: list[dict[str, object]] = []
         self.supplier_payloads: list[dict[str, object]] = []
         self.supplier_updates: list[tuple[str, dict[str, object]]] = []
         self.deleted_suppliers: list[str] = []
@@ -51,25 +59,85 @@ class FakeBackendClient:
                 {'id': 'size-clay-m', 'sku_id': 'sku-clay', 'size_label': 'M', 'price_override': None},
             ],
         }
+        self.purchase_orders = [
+            {'id': 'po-1', 'number': 'PO-0001', 'supplierName': 'Acme Supply'},
+        ]
+        self.purchase_order_detail = {
+            'id': 'po-1',
+            'number': 'PO-0001',
+            'lines': [
+                {'skuId': 'size-sand-l', 'qtyOrdered': 5, 'qtyReceived': 2, 'unitCost': 21},
+                {'skuId': 'size-clay-m', 'qtyOrdered': 7, 'qtyReceived': 0, 'unitCost': 18},
+            ],
+        }
+        self.invoices = [
+            {'id': 'inv-1', 'number': 'SO-0001', 'customerName': 'Bob Smith'},
+        ]
 
     async def create_product(self, access_token: str, tenant_id: str | None, payload: dict[str, object]):
         del access_token, tenant_id
         self.payloads.append(payload)
         return {'ok': True, 'payload': payload}
 
+    async def create_location(self, access_token: str, tenant_id: str | None, payload: dict[str, object]):
+        del access_token, tenant_id
+        self.location_payloads.append(payload)
+        return {'ok': True, 'payload': payload}
+
+    async def update_location(
+        self, access_token: str, tenant_id: str | None, location_id: str, payload: dict[str, object]
+    ):
+        del access_token, tenant_id
+        self.location_updates.append((location_id, payload))
+        return {'ok': True, 'locationId': location_id, 'payload': payload}
+
+    async def delete_location(self, access_token: str, tenant_id: str | None, location_id: str):
+        del access_token, tenant_id
+        self.deleted_locations.append(location_id)
+        return {'ok': True}
+
     async def create_invoice(self, access_token: str, tenant_id: str | None, payload: dict[str, object]):
         del access_token, tenant_id
         self.invoice_payloads.append(payload)
         return {'ok': True, 'payload': payload}
+
+    async def dispatch_invoice(
+        self, access_token: str, tenant_id: str | None, invoice_id: str, payload: dict[str, object]
+    ):
+        del access_token, tenant_id
+        self.invoice_dispatch_payloads.append((invoice_id, payload))
+        return {'ok': True, 'invoiceId': invoice_id, 'payload': payload}
+
+    async def cancel_invoice(self, access_token: str, tenant_id: str | None, invoice_id: str):
+        del access_token, tenant_id
+        self.invoice_cancel_ids.append(invoice_id)
+        return {'ok': True, 'invoiceId': invoice_id}
 
     async def create_po(self, access_token: str, tenant_id: str | None, payload: dict[str, object]):
         del access_token, tenant_id
         self.po_payloads.append(payload)
         return {'ok': True, 'payload': payload}
 
+    async def receive_po(
+        self, access_token: str, tenant_id: str | None, po_id: str, payload: dict[str, object]
+    ):
+        del access_token, tenant_id
+        self.po_receive_payloads.append((po_id, payload))
+        return {'ok': True, 'poId': po_id, 'payload': payload}
+
+    async def close_po(self, access_token: str, tenant_id: str | None, po_id: str):
+        del access_token, tenant_id
+        self.po_close_ids.append(po_id)
+        return {'ok': True, 'poId': po_id}
+
     async def receive_stock(self, access_token: str, tenant_id: str | None, payload: dict[str, object]):
         del access_token, tenant_id
         self.receipt_payloads.append(payload)
+        return {'ok': True, 'payload': payload}
+
+    async def write_off_stock(self, access_token: str, tenant_id: str | None, payload: dict[str, object]):
+        del access_token, tenant_id
+        self.write_off_payloads.append(payload)
         return {'ok': True, 'payload': payload}
 
     async def create_supplier(self, access_token: str, tenant_id: str | None, payload: dict[str, object]):
@@ -132,6 +200,19 @@ class FakeBackendClient:
         del access_token, tenant_id
         assert product_id == 'prod-1'
         return self.product_detail
+
+    async def list_pos(self, access_token: str, tenant_id: str | None, params: dict[str, object] | None = None):
+        del access_token, tenant_id, params
+        return {'items': self.purchase_orders}
+
+    async def get_po(self, access_token: str, tenant_id: str | None, po_id: str):
+        del access_token, tenant_id
+        assert po_id == 'po-1'
+        return self.purchase_order_detail
+
+    async def list_invoices(self, access_token: str, tenant_id: str | None, params: dict[str, object] | None = None):
+        del access_token, tenant_id, params
+        return {'items': self.invoices}
 
 
 def make_auth() -> AuthContext:
@@ -373,8 +454,88 @@ async def test_inventory_receive_stock_expands_all_sizes_for_a_color():
 
     assert result['result']['lineCount'] == 2
     assert backend.receipt_payloads == [
-        {'locationId': 'loc-1', 'sizeId': 'size-sand-l', 'quantity': 100, 'reason': ''},
-        {'locationId': 'loc-1', 'sizeId': 'size-sand-m', 'quantity': 100, 'reason': ''},
+        {'locationId': 'loc-1', 'sizeId': 'size-sand-l', 'quantity': 100, 'reason': '', 'confirm': True},
+        {'locationId': 'loc-1', 'sizeId': 'size-sand-m', 'quantity': 100, 'reason': '', 'confirm': True},
+    ]
+
+
+async def test_inventory_write_off_resolves_natural_references_and_confirms():
+    backend = FakeBackendClient()
+    catalog = SemanticToolCatalog(backend=backend, auth=make_auth())  # type: ignore[arg-type]
+
+    result = await catalog.invoke(
+        'inventory.write_off_stock',
+        {
+            'locationId': 'Main Warehouse',
+            'productName': 'Field Fresh Short',
+            'colorName': 'Sand',
+            'sizeLabel': 'L',
+            'quantity': 3,
+            'reason': 'Damaged',
+        },
+    )
+
+    assert result['result']['ok'] is True
+    assert backend.write_off_payloads == [
+        {
+            'locationId': 'loc-1',
+            'sizeId': 'size-sand-l',
+            'quantity': 3,
+            'reason': 'Damaged',
+            'confirm': True,
+        }
+    ]
+
+
+async def test_purchase_order_receive_defaults_to_remaining_lines():
+    backend = FakeBackendClient()
+    catalog = SemanticToolCatalog(backend=backend, auth=make_auth())  # type: ignore[arg-type]
+
+    result = await catalog.invoke(
+        'purchasing.receive_po',
+        {
+            'poId': 'PO-0001',
+            'locationId': 'Main Warehouse',
+        },
+    )
+
+    assert result['result']['ok'] is True
+    assert backend.po_receive_payloads == [
+        (
+            'po-1',
+            {
+                'locationId': 'loc-1',
+                'lines': [
+                    {'sizeId': 'size-sand-l', 'qty': 3, 'unitCost': 21},
+                    {'sizeId': 'size-clay-m', 'qty': 7, 'unitCost': 18},
+                ],
+                'confirm': True,
+            },
+        )
+    ]
+
+
+async def test_sales_dispatch_resolves_order_and_location():
+    backend = FakeBackendClient()
+    catalog = SemanticToolCatalog(backend=backend, auth=make_auth())  # type: ignore[arg-type]
+
+    result = await catalog.invoke(
+        'sales.dispatch_invoice',
+        {
+            'invoiceId': 'SO-0001',
+            'locationId': 'Outlet Store',
+        },
+    )
+
+    assert result['result']['ok'] is True
+    assert backend.invoice_dispatch_payloads == [
+        (
+            'inv-1',
+            {
+                'locationId': 'loc-2',
+                'confirm': True,
+            },
+        )
     ]
 
 
@@ -389,6 +550,21 @@ async def test_master_create_supplier_requires_name_and_keeps_optional_fields():
 
     assert result['result']['ok'] is True
     assert backend.supplier_payloads == [{'name': 'Acme Supply', 'email': 'ops@acme.example', 'phone': '555-0101'}]
+
+
+async def test_master_create_location_requires_core_fields_and_keeps_optional_fields():
+    backend = FakeBackendClient()
+    catalog = SemanticToolCatalog(backend=backend, auth=make_auth())  # type: ignore[arg-type]
+
+    result = await catalog.invoke(
+        'master.create_location',
+        {'name': 'London DC', 'code': 'LON-DC', 'type': 'warehouse', 'address': 'London'},
+    )
+
+    assert result['result']['ok'] is True
+    assert backend.location_payloads == [
+        {'name': 'London DC', 'code': 'LON-DC', 'type': 'warehouse', 'address': 'London'}
+    ]
 
 
 async def test_master_create_customer_accepts_optional_fields():
@@ -417,6 +593,19 @@ async def test_master_update_supplier_resolves_name_and_accepts_partial_patch():
     assert backend.supplier_updates == [('sup-1', {'phone': '555-0101'})]
 
 
+async def test_master_update_location_resolves_name_and_accepts_partial_patch():
+    backend = FakeBackendClient()
+    catalog = SemanticToolCatalog(backend=backend, auth=make_auth())  # type: ignore[arg-type]
+
+    result = await catalog.invoke(
+        'master.update_location',
+        {'locationId': 'Main Warehouse', 'patch': {'status': 'inactive'}},
+    )
+
+    assert result['result']['ok'] is True
+    assert backend.location_updates == [('loc-1', {'status': 'inactive'})]
+
+
 async def test_master_update_customer_resolves_email_and_accepts_partial_patch():
     backend = FakeBackendClient()
     catalog = SemanticToolCatalog(backend=backend, auth=make_auth())  # type: ignore[arg-type]
@@ -440,6 +629,16 @@ async def test_master_delete_supplier_resolves_by_name():
     assert backend.deleted_suppliers == ['sup-1']
 
 
+async def test_master_delete_location_resolves_code():
+    backend = FakeBackendClient()
+    catalog = SemanticToolCatalog(backend=backend, auth=make_auth())  # type: ignore[arg-type]
+
+    result = await catalog.invoke('master.delete_location', {'locationId': 'OUT'})
+
+    assert result['result']['ok'] is True
+    assert backend.deleted_locations == ['loc-2']
+
+
 async def test_master_delete_customer_accepts_uuid():
     backend = FakeBackendClient()
     catalog = SemanticToolCatalog(backend=backend, auth=make_auth())  # type: ignore[arg-type]
@@ -456,10 +655,17 @@ async def test_master_delete_customer_accepts_uuid():
 @pytest.mark.parametrize(
     ('tool_name', 'payload', 'message'),
     [
+        (
+            'master.create_location',
+            {'code': 'LON-DC', 'type': 'warehouse'},
+            'Please provide the location name. Optional: address and status.',
+        ),
         ('master.create_supplier', {'email': 'ops@acme.example'}, 'What supplier name should I create?'),
         ('master.create_customer', {'email': 'helen41@yahoo.com'}, 'What customer name should I create?'),
+        ('master.update_location', {'locationId': 'Main Warehouse'}, 'What location details should I change?'),
         ('master.update_supplier', {'supplierId': 'Acme Supply'}, 'What supplier details should I change?'),
         ('master.update_customer', {'customerId': 'bob@example.com'}, 'What customer details should I change?'),
+        ('master.delete_location', {}, 'Which location should I delete?'),
         ('master.delete_supplier', {}, 'Which supplier should I delete?'),
         ('master.delete_customer', {}, 'Which customer should I delete?'),
     ],

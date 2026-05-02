@@ -63,6 +63,30 @@ class EntityResolver:
         available = ', '.join(str(c.get('name')) for c in items[:10])
         raise ValueError(f'Category "{name_or_id}" not found. Available: {available}')
 
+    async def purchase_order(self, number_or_id: str) -> str:
+        if is_uuid(number_or_id):
+            return number_or_id
+        payload = await self._backend.list_pos(self._token, self._tenant)
+        items = payload.get('items') if isinstance(payload, dict) else None
+        rows = items if isinstance(items, list) else []
+        match = best_match(rows, number_or_id, 'number', 'id', 'supplierName', 'supplier_name')
+        if match:
+            return str(match['id'])
+        available = ', '.join(str(row.get('number') or row.get('id')) for row in rows[:10])
+        raise ValueError(f'Purchase order "{number_or_id}" not found. Available: {available or "none"}')
+
+    async def invoice(self, number_or_id: str) -> str:
+        if is_uuid(number_or_id):
+            return number_or_id
+        payload = await self._backend.list_invoices(self._token, self._tenant)
+        items = payload.get('items') if isinstance(payload, dict) else None
+        rows = items if isinstance(items, list) else []
+        match = best_match(rows, number_or_id, 'number', 'id', 'customerName', 'customer_name')
+        if match:
+            return str(match['id'])
+        available = ', '.join(str(row.get('number') or row.get('id')) for row in rows[:10])
+        raise ValueError(f'Sales order "{number_or_id}" not found. Available: {available or "none"}')
+
     async def sku_size(
         self,
         product_name: str,

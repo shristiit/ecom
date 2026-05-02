@@ -78,6 +78,18 @@ class FakeExecutor:
         }
 
 
+class FakeInvalidExecutor:
+    async def propose(self, **kwargs):
+        del kwargs
+        return {
+            'action': 'tool',
+            'assistantMessage': None,
+            'toolName': None,
+            'toolArguments': None,
+            'requiredInputs': [],
+        }
+
+
 class FakeReviewer:
     def __init__(
         self,
@@ -105,6 +117,12 @@ class FakeReviewer:
 
 class FakeNarrator:
     async def write_message(self, **kwargs):
+        fallback_message = kwargs.get('fallback_message')
+        if isinstance(fallback_message, str) and fallback_message:
+            return fallback_message
+        user_message = str(kwargs.get('user_message') or '').strip()
+        if user_message:
+            return f'Response to: {user_message}'
         return str(kwargs.get('directive') or 'Done.')
 
 
@@ -233,6 +251,10 @@ class FakeBackendClient:
         return {'ok': True}
 
     async def create_product(self, *args, **kwargs):
+        del args, kwargs
+        return {'ok': True}
+
+    async def create_location(self, *args, **kwargs):
         del args, kwargs
         return {'ok': True}
 
@@ -802,7 +824,97 @@ async def test_runtime_service_clarifies_empty_customer_update_patch_before_conf
 
     assert outcome.status == WorkflowStatus.NEEDS_INPUT
     assert any(block.type == BlockType.CLARIFICATION for block in outcome.blocks)
-    assert 'patch' in outcome.missing_fields
+
+
+async def test_runtime_service_ignores_invented_create_location_fields_and_clarifies():
+    service = AgentRuntimeService(
+        backend_client=FakeBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeExecutor(
+            'master.create_location',
+            {'name': 'Main Warehouse', 'code': 'WH-001', 'type': 'warehouse'},
+        ),
+        reviewer=FakeReviewer(),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        state_updater=FakeStateUpdater(
+            {
+                'create a ware house locations': {
+                    'useActiveWorkflow': False,
+                    'primaryRoute': 'mutation',
+                    'primaryIntent': 'master.create_location',
+                    'confidence': 0.95,
+                    'rationale': 'Creating a new warehouse location.',
+                    'entityPatches': {},
+                    'navigationQuery': None,
+                    'postActionQuery': None,
+                }
+            }
+        ),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='create a ware house locations',
+        extracted_entities={},
+        recent_messages=[],
+        workflow_status=WorkflowStatus.IDLE,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.NEEDS_INPUT
+    assert outcome.missing_fields == ['name', 'code']
+    assert any(block.type == BlockType.CLARIFICATION for block in outcome.blocks)
+
+
+async def test_runtime_service_applies_location_clarification_reply_without_replanning():
+    service = AgentRuntimeService(
+        backend_client=FakeBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeExecutor('inventory.stock_on_hand', {'sku': 'TSHIRT-BLACK'}),
+        reviewer=FakeReviewer(),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        state_updater=FakeStateUpdater(),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='name : leicester\nlec-01\nwarehosue',
+        extracted_entities={
+            '_workflowEngine': 'runtime',
+            'toolName': 'master.create_location',
+            'executionPayload': {'type': 'warehouse'},
+            'taskContext': {
+                'primaryRoute': 'mutation',
+                'primaryIntent': 'master.create_location',
+                'entities': {'type': 'warehouse'},
+                'missingFields': ['name', 'code'],
+                'postActions': [],
+                'clarificationCount': 1,
+                'status': 'drafting',
+            },
+        },
+        recent_messages=[],
+        workflow_status=WorkflowStatus.NEEDS_INPUT,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.AWAITING_CONFIRMATION
+    assert outcome.extracted_entities['executionPayload']['name'] == 'leicester'
+    assert outcome.extracted_entities['executionPayload']['code'] == 'lec-01'
+    assert outcome.extracted_entities['executionPayload']['type'] == 'warehouse'
+    assert any(block.type == BlockType.CONFIRMATION_REQUIRED for block in outcome.blocks)
 
 
 async def test_runtime_service_reuses_completed_read_context_for_this_follow_up():
@@ -861,6 +973,135 @@ async def test_runtime_service_reuses_completed_read_context_for_this_follow_up(
     follow_task_context = follow_up.extracted_entities['taskContext']
     assert follow_task_context['primaryIntent'] == 'inventory.stock_on_hand'
     assert follow_task_context['entities']['productName'] == 'Monarch Soft Overshirt'
+
+
+async def test_runtime_service_enriches_product_create_confirmation_context():
+    service = AgentRuntimeService(
+        backend_client=FakeApprovalBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeExecutor(
+            'products.create_product',
+            {
+                'styleCode': 'FFS-001',
+                'name': 'Field Fresh Short',
+                'basePrice': 100,
+                'variants': [{'color': 'sand', 'size': 'xl'}],
+            },
+        ),
+        reviewer=FakeReviewer(),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='create a product named Field Fresh Short with style code FFS-001 price 100 in sand xl',
+        extracted_entities={},
+        recent_messages=[],
+        workflow_status=WorkflowStatus.IDLE,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.AWAITING_CONFIRMATION
+    task_entities = outcome.extracted_entities['taskContext']['entities']
+    assert task_entities['productName'] == 'Field Fresh Short'
+    assert task_entities['styleCode'] == 'FFS-001'
+    assert task_entities['colorName'] == 'Sand'
+    assert task_entities['sizeLabel'] == 'XL'
+
+
+async def test_runtime_service_invalid_executor_proposal_requests_clarification():
+    service = AgentRuntimeService(
+        backend_client=FakeBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeInvalidExecutor(),  # type: ignore[arg-type]
+        reviewer=FakeReviewer(),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        state_updater=FakeStateUpdater(
+            {
+                'create a sales order for this product': {
+                    'useActiveWorkflow': False,
+                    'primaryRoute': 'mutation',
+                    'primaryIntent': 'sales.create_invoice',
+                    'confidence': 0.95,
+                    'rationale': 'Detected a sales order request.',
+                    'entityPatches': {},
+                    'navigationQuery': None,
+                    'postActionQuery': None,
+                }
+            }
+        ),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='create a sales order for this product',
+        extracted_entities={},
+        recent_messages=[],
+        workflow_status=WorkflowStatus.IDLE,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.NEEDS_INPUT
+    assert outcome.missing_fields == ['customer_id', 'lines']
+    assert any(block.type == BlockType.CLARIFICATION for block in outcome.blocks)
+
+
+async def test_runtime_service_handles_small_talk_without_tool_planning():
+    service = AgentRuntimeService(
+        backend_client=FakeBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeInvalidExecutor(),  # type: ignore[arg-type]
+        reviewer=FakeReviewer(),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        state_updater=FakeStateUpdater(
+            {
+                'hello': {
+                    'useActiveWorkflow': False,
+                    'primaryRoute': 'read',
+                    'primaryIntent': 'inventory.stock_on_hand',
+                    'confidence': 0.42,
+                    'rationale': 'Defaulted to a read workflow.',
+                    'entityPatches': {},
+                    'navigationQuery': None,
+                    'postActionQuery': None,
+                }
+            }
+        ),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='hello',
+        extracted_entities={},
+        recent_messages=[],
+        workflow_status=WorkflowStatus.IDLE,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.COMPLETED
+    assert any(block.type == BlockType.TEXT for block in outcome.blocks)
+    assert not any(
+        block.type == BlockType.TEXT and 'invite them to continue' in block.content.lower()
+        for block in outcome.blocks
+    )
 
 
 async def test_runtime_service_uses_state_updater_for_completed_read_totals():

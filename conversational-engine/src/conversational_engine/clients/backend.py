@@ -58,6 +58,21 @@ class BackendClient:
     async def list_locations(self, access_token: str, tenant_id: str) -> list[dict[str, object]]:
         return await self._request('GET', '/master/locations', access_token, tenant_id)
 
+    async def create_location(self, access_token: str, tenant_id: str, payload: dict[str, object]) -> dict[str, object]:
+        return await self._request('POST', '/master/locations', access_token, tenant_id, json=payload)
+
+    async def update_location(
+        self,
+        access_token: str,
+        tenant_id: str,
+        location_id: str,
+        payload: dict[str, object],
+    ) -> dict[str, object]:
+        return await self._request('PATCH', f'/master/locations/{location_id}', access_token, tenant_id, json=payload)
+
+    async def delete_location(self, access_token: str, tenant_id: str, location_id: str) -> dict[str, object]:
+        return await self._request('DELETE', f'/master/locations/{location_id}', access_token, tenant_id, json={})
+
     async def list_suppliers(self, access_token: str, tenant_id: str) -> list[dict[str, object]]:
         return await self._request('GET', '/master/suppliers', access_token, tenant_id)
 

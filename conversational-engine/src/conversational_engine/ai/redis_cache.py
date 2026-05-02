@@ -12,10 +12,12 @@ logger = logging.getLogger(__name__)
 class RedisActiveStateCache:
     def __init__(self, client) -> None:
         self._client = client
+        self._disabled = False
+        self._disable_reason_logged = False
 
     @property
     def enabled(self) -> bool:
-        return self._client is not None
+        return self._client is not None and not self._disabled
 
     async def get_workflow_state(self, tenant_id: str, workflow_id: str) -> WorkflowState | None:
         payload = await self._get_json(self._workflow_state_key(tenant_id, workflow_id))
@@ -36,7 +38,7 @@ class RedisActiveStateCache:
         await self._delete(self._workflow_state_key(tenant_id, workflow_id))
 
     async def acquire_lock(self, tenant_id: str, workflow_id: str, ttl_seconds: int = 60) -> bool:
-        if not self._client:
+        if not self.enabled:
             return True
         try:
             return bool(
@@ -47,8 +49,8 @@ class RedisActiveStateCache:
                     nx=True,
                 )
             )
-        except Exception:
-            logger.exception('Redis lock acquire failed')
+        except Exception as exc:
+            self._disable_cache(exc, operation='lock acquire')
             return True
 
     async def release_lock(self, tenant_id: str, workflow_id: str) -> None:
@@ -67,12 +69,12 @@ class RedisActiveStateCache:
         await self._set_json(self._stream_key(tenant_id, run_id), payload, ttl_seconds)
 
     async def _get_json(self, key: str) -> dict[str, Any] | None:
-        if not self._client:
+        if not self.enabled:
             return None
         try:
             payload = await self._client.get(key)
-        except Exception:
-            logger.exception('Redis get failed')
+        except Exception as exc:
+            self._disable_cache(exc, operation='get')
             return None
         if payload is None:
             return None
@@ -85,20 +87,27 @@ class RedisActiveStateCache:
             return None
 
     async def _set_json(self, key: str, payload: dict[str, Any], ttl_seconds: int) -> None:
-        if not self._client:
+        if not self.enabled:
             return
         try:
             await self._client.set(key, json.dumps(payload), ex=ttl_seconds)
-        except Exception:
-            logger.exception('Redis set failed')
+        except Exception as exc:
+            self._disable_cache(exc, operation='set')
 
     async def _delete(self, key: str) -> None:
-        if not self._client:
+        if not self.enabled:
             return
         try:
             await self._client.delete(key)
-        except Exception:
-            logger.exception('Redis delete failed')
+        except Exception as exc:
+            self._disable_cache(exc, operation='delete')
+
+    def _disable_cache(self, exc: Exception, *, operation: str) -> None:
+        self._disabled = True
+        if self._disable_reason_logged:
+            return
+        self._disable_reason_logged = True
+        logger.warning('Redis cache disabled after %s failure: %s', operation, exc)
 
     @staticmethod
     def _workflow_state_key(tenant_id: str, workflow_id: str) -> str:

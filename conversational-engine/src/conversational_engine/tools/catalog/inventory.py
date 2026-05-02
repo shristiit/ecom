@@ -79,6 +79,7 @@ def build_inventory_tools(
             raise ToolPreparationError(str(exc), ['sku_and_size']) from exc
         for key in _SIZE_FIELDS:
             resolved.pop(key, None)
+        resolved['confirm'] = True
         return resolved
 
     async def transfer_stock(payload: dict[str, Any]) -> dict[str, Any]:
@@ -99,10 +100,32 @@ def build_inventory_tools(
             raise ToolPreparationError(str(exc), ['sku_and_size']) from exc
         for key in _SIZE_FIELDS:
             resolved.pop(key, None)
+        resolved['confirm'] = True
         return resolved
 
     async def adjust_stock(payload: dict[str, Any]) -> dict[str, Any]:
         return {'result': await backend.adjust_stock(token, tenant, payload)}
+
+    async def prepare_write_off_stock(payload: dict[str, Any]) -> dict[str, Any]:
+        if not payload.get('locationId'):
+            raise ToolPreparationError('Which location is affected?', ['location_id'])
+        if payload.get('quantity') is None:
+            raise ToolPreparationError('How many units should be written off?', ['quantity'])
+
+        resolved = dict(payload)
+        if loc := str(payload.get('locationId') or '').strip():
+            resolved['locationId'] = await resolver.location(loc)
+        try:
+            resolved['sizeId'] = await resolver.size_from_payload(payload)
+        except ValueError as exc:
+            raise ToolPreparationError(str(exc), ['sku_and_size']) from exc
+        for key in _SIZE_FIELDS:
+            resolved.pop(key, None)
+        resolved['confirm'] = True
+        return resolved
+
+    async def write_off_stock(payload: dict[str, Any]) -> dict[str, Any]:
+        return {'result': await backend.write_off_stock(token, tenant, payload)}
 
     async def prepare_receive_stock(payload: dict[str, Any]) -> dict[str, Any]:
         if not payload.get('locationId'):
@@ -136,6 +159,7 @@ def build_inventory_tools(
             resolved['quantity'] = sum(int(line['quantity']) for line in resolved_lines)
             for key in _SIZE_FIELDS:
                 resolved.pop(key, None)
+            resolved['confirm'] = True
             return resolved
 
         expand_all_sizes = bool(payload.get('allSizes'))
@@ -173,6 +197,7 @@ def build_inventory_tools(
             resolved.pop('sizeId', None)
             for key in _SIZE_FIELDS:
                 resolved.pop(key, None)
+            resolved['confirm'] = True
             return resolved
 
         if payload.get('quantity') is None:
@@ -183,6 +208,7 @@ def build_inventory_tools(
             raise ToolPreparationError(str(exc), ['sku_and_size']) from exc
         for key in _SIZE_FIELDS:
             resolved.pop(key, None)
+        resolved['confirm'] = True
         return resolved
 
     async def receive_stock(payload: dict[str, Any]) -> dict[str, Any]:
@@ -196,6 +222,7 @@ def build_inventory_tools(
                     'sizeId': line['sizeId'],
                     'quantity': line['quantity'],
                     'reason': line.get('reason', payload.get('reason', '')),
+                    'confirm': bool(payload.get('confirm')),
                 }
                 results.append(await backend.receive_stock(token, tenant, line_payload))
             return {'result': {'lines': results, 'lineCount': len(results)}}
@@ -282,6 +309,28 @@ def build_inventory_tools(
             output_mode='mutation',
             executor=adjust_stock,
             preparer=prepare_adjust_stock,
+        ),
+        'inventory.write_off_stock': SemanticTool(
+            name='inventory.write_off_stock',
+            description=(
+                'Write off stock at a location. '
+                'Location accepts a name, code, or UUID. '
+                'Item identified by sizeId (UUID) or productName + sizeLabel (+ optional colorName).'
+            ),
+            input_schema=object_schema(
+                {
+                    'locationId': {'type': 'string', 'description': 'Location name, code, or UUID'},
+                    **_ITEM_SCHEMA,
+                    'quantity': {'type': 'integer'},
+                    'reason': {'type': 'string'},
+                },
+                ['locationId', 'quantity'],
+            ),
+            risk_level='high',
+            side_effect=True,
+            output_mode='mutation',
+            executor=write_off_stock,
+            preparer=prepare_write_off_stock,
         ),
         'inventory.receive_stock': SemanticTool(
             name='inventory.receive_stock',

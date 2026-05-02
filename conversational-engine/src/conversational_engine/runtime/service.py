@@ -4,6 +4,7 @@ import asyncio
 from collections.abc import Callable
 from dataclasses import asdict
 import logging
+import re
 from time import perf_counter
 from uuid import UUID
 
@@ -107,6 +108,34 @@ class AgentRuntimeService:
             )
             current_entities = state_update.extracted_entities
 
+            if self._should_bypass_tool_planning_for_ambiguous_message(
+                user_message=user_message,
+                state_update=state_update,
+            ):
+                message = await self._run_phase(
+                    emit=emit,
+                    conversation_id=conversation_id,
+                    workflow_id=workflow_id,
+                    phase='render',
+                    route=state_update.primary_route,
+                    intent=state_update.primary_intent,
+                    action=lambda: self._narrator.write_message(
+                        user_message=user_message,
+                        directive=self._conversational_response_directive(user_message),
+                        supporting_context={
+                            'classification': 'ambiguous_conversational_turn',
+                            'confidence': state_update.confidence,
+                        },
+                    ),
+                )
+                emit('assistant.message.delta', {'content': message})
+                return RuntimeOutcome(
+                    blocks=render_tool_result(message, 'assistant.response', {}),
+                    status=WorkflowStatus.COMPLETED,
+                    current_task='response_completed',
+                    extracted_entities=mark_task_status(current_entities, 'completed'),
+                )
+
             for post_action in state_update.new_post_actions:
                 route = post_action.get('route')
                 emit(
@@ -135,6 +164,17 @@ class AgentRuntimeService:
             )
             if direct_confirmation_outcome is not None:
                 return direct_confirmation_outcome
+            direct_clarification_outcome = await self._handle_clarification_reply(
+                auth=auth,
+                workflow_status=workflow_status,
+                workflow_id=workflow_id,
+                conversation_id=conversation_id,
+                current_entities=current_entities,
+                state_update=state_update,
+                emit=emit,
+            )
+            if direct_clarification_outcome is not None:
+                return direct_clarification_outcome
 
             if state_update.primary_route == ROUTE_NAVIGATION:
                 route_blocks = render_navigation_blocks(
@@ -423,13 +463,27 @@ class AgentRuntimeService:
 
                 tool_name = str(proposal.get('toolName') or '')
                 tool_arguments = proposal.get('toolArguments')
+                if isinstance(tool_arguments, dict):
+                    tool_arguments = self._sanitize_tool_arguments(
+                        tool_name=tool_name,
+                        tool_arguments=tool_arguments,
+                        current_entities=current_entities,
+                    )
                 if not tool_name or not isinstance(tool_arguments, dict):
                     logger.error('Invalid executor proposal: %s', proposal)
+                    prompt, required = self._fallback_clarification_for_intent(state_update.primary_intent)
                     return RuntimeOutcome(
-                        blocks=render_failure('The AI runtime could not construct a valid tool call.'),
-                        status=WorkflowStatus.FAILED,
+                        blocks=render_clarification(prompt, required),
+                        status=WorkflowStatus.NEEDS_INPUT,
                         current_task='tool_call_invalid',
-                        extracted_entities=current_entities,
+                        extracted_entities=mark_task_status(
+                            apply_task_context(
+                                current_entities,
+                                increment_clarification_count(task_context_from_entities(current_entities)),
+                            ),
+                            'drafting',
+                        ),
+                        missing_fields=required,
                     )
 
                 emit(
@@ -819,6 +873,62 @@ class AgentRuntimeService:
             emit=emit,
         )
 
+    async def _handle_clarification_reply(
+        self,
+        *,
+        auth: AuthContext,
+        workflow_status: WorkflowStatus | None,
+        workflow_id: UUID,
+        conversation_id: UUID,
+        current_entities: dict[str, object],
+        state_update: RuntimeStateUpdate,
+        emit: EventSink,
+    ) -> RuntimeOutcome | None:
+        if workflow_status != WorkflowStatus.NEEDS_INPUT:
+            return None
+        tool_name = str(current_entities.get('toolName') or '')
+        execution_payload = current_entities.get('executionPayload')
+        if not tool_name or not isinstance(execution_payload, dict):
+            return None
+        if not state_update.is_workflow_edit and not state_update.new_post_actions:
+            return None
+
+        updated_payload = dict(execution_payload)
+        task_entities = state_update.task_context.get('entities')
+        if isinstance(task_entities, dict):
+            for key, value in task_entities.items():
+                if value is not None:
+                    updated_payload[key] = value
+
+        summary_suffix = ''
+        if state_update.new_post_actions:
+            route = state_update.new_post_actions[0].get('route')
+            if isinstance(route, dict):
+                summary_suffix = f' After success, I will open {route.get("label") or route.get("href")}.'
+
+        emit(
+            'clarification.resolved',
+            self._event_payload(
+                conversation_id=conversation_id,
+                workflow_id=workflow_id,
+                route=state_update.primary_route,
+                intent=state_update.primary_intent,
+                status='updated',
+            ),
+        )
+        return await self._prepare_confirmation(
+            auth=auth,
+            catalog=SemanticToolCatalog(backend=self._backend_client, auth=auth),
+            conversation_id=conversation_id,
+            workflow_id=workflow_id,
+            state_update=state_update,
+            current_entities=current_entities,
+            tool_name=tool_name,
+            tool_arguments=updated_payload,
+            message_hint=f'Updated the draft with your latest details.{summary_suffix}'.strip(),
+            emit=emit,
+        )
+
     async def _prepare_confirmation(
         self,
         *,
@@ -886,8 +996,19 @@ class AgentRuntimeService:
         else:
             confirmation_prompt = 'Review these details and confirm to continue.'
 
+        enriched_task_context = task_context_from_entities(state_update.extracted_entities)
+        enriched_entities = dict(enriched_task_context.get('entities') or {})
+        enriched_entities.update(
+            self._derived_context_entities(
+                tool_name=tool_name,
+                tool_arguments=prepared_arguments,
+            )
+        )
+        enriched_task_context['entities'] = enriched_entities
+        enriched_state_entities = apply_task_context(dict(state_update.extracted_entities), enriched_task_context)
+
         next_entities = {
-            **state_update.extracted_entities,
+            **enriched_state_entities,
             '_workflowEngine': 'runtime',
             '_pendingActions': [
                 PendingActionType.CONFIRM.value,
@@ -900,7 +1021,7 @@ class AgentRuntimeService:
             'preview': {
                 'tool': tool_name,
                 'arguments': tool_arguments,
-                'taskContext': state_update.task_context,
+                'taskContext': enriched_task_context,
             },
             'approvalRequired': evaluation.requires_approval,
             'approvalReason': evaluation.reason,
@@ -988,22 +1109,97 @@ class AgentRuntimeService:
         return [entry for entry in schema_catalog if entry['name'] != 'navigation.find_screen']
 
     @staticmethod
-    def _merge_context_from_tool_interaction(
+    def _sanitize_tool_arguments(
         *,
-        current_entities: dict[str, object],
         tool_name: str,
         tool_arguments: dict[str, object],
-        tool_result: dict[str, object],
+        current_entities: dict[str, object],
+    ) -> dict[str, object]:
+        if tool_name != 'master.create_location':
+            return tool_arguments
+
+        task_context = task_context_from_entities(current_entities)
+        entities = task_context.get('entities')
+        if not isinstance(entities, dict):
+            return {}
+
+        sanitized = {
+            key: entities[key]
+            for key in ('name', 'code', 'type', 'address', 'status')
+            if entities.get(key) is not None
+        }
+        return sanitized
+
+    @staticmethod
+    def _should_bypass_tool_planning_for_ambiguous_message(
+        *,
+        user_message: str,
+        state_update: RuntimeStateUpdate,
+    ) -> bool:
+        if state_update.is_workflow_edit:
+            return False
+        if state_update.primary_route != 'read':
+            return False
+        if state_update.primary_intent != 'inventory.stock_on_hand':
+            return False
+        if state_update.confidence >= 0.5:
+            return False
+
+        task_entities = state_update.task_context.get('entities')
+        if isinstance(task_entities, dict) and any(value is not None for value in task_entities.values()):
+            return False
+
+        normalized = ' '.join(user_message.strip().split())
+        if not normalized:
+            return True
+
+        tokens = re.findall(r"[A-Za-z0-9']+", normalized)
+        if len(tokens) > 4:
+            return False
+        if any(char.isdigit() for char in normalized):
+            return False
+        if any(sep in normalized for sep in ('/', '@', ':')):
+            return False
+        return True
+
+    @staticmethod
+    def _conversational_response_directive(user_message: str) -> str:
+        normalized = ' '.join(user_message.strip().split())
+        if not normalized:
+            return 'Send a short, natural reply that invites the user to continue.'
+        return (
+            'Reply to the user in one short sentence that matches their tone, '
+            'acknowledges their message, and invites them to continue.'
+        )
+
+    @staticmethod
+    def _fallback_clarification_for_intent(primary_intent: str) -> tuple[str, list[str]]:
+        if primary_intent == 'sales.create_invoice':
+            return (
+                'Reply with the customer plus product, color, size, and quantity for each sales order line.',
+                ['customer_id', 'lines'],
+            )
+        if primary_intent == 'products.create_product':
+            return (
+                'Reply with the product name, style code, base price, color, and size details.',
+                ['style_code', 'name', 'base_price', 'color_name', 'size_labels'],
+            )
+        return ('Please restate the action with the key details I should use.', [])
+
+    @staticmethod
+    def _derived_context_entities(
+        *,
+        tool_name: str,
+        tool_arguments: dict[str, object],
+        tool_result: dict[str, object] | None = None,
         resolved_entities: object = None,
     ) -> dict[str, object]:
-        merged = dict(current_entities)
-        task_context = task_context_from_entities(merged)
-        entities = dict(task_context.get('entities') or {})
+        entities: dict[str, object] = {}
 
         if tool_name == 'inventory.stock_on_hand':
             if isinstance(tool_arguments.get('productName'), str) and tool_arguments.get('productName'):
                 entities['productName'] = str(tool_arguments['productName'])
-            rows = tool_result.get('rows')
+            rows = tool_result.get('rows') if isinstance(tool_result, dict) else None
             if isinstance(rows, list):
                 product_names = sorted(
                     {
@@ -1035,11 +1231,77 @@ class AgentRuntimeService:
                     entities['sizeLabels'] = size_labels
                     entities['sizeLabel'] = size_labels[0]
 
+        if tool_name == 'products.create_product':
+            product_payload = tool_arguments.get('product')
+            product = product_payload if isinstance(product_payload, dict) else tool_arguments
+            product_name = str(product.get('name') or '').strip()
+            style_code = str(product.get('styleCode') or '').strip()
+            base_price = product.get('basePrice')
+            if product_name:
+                entities['productName'] = product_name
+            if style_code:
+                entities['styleCode'] = style_code
+            if isinstance(base_price, int):
+                entities['basePrice'] = base_price
+
+            color_names: list[str] = []
+            size_labels: list[str] = []
+            raw_variants = tool_arguments.get('variants')
+            if isinstance(raw_variants, list):
+                for variant in raw_variants:
+                    if not isinstance(variant, dict):
+                        continue
+                    color_name = str(variant.get('colorName') or variant.get('color') or '').strip()
+                    if color_name and color_name not in color_names:
+                        color_names.append(color_name)
+                    raw_sizes = variant.get('sizes')
+                    if isinstance(raw_sizes, list):
+                        for raw_size in raw_sizes:
+                            if not isinstance(raw_size, dict):
+                                continue
+                            size_label = str(raw_size.get('sizeLabel') or raw_size.get('size') or '').strip()
+                            if size_label and size_label not in size_labels:
+                                size_labels.append(size_label)
+                    else:
+                        size_label = str(variant.get('sizeLabel') or variant.get('size') or '').strip()
+                        if size_label and size_label not in size_labels:
+                            size_labels.append(size_label)
+            if color_names:
+                entities['colorNames'] = color_names
+                if len(color_names) == 1:
+                    entities['colorName'] = color_names[0]
+            if size_labels:
+                entities['sizeLabels'] = size_labels
+                if len(size_labels) == 1:
+                    entities['sizeLabel'] = size_labels[0]
+
         if isinstance(resolved_entities, dict):
             for key, value in resolved_entities.items():
                 if isinstance(key, str) and value is not None:
                     entities[key] = value
 
+        return entities
+
+    @staticmethod
+    def _merge_context_from_tool_interaction(
+        *,
+        current_entities: dict[str, object],
+        tool_name: str,
+        tool_arguments: dict[str, object],
+        tool_result: dict[str, object],
+        resolved_entities: object = None,
+    ) -> dict[str, object]:
+        merged = dict(current_entities)
+        task_context = task_context_from_entities(merged)
+        entities = dict(task_context.get('entities') or {})
+        entities.update(
+            AgentRuntimeService._derived_context_entities(
+                tool_name=tool_name,
+                tool_arguments=tool_arguments,
+                tool_result=tool_result,
+                resolved_entities=resolved_entities,
+            )
+        )
         task_context['entities'] = entities
         merged.update(entities)
         merged['taskContext'] = task_context

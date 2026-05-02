@@ -25,16 +25,45 @@ _NAVIGATION_PREFIXES = (
 _MASTER_CREATE_VERBS = r'(create|add|new|onboard|register)'
 _MASTER_UPDATE_VERBS = r'(update|edit|change|rename)'
 _MASTER_DELETE_VERBS = r'(delete|remove)'
+_LOCATION_NOUNS = r'(location|warehouse|ware\s*house)'
 _SUPPLIER_NOUNS = r'(supplier|vendor)'
 _CUSTOMER_NOUNS = r'(customer|client)'
 _MUTATION_PATTERNS: tuple[tuple[str, str], ...] = (
+    (
+        'purchasing.receive_po',
+        r'\b(receive|book in)\b.*\b(purchase order|po)\b|\b(purchase order|po)\b.*\b(receive|book in)\b',
+    ),
+    (
+        'purchasing.close_po',
+        r'\bclose\b.*\b(purchase order|po)\b|\b(purchase order|po)\b.*\bclose\b',
+    ),
+    (
+        'sales.dispatch_invoice',
+        r'\b(dispatch|ship)\b.*\b(sales order|invoice|so)\b|\b(sales order|invoice|so)\b.*\b(dispatch|ship)\b',
+    ),
+    (
+        'sales.cancel_invoice',
+        r'\bcancel\b.*\b(sales order|invoice|so)\b|\b(sales order|invoice|so)\b.*\bcancel\b',
+    ),
     ('inventory.transfer_stock', r'\b(transfer|move)\b'),
     ('inventory.receive_stock', r'\b(receive|receipt)\b'),
     ('inventory.adjust_stock', r'\b(adjust)\b'),
-    ('inventory.adjust_stock', r'\bwrite[ -]?off\b'),
+    ('inventory.write_off_stock', r'\bwrite[ -]?off\b'),
     ('purchasing.create_po', r'\b(purchase order|create po|create a po|draft po)\b'),
     ('sales.create_invoice', r'\b(invoice|sales order|create so|create invoice)\b'),
     ('products.create_product', r'\b(create product|create a product|new product)\b'),
+    (
+        'master.create_location',
+        rf'\b{_MASTER_CREATE_VERBS}\b.*\b{_LOCATION_NOUNS}\b|\b{_LOCATION_NOUNS}\b.*\b{_MASTER_CREATE_VERBS}\b',
+    ),
+    (
+        'master.update_location',
+        rf'\b{_MASTER_UPDATE_VERBS}\b.*\b{_LOCATION_NOUNS}\b|\b{_LOCATION_NOUNS}\b.*\b{_MASTER_UPDATE_VERBS}\b',
+    ),
+    (
+        'master.delete_location',
+        rf'\b{_MASTER_DELETE_VERBS}\b.*\b{_LOCATION_NOUNS}\b|\b{_LOCATION_NOUNS}\b.*\b{_MASTER_DELETE_VERBS}\b',
+    ),
     (
         'master.create_supplier',
         rf'\b{_MASTER_CREATE_VERBS}\b.*\b{_SUPPLIER_NOUNS}\b|\b{_SUPPLIER_NOUNS}\b.*\b{_MASTER_CREATE_VERBS}\b',
@@ -228,6 +257,22 @@ async def resolve_state_update(
         rationale = f'{rationale} Queued a post-action navigation step after the mutation succeeds.'
 
     merged_entities.update(patches)
+    active_intent = str(task_context.get('primaryIntent') or '')
+    if primary_intent == 'master.create_location' or active_intent == 'master.create_location':
+        merged_entities.update(_extract_location_create_entities(action_text or text))
+    if not is_workflow_edit and _should_continue_pending_mutation(
+        text=action_text or text,
+        task_context=task_context,
+        route_fallback=route_fallback,
+        intent_fallback=intent_fallback,
+        merged_entities=merged_entities,
+    ):
+        is_workflow_edit = True
+        primary_route = str(task_context.get('primaryRoute') or ROUTE_MUTATION)
+        primary_intent = active_intent or primary_intent
+        rationale = 'Applied this turn as missing-field input for the active workflow.'
+        confidence = max(confidence, 0.91)
+        used_memory = True
     task_context['primaryRoute'] = primary_route
     task_context['primaryIntent'] = primary_intent
     task_context['entities'] = merged_entities
@@ -355,3 +400,146 @@ def _build_planner_message(
         if isinstance(route, dict):
             message += f' After success, navigate to {route.get("label") or route.get("href")}.'
     return message
+
+
+def _extract_location_create_entities(text: str) -> dict[str, Any]:
+    extracted: dict[str, Any] = {}
+    normalized = text.strip()
+    unlabeled_lines: list[str] = []
+    for raw_line in normalized.splitlines():
+        line = raw_line.strip(' ,')
+        if not line:
+            continue
+        field_match = re.match(r'^(name|named|code|type|address|status)\b\s*[:=]?\s*(.+)$', line, re.IGNORECASE)
+        if field_match:
+            field_name = field_match.group(1).lower()
+            value = field_match.group(2).strip().strip('"')
+            if not value:
+                continue
+            if field_name in {'name', 'named'}:
+                extracted['name'] = value
+            elif field_name == 'code':
+                extracted['code'] = value
+            elif field_name == 'type':
+                normalized_type = _normalize_location_type(value)
+                extracted['type'] = normalized_type or value.lower()
+            elif field_name == 'address':
+                extracted['address'] = value
+            elif field_name == 'status':
+                extracted['status'] = value.lower()
+            continue
+        normalized_type = _normalize_location_type(line)
+        if normalized_type and 'type' not in extracted:
+            extracted['type'] = normalized_type
+            continue
+        if re.fullmatch(r'(active|inactive)', line, re.IGNORECASE) and 'status' not in extracted:
+            extracted['status'] = line.lower()
+            continue
+        if _looks_like_location_code(line) and 'code' not in extracted:
+            extracted['code'] = line
+            continue
+        unlabeled_lines.append(line)
+
+    if 'code' not in extracted:
+        code_match = re.search(r'\bcode\b\s*[:=]?\s*([A-Za-z0-9][A-Za-z0-9_-]*)', normalized, re.IGNORECASE)
+        if code_match:
+            extracted['code'] = code_match.group(1).strip()
+
+    if 'name' not in extracted:
+        name_match = re.search(
+            r'\b(?:name|named)\b\s*[:=]?\s*"?([^\n,]+?)"?(?=\s*(?:$|,|\bcode\b|\btype\b|\baddress\b|\bstatus\b))',
+            normalized,
+            re.IGNORECASE,
+        )
+        if name_match:
+            extracted['name'] = name_match.group(1).strip()
+
+    if 'type' not in extracted:
+        type_match = re.search(
+            r'\btype\b\s*[:=]?\s*([^\n,]+?)(?=\s*(?:$|,|\bcode\b|\bname\b|\bnamed\b|\baddress\b|\bstatus\b))',
+            normalized,
+            re.IGNORECASE,
+        )
+        if type_match:
+            extracted['type'] = _normalize_location_type(type_match.group(1)) or type_match.group(1).strip().lower()
+        else:
+            normalized_type = _normalize_location_type(normalized)
+            if normalized_type:
+                extracted['type'] = normalized_type
+            elif re.search(r'\bware\s*house\b|\bwarehouse\b|\bwarehosue\b', normalized, re.IGNORECASE):
+                extracted['type'] = 'warehouse'
+            elif re.search(r'\boutlet\b', normalized, re.IGNORECASE):
+                extracted['type'] = 'outlet'
+            elif re.search(r'\bstore\b', normalized, re.IGNORECASE):
+                extracted['type'] = 'store'
+
+    if 'address' not in extracted:
+        address_match = re.search(
+            r'\baddress\b\s*[:=]?\s*"?(.+?)"?(?=\s+\bstatus\b|$)',
+            normalized,
+            re.IGNORECASE,
+        )
+        if address_match:
+            extracted['address'] = address_match.group(1).strip()
+
+    if 'status' not in extracted:
+        status_match = re.search(r'\b(active|inactive)\b', normalized, re.IGNORECASE)
+        if status_match:
+            extracted['status'] = status_match.group(1).strip().lower()
+
+    if unlabeled_lines and 'name' not in extracted and not _looks_like_location_creation_request(normalized):
+        extracted['name'] = unlabeled_lines[0]
+    return extracted
+
+
+def _should_continue_pending_mutation(
+    *,
+    text: str,
+    task_context: dict[str, Any],
+    route_fallback: str,
+    intent_fallback: str,
+    merged_entities: dict[str, Any],
+) -> bool:
+    active_route = str(task_context.get('primaryRoute') or '')
+    active_intent = str(task_context.get('primaryIntent') or '')
+    missing_fields = [str(item) for item in task_context.get('missingFields') or []]
+    if active_route != ROUTE_MUTATION or not active_intent or not missing_fields:
+        return False
+    if route_fallback == ROUTE_MUTATION and intent_fallback and intent_fallback != active_intent:
+        return False
+    if any(_entity_has_value(merged_entities, field) for field in missing_fields):
+        return True
+    normalized = _normalize(text)
+    if not normalized or normalized.endswith('?'):
+        return False
+    return ':' in text or '\n' in text
+
+
+def _entity_has_value(entities: dict[str, Any], field: str) -> bool:
+    value = entities.get(field)
+    if isinstance(value, str):
+        return bool(value.strip())
+    return value is not None
+
+
+def _looks_like_location_code(value: str) -> bool:
+    stripped = value.strip()
+    if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]*', stripped):
+        return False
+    return any(char.isdigit() for char in stripped) or '-' in stripped or '_' in stripped
+
+
+def _normalize_location_type(value: str) -> str | None:
+    collapsed = re.sub(r'[^a-z]', '', value.lower())
+    if collapsed in {'warehouse', 'warehosue', 'warehous'}:
+        return 'warehouse'
+    if collapsed == 'store':
+        return 'store'
+    if collapsed == 'outlet':
+        return 'outlet'
+    return None
+
+
+def _looks_like_location_creation_request(value: str) -> bool:
+    normalized = _normalize(value)
+    return bool(re.search(rf'\b{_MASTER_CREATE_VERBS}\b.*\b{_LOCATION_NOUNS}\b', normalized))
