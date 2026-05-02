@@ -1,19 +1,23 @@
 from __future__ import annotations
 
+from datetime import datetime
 from uuid import UUID
 
+from conversational_engine.ai.attachments import S3AttachmentService
+from conversational_engine.ai.redis_cache import RedisActiveStateCache
+from conversational_engine.ai.repository import AIRepository
 from conversational_engine.clients.backend import BackendClient
+from conversational_engine.config.settings import Settings
 from conversational_engine.contracts.api import (
     ApprovalDecisionResponse,
     ConversationListResponse,
     ConversationResponse,
+    MessagePageInfo,
     WorkflowDecisionResponse,
 )
 from conversational_engine.contracts.auth import AuthContext
 from conversational_engine.contracts.common import WorkflowStatus
 from conversational_engine.contracts.runs import RunRequest
-from conversational_engine.db.repository import EngineRepository
-from conversational_engine.orchestrator.service import OrchestratorService
 from conversational_engine.runtime.service import AgentRuntimeService
 
 from .approval_executor import RuntimeApprovalExecutor
@@ -25,37 +29,46 @@ from .runtime_runner import ConversationRuntimeRunner
 class ConversationService:
     def __init__(
         self,
-        repository: EngineRepository,
+        repository: AIRepository,
         backend_client: BackendClient,
-        orchestrator: OrchestratorService,
         runtime_service: AgentRuntimeService,
+        attachment_service: S3AttachmentService,
+        redis_cache: RedisActiveStateCache,
+        settings: Settings,
     ) -> None:
         self._repository = repository
         self._backend_client = backend_client
-        self._orchestrator = orchestrator
-        self._outcome_store = ConversationOutcomeStore(repository)
+        self._attachment_service = attachment_service
+        self._redis_cache = redis_cache
+        self._settings = settings
+        self._outcome_store = ConversationOutcomeStore(repository, redis_cache)
         self._runtime_runner = ConversationRuntimeRunner(
             repository=repository,
             runtime_service=runtime_service,
             outcome_store=self._outcome_store,
+            attachment_service=attachment_service,
+            redis_cache=redis_cache,
+            settings=settings,
         )
         self._approval_executor = RuntimeApprovalExecutor(backend_client)
         self._runtime_decision_handler = RuntimeDecisionHandler(backend_client)
 
-    def list_conversations(self, auth: AuthContext) -> ConversationListResponse:
-        return ConversationListResponse(items=self._repository.list_conversations(auth.tenant_id))
+    async def list_conversations(self, auth: AuthContext) -> ConversationListResponse:
+        return ConversationListResponse(items=await self._repository.list_conversations(auth.tenant_id))
 
     async def create_conversation(
         self,
         auth: AuthContext,
         title: str | None = None,
         initial_message: str | None = None,
+        attachment_ids: list[str] | None = None,
     ) -> ConversationResponse:
-        conversation, workflow = self._repository.create_conversation(
+        conversation, workflow = await self._repository.create_conversation(
             tenant_id=auth.tenant_id,
             created_by=auth.id,
             title=title or (initial_message[:60] if initial_message else 'New conversation'),
         )
+        await self._redis_cache.set_workflow_state(auth.tenant_id, str(workflow.id), workflow)
 
         if initial_message:
             await self._runtime_runner.run_message(
@@ -63,46 +76,72 @@ class ConversationService:
                 conversation=conversation,
                 workflow=workflow,
                 content=initial_message,
+                attachment_ids=attachment_ids or [],
                 event_listener=None,
             )
-            return self.get_conversation(auth, conversation.id) or ConversationResponse(
-                conversation=conversation,
-                workflow=workflow,
-                messages=[],
-            )
+            response = await self.get_conversation(auth, conversation.id)
+            if response is not None:
+                return response
 
         return ConversationResponse(conversation=conversation, workflow=workflow, messages=[])
 
-    def get_conversation(self, auth: AuthContext, conversation_id: UUID) -> ConversationResponse | None:
-        result = self._repository.get_conversation(auth.tenant_id, conversation_id)
+    async def get_conversation(
+        self,
+        auth: AuthContext,
+        conversation_id: UUID,
+        *,
+        message_limit: int | None = None,
+        before_created_at: datetime | None = None,
+        before_id: str | None = None,
+    ) -> ConversationResponse | None:
+        result = await self._repository.get_conversation(
+            auth.tenant_id,
+            conversation_id,
+            message_limit=message_limit or self._settings.chat_recent_message_limit,
+            before_created_at=before_created_at,
+            before_id=before_id,
+        )
         if result is None:
             return None
-        conversation, workflow, messages = result
-        safe_workflow = self._outcome_store.sanitize_workflow(workflow)
+        safe_workflow = self._outcome_store.sanitize_workflow(result.workflow)
+        message_page = MessagePageInfo(
+            next_cursor_created_at=result.page.next_cursor_created_at.isoformat()
+            if result.page.next_cursor_created_at
+            else None,
+            next_cursor_id=result.page.next_cursor_id,
+            has_more=result.page.has_more,
+        )
         return ConversationResponse(
-            conversation=conversation,
+            conversation=result.conversation,
             workflow=safe_workflow,
-            messages=messages,
+            messages=result.page.messages,
             pending_action=self._repository.build_pending_action(safe_workflow),
+            message_page=message_page,
         )
 
-    async def post_message(self, auth: AuthContext, conversation_id: UUID, content: str) -> ConversationResponse | None:
-        current = self._repository.get_conversation(auth.tenant_id, conversation_id)
-        if current is None:
+    async def post_message(
+        self,
+        auth: AuthContext,
+        conversation_id: UUID,
+        content: str,
+        attachment_ids: list[str] | None = None,
+    ) -> ConversationResponse | None:
+        current = await self._repository.get_conversation(
+            auth.tenant_id,
+            conversation_id,
+            message_limit=self._settings.chat_recent_message_limit,
+        )
+        if current is None or current.workflow is None:
             return None
-
-        conversation, workflow, _messages = current
-        if workflow is None:
-            return None
-
         await self._runtime_runner.run_message(
             auth=auth,
-            conversation=conversation,
-            workflow=workflow,
+            conversation=current.conversation,
+            workflow=current.workflow,
             content=content,
+            attachment_ids=attachment_ids or [],
             event_listener=None,
         )
-        return self.get_conversation(auth, conversation_id)
+        return await self.get_conversation(auth, conversation_id)
 
     async def stream_run(self, auth: AuthContext, request: RunRequest):
         async for event in self._runtime_runner.stream_run(auth=auth, request=request):
@@ -114,15 +153,15 @@ class ConversationService:
         workflow_id: UUID,
         decision: str,
     ) -> WorkflowDecisionResponse:
-        workflow = self._repository.find_workflow_by_id(auth.tenant_id, workflow_id)
+        workflow = await self._redis_cache.get_workflow_state(auth.tenant_id, str(workflow_id))
         if workflow is None:
-            return WorkflowDecisionResponse(
-                workflow_id=workflow_id,
-                accepted=False,
-                message='Workflow not found.',
-            )
+            workflow = await self._repository.find_workflow_by_id(auth.tenant_id, workflow_id)
+            if workflow is not None:
+                await self._redis_cache.set_workflow_state(auth.tenant_id, str(workflow_id), workflow)
+        if workflow is None:
+            return WorkflowDecisionResponse(workflow_id=workflow_id, accepted=False, message='Workflow not found.')
 
-        conversation_lookup = self._repository.get_conversation_by_workflow_id(auth.tenant_id, workflow_id)
+        conversation_lookup = await self._repository.get_conversation_by_workflow_id(auth.tenant_id, workflow_id)
         if conversation_lookup is None:
             return WorkflowDecisionResponse(
                 workflow_id=workflow_id,
@@ -131,10 +170,7 @@ class ConversationService:
             )
 
         conversation, _existing_workflow = conversation_lookup
-        if (
-            workflow.status == WorkflowStatus.AWAITING_CONFIRMATION
-            and workflow.extracted_entities.get('_workflowEngine') == 'runtime'
-        ):
+        if workflow.extracted_entities.get('_workflowEngine') == 'runtime':
             outcome = await self._runtime_decision_handler.apply(
                 auth=auth,
                 conversation_id=conversation.id,
@@ -143,8 +179,12 @@ class ConversationService:
                 decision=decision,
             )
         else:
-            outcome = await self._orchestrator.handle_decision(auth, conversation, workflow, decision)
-        self._outcome_store.store(
+            return WorkflowDecisionResponse(
+                workflow_id=workflow_id,
+                accepted=False,
+                message='This workflow does not support runtime decisions.',
+            )
+        await self._outcome_store.store(
             auth=auth,
             conversation_id=conversation.id,
             workflow_id=workflow.id,
@@ -176,14 +216,17 @@ class ConversationService:
         )
 
         if approval.workflow_id and approval.conversation_id:
-            workflow = self._repository.find_workflow_by_id(auth.tenant_id, approval.workflow_id)
-            current = self._repository.get_conversation(auth.tenant_id, approval.conversation_id)
+            workflow = await self._repository.find_workflow_by_id(auth.tenant_id, approval.workflow_id)
+            current = await self._repository.get_conversation(
+                auth.tenant_id,
+                approval.conversation_id,
+                message_limit=self._settings.chat_recent_message_limit,
+            )
             if workflow and current:
-                conversation, _workflow, _messages = current
                 outcome = await self._approval_executor.execute(auth=auth, approval=approval)
-                self._outcome_store.store(
+                await self._outcome_store.store(
                     auth=auth,
-                    conversation_id=conversation.id,
+                    conversation_id=current.conversation.id,
                     workflow_id=workflow.id,
                     raw_text=None,
                     outcome=outcome,

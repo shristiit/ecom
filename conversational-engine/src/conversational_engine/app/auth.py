@@ -1,14 +1,16 @@
 from __future__ import annotations
 
-from fastapi import Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, status
 
 from conversational_engine.app.dependencies import get_backend_client
+from conversational_engine.clients.backend import BackendClient
 from conversational_engine.contracts.auth import AuthContext
 
 
 async def require_auth_context(
     authorization: str | None = Header(default=None),
     x_tenant_id: str | None = Header(default=None),
+    backend_client: BackendClient = Depends(get_backend_client),
 ) -> AuthContext:
     if not authorization or not authorization.startswith('Bearer '):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Missing bearer token')
@@ -16,8 +18,6 @@ async def require_auth_context(
     access_token = authorization.removeprefix('Bearer ').strip()
     if not access_token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Missing bearer token')
-
-    backend_client = get_backend_client()
 
     try:
         context = await backend_client.resolve_auth_context(access_token, x_tenant_id)

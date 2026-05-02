@@ -1,4 +1,8 @@
+import os
+
 from fastapi.testclient import TestClient
+
+os.environ.setdefault('CONVERSATIONAL_ENGINE_MONGO_URI', 'mongodb://localhost:27017')
 
 from conversational_engine.app.main import app
 

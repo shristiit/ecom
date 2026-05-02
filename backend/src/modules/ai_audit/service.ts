@@ -79,8 +79,8 @@ export async function listHistory(req: Request, res: Response) {
          COALESCE(
            ae.payload->>'status',
            CASE
-             WHEN ae.event_type = 'approval_requested' THEN 'pending'
-             WHEN ae.event_type = 'approval_decision' THEN 'approved'
+             WHEN ae.event_type = 'approval.submitted' THEN 'pending'
+             WHEN ae.event_type = 'approval.decided' THEN 'approved'
              ELSE 'success'
            END
          ) AS status
@@ -90,7 +90,7 @@ export async function listHistory(req: Request, res: Response) {
        LEFT JOIN users approved_user ON approved_user.id = ar.approved_by
        LEFT JOIN users executor ON executor.id = ae.actor_id
        WHERE ae.tenant_id = $1
-         AND ae.event_type IN ('approval_requested', 'approval_decision', 'execution_result')
+         AND ae.event_type IN ('approval.submitted', 'approval.decided', 'execution_result')
 
        UNION ALL
 

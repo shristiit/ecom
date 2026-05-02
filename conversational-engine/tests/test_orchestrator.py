@@ -249,6 +249,21 @@ async def test_product_create_does_not_require_sku_code_when_other_fields_are_pr
     assert any(block.type == BlockType.PREVIEW for block in outcome.blocks)
 
 
+async def test_product_create_does_not_require_category():
+    service = make_service()
+
+    outcome = await service.handle_message(
+        make_auth(),
+        make_conversation(),
+        make_workflow(),
+        'create product style ST100 named "Core Tee" base price 25 color Black sizes M',
+    )
+
+    assert outcome.status == WorkflowStatus.AWAITING_CONFIRMATION
+    assert 'category' not in outcome.missing_fields
+    assert any(block.type == BlockType.PREVIEW for block in outcome.blocks)
+
+
 async def test_create_a_product_phrase_routes_to_product_workflow():
     service = make_service()
 
@@ -368,3 +383,18 @@ async def test_product_create_location_follow_up_accepts_partial_location_name()
     assert follow_up_outcome.status == WorkflowStatus.AWAITING_CONFIRMATION
     assert follow_up_outcome.missing_fields == []
     assert any(block.type == BlockType.PREVIEW for block in follow_up_outcome.blocks)
+
+
+async def test_inventory_receipt_does_not_require_reason():
+    service = make_service()
+
+    outcome = await service.handle_message(
+        make_auth(),
+        make_conversation(),
+        make_workflow(),
+        'receive stock in london for TSHIRT-BLACK/M x5',
+    )
+
+    assert outcome.status == WorkflowStatus.AWAITING_CONFIRMATION
+    assert 'reason' not in outcome.missing_fields
+    assert any(block.type == BlockType.PREVIEW for block in outcome.blocks)

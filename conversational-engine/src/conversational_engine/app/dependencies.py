@@ -1,25 +1,26 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
 from functools import lru_cache
 
-from conversational_engine.agents.entity_resolver import EntityResolver
+from fastapi import Request
+
+from conversational_engine.ai import (
+    MongoAIRepository,
+    RedisActiveStateCache,
+    S3AttachmentService,
+    SemanticMemoryService,
+    TenantAISettingsService,
+)
 from conversational_engine.agents.executor import ExecutorAgent
-from conversational_engine.agents.help import HelpAgent
-from conversational_engine.agents.inventory import InventoryAgent
 from conversational_engine.agents.narrator import NarratorAgent
 from conversational_engine.agents.planner import PlannerAgent
-from conversational_engine.agents.products import ProductsAgent
-from conversational_engine.agents.purchasing import PurchasingAgent
-from conversational_engine.agents.registry import AgentRegistry
-from conversational_engine.agents.reporting import ReportingAgent
 from conversational_engine.agents.reviewer import ReviewerAgent
-from conversational_engine.agents.sales import SalesAgent
+from conversational_engine.agents.state_updater import StateUpdateAgent
 from conversational_engine.clients.backend import BackendClient
-from conversational_engine.config.model_routing import ModelRouting
-from conversational_engine.config.settings import get_settings
+from conversational_engine.config.settings import Settings, get_settings
 from conversational_engine.conversations.service import ConversationService
-from conversational_engine.db.repository import EngineRepository
 from conversational_engine.memory.layered import LayeredMemoryService
-from conversational_engine.orchestrator.service import OrchestratorService
-from conversational_engine.providers.factory import build_providers
 from conversational_engine.providers.registry import build_role_route, build_runtime_providers
 from conversational_engine.providers.router import ProviderRouter
 from conversational_engine.retrieval.service import RetrievalService
@@ -27,20 +28,78 @@ from conversational_engine.runtime.service import AgentRuntimeService
 from conversational_engine.training.service import TrainingDataService
 
 
-@lru_cache(maxsize=1)
-def get_conversation_service() -> ConversationService:
-    return ConversationService(
-        repository=get_engine_repository(),
-        backend_client=get_backend_client(),
-        orchestrator=get_orchestrator_service(),
-        runtime_service=get_agent_runtime_service(),
+@dataclass(slots=True)
+class AppServices:
+    settings: Settings
+    backend_client: BackendClient
+    repository: MongoAIRepository
+    redis_cache: RedisActiveStateCache
+    attachment_service: S3AttachmentService
+    semantic_memory_service: SemanticMemoryService
+    tenant_settings_service: TenantAISettingsService
+    retrieval_service: RetrievalService
+    runtime_service: AgentRuntimeService
+    conversation_service: ConversationService
+
+
+def build_app_services(*, settings: Settings, mongo_client, redis_client, s3_client) -> AppServices:
+    backend_client = BackendClient(settings.backend_base_url)
+    repository = MongoAIRepository(mongo_client, settings)
+    redis_cache = RedisActiveStateCache(redis_client)
+    semantic_memory_service = SemanticMemoryService(repository, settings)
+    attachment_service = S3AttachmentService(repository, settings, s3_client)
+    retrieval_service = RetrievalService(repository)
+    router = ProviderRouter(
+        providers=build_runtime_providers(settings),
+        route=build_role_route(settings),
+    )
+    runtime_service = AgentRuntimeService(
+        backend_client=backend_client,
+        planner=PlannerAgent(router),
+        executor=ExecutorAgent(router),
+        reviewer=ReviewerAgent(router),
+        state_updater=StateUpdateAgent(router),
+        narrator=NarratorAgent(router),
+        memory_service=LayeredMemoryService(
+            repository=repository,
+            settings=settings,
+            semantic_memory_service=semantic_memory_service,
+        ),
+        training_data_service=TrainingDataService(repository),
+        retrieval_service=retrieval_service,
+    )
+    return AppServices(
+        settings=settings,
+        backend_client=backend_client,
+        repository=repository,
+        redis_cache=redis_cache,
+        attachment_service=attachment_service,
+        semantic_memory_service=semantic_memory_service,
+        tenant_settings_service=TenantAISettingsService(repository),
+        retrieval_service=retrieval_service,
+        runtime_service=runtime_service,
+        conversation_service=ConversationService(
+            repository=repository,
+            backend_client=backend_client,
+            runtime_service=runtime_service,
+            attachment_service=attachment_service,
+            redis_cache=redis_cache,
+            settings=settings,
+        ),
     )
 
 
-@lru_cache(maxsize=1)
-def get_engine_repository() -> EngineRepository:
-    settings = get_settings()
-    return EngineRepository(settings.database_url)
+def _require_services(request: Request) -> AppServices:
+    services = getattr(request.app.state, 'services', None)
+    if services is None:  # pragma: no cover - startup wiring failure
+        raise RuntimeError('Application services are not initialized')
+    return services
+
+
+async def get_conversation_service(request: Request) -> ConversationService:
+    services = _require_services(request)
+    await services.repository.ensure_indexes()
+    return services.conversation_service
 
 
 @lru_cache(maxsize=1)
@@ -49,58 +108,23 @@ def get_backend_client() -> BackendClient:
     return BackendClient(settings.backend_base_url)
 
 
-@lru_cache(maxsize=1)
-def get_retrieval_service() -> RetrievalService:
-    settings = get_settings()
-    return RetrievalService(settings.database_url)
+async def get_retrieval_service(request: Request) -> RetrievalService:
+    services = _require_services(request)
+    await services.repository.ensure_indexes()
+    return services.retrieval_service
 
 
-@lru_cache(maxsize=1)
-def get_orchestrator_service() -> OrchestratorService:
-    settings = get_settings()
-    providers = build_providers(settings)
-    routing = ModelRouting.from_settings(settings)
-    backend = get_backend_client()
-    resolver = EntityResolver(backend)
-    registry = AgentRegistry(
-        [
-            InventoryAgent(backend=backend, resolver=resolver, chat_provider=providers.chat, routing=routing),
-            ProductsAgent(backend=backend, resolver=resolver, chat_provider=providers.chat, routing=routing),
-            PurchasingAgent(backend=backend, resolver=resolver, chat_provider=providers.chat, routing=routing),
-            SalesAgent(backend=backend, resolver=resolver, chat_provider=providers.chat, routing=routing),
-            ReportingAgent(backend=backend, resolver=resolver, chat_provider=providers.chat, routing=routing),
-            HelpAgent(retrieval=get_retrieval_service(), chat_provider=providers.chat, routing=routing),
-        ]
-    )
-    return OrchestratorService(
-        backend_client=backend,
-        retrieval_service=get_retrieval_service(),
-        agent_registry=registry,
-        model_routing=routing,
-        intent_classifier=providers.classifier,
-        mutations_enabled=settings.mutations_enabled,
-        retrieval_enabled=settings.retrieval_enabled,
-    )
+async def get_agent_runtime_service(request: Request) -> AgentRuntimeService:
+    services = _require_services(request)
+    await services.repository.ensure_indexes()
+    return services.runtime_service
 
 
-@lru_cache(maxsize=1)
-def get_agent_runtime_service() -> AgentRuntimeService:
-    settings = get_settings()
-    router = ProviderRouter(
-        providers=build_runtime_providers(settings),
-        route=build_role_route(settings),
-    )
-    repository = get_engine_repository()
-    return AgentRuntimeService(
-        backend_client=get_backend_client(),
-        planner=PlannerAgent(router),
-        executor=ExecutorAgent(router),
-        reviewer=ReviewerAgent(router),
-        narrator=NarratorAgent(router),
-        memory_service=LayeredMemoryService(repository),
-        training_data_service=TrainingDataService(repository),
-    )
+async def get_attachment_service(request: Request) -> S3AttachmentService:
+    services = _require_services(request)
+    await services.repository.ensure_indexes()
+    return services.attachment_service
 
 
-def get_app_settings():
+def get_app_settings() -> Settings:
     return get_settings()

@@ -5,9 +5,10 @@ from typing import Any
 from conversational_engine.clients.backend import BackendClient
 from conversational_engine.contracts.auth import AuthContext
 from conversational_engine.tools.definitions import SemanticTool
+
 from .normalizers import normalize_product_create_payload
 from .resolvers import EntityResolver
-from .utils import is_uuid, object_schema
+from .utils import ToolPreparationError, is_uuid, object_schema
 
 
 def build_product_tools(
@@ -32,13 +33,54 @@ def build_product_tools(
         ]
         return {'rows': rows}
 
-    async def create_product(payload: dict[str, Any]) -> dict[str, Any]:
+    async def prepare_create_product(payload: dict[str, Any]) -> dict[str, Any]:
         resolved = dict(payload)
-        if cat := str(payload.get('categoryId') or '').strip():
-            if not is_uuid(cat):
-                resolved['categoryId'] = await resolver.category(cat)
+        product_payload = dict(resolved['product']) if isinstance(resolved.get('product'), dict) else None
+        category_ref = str(payload.get('categoryId') or '').strip()
+        if not category_ref and isinstance(product_payload, dict):
+            category_ref = str(product_payload.get('categoryId') or '').strip()
+        if category_ref and not is_uuid(category_ref):
+            resolved_category_id = await resolver.category(category_ref)
+            if isinstance(product_payload, dict):
+                product_payload['categoryId'] = resolved_category_id
+                resolved['product'] = product_payload
+            else:
+                resolved['categoryId'] = resolved_category_id
+
+        raw_variants = payload.get('variants')
+        if isinstance(raw_variants, list):
+            for variant in raw_variants:
+                if not isinstance(variant, dict):
+                    continue
+                size_candidates = variant.get('sizes') if isinstance(variant.get('sizes'), list) else [variant]
+                for raw_size in size_candidates:
+                    if not isinstance(raw_size, dict):
+                        continue
+                    has_location = bool(raw_size.get('locationId'))
+                    has_quantity = isinstance(raw_size.get('quantity'), int)
+                    if has_location ^ has_quantity:
+                        raise ToolPreparationError(
+                            'If you want initial stock, provide both location and quantity. Otherwise omit both.',
+                            ['location_and_quantity'],
+                        )
+
         normalized = normalize_product_create_payload(resolved)
-        return {'result': await backend.create_product(token, tenant, normalized)}
+        product = normalized.get('product') if isinstance(normalized.get('product'), dict) else {}
+        if not product.get('styleCode'):
+            raise ToolPreparationError('What style code should this product use?', ['style_code'])
+        if not product.get('name'):
+            raise ToolPreparationError('What product name should I use?', ['name'])
+        if product.get('basePrice') is None:
+            raise ToolPreparationError('What base price should I set?', ['base_price'])
+        variants = normalized.get('variants')
+        if not isinstance(variants, list) or not variants:
+            raise ToolPreparationError('What color variants and sizes should I create?', ['color_name', 'size_labels'])
+        if not any(isinstance(variant, dict) and variant.get('sizes') for variant in variants):
+            raise ToolPreparationError('Which sizes should I create? Reply like `S, M, L`.', ['size_labels'])
+        return normalized
+
+    async def create_product(payload: dict[str, Any]) -> dict[str, Any]:
+        return {'result': await backend.create_product(token, tenant, payload)}
 
     return {
         'products.search_products': SemanticTool(
@@ -61,13 +103,17 @@ def build_product_tools(
         ),
         'products.create_product': SemanticTool(
             name='products.create_product',
-            description='Create a product with style, variants, and optional stock setup. Category accepts a name or UUID.',
+            description=(
+                'Create a product with style, variants, and optional stock setup. '
+                'Category accepts a name or UUID.'
+            ),
             input_schema=object_schema(
                 {
                     'styleCode': {'type': 'string'},
                     'name': {'type': 'string'},
                     'categoryId': {'type': ['string', 'null'], 'description': 'Category name or UUID'},
                     'basePrice': {'type': 'integer'},
+                    'pickupEnabled': {'type': ['boolean', 'null']},
                     'variants': {'type': 'array', 'items': {'type': 'object'}},
                 },
                 ['styleCode', 'name', 'basePrice', 'variants'],
@@ -76,5 +122,6 @@ def build_product_tools(
             side_effect=True,
             output_mode='mutation',
             executor=create_product,
+            preparer=prepare_create_product,
         ),
     }

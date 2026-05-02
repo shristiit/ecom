@@ -202,6 +202,15 @@ class ProductsAgent(Agent):
             )
             if qty_match:
                 memory_updates['quantity'] = int(next(group for group in qty_match.groups() if group is not None))
+        if (
+            memory_updates.get('quantity') is not None
+            and isinstance(memory_updates.get('sizeLabels'), list)
+            and memory_updates['sizeLabels']
+            and re.search(r'\beach\b', message, re.IGNORECASE)
+        ):
+            memory_updates['sizeQuantities'] = {
+                str(size_label): int(memory_updates['quantity']) for size_label in memory_updates['sizeLabels']
+            }
 
         location_text = extracted.get('location')
         location = None
@@ -299,9 +308,18 @@ class ProductsAgent(Agent):
     def _missing_fields(intent: str, memory: dict[str, object]) -> list[str]:
         required: list[str]
         if intent == 'product_create':
-            required = ['style_code', 'name', 'base_price', 'category', 'color_name', 'size_labels']
+            required = ['style_code', 'name', 'base_price', 'color_name', 'size_labels']
             if ('quantity' in memory) ^ ('locationId' in memory):
                 required.append('location_and_quantity')
+            size_labels = memory.get('sizeLabels')
+            if (
+                isinstance(size_labels, list)
+                and len(size_labels) > 1
+                and memory.get('quantity') is not None
+                and memory.get('locationId')
+                and not memory.get('sizeQuantities')
+            ):
+                required.append('size_quantity_breakdown')
         else:
             required = ['product_id', 'changes']
 
@@ -313,13 +331,13 @@ class ProductsAgent(Agent):
                 missing.append(field)
             elif field == 'base_price' and memory.get('basePrice') is None:
                 missing.append(field)
-            elif field == 'category' and not memory.get('category'):
-                missing.append(field)
             elif field == 'color_name' and not memory.get('colorName'):
                 missing.append(field)
             elif field == 'size_labels' and not memory.get('sizeLabels'):
                 missing.append(field)
             elif field == 'location_and_quantity' and (not memory.get('locationId') or memory.get('quantity') is None):
+                missing.append(field)
+            elif field == 'size_quantity_breakdown' and not memory.get('sizeQuantities'):
                 missing.append(field)
             elif field == 'product_id' and not memory.get('productId'):
                 missing.append(field)
@@ -350,12 +368,15 @@ class ProductsAgent(Agent):
                 'style_code': 'What style code should this product use?',
                 'name': 'What product name should I use?',
                 'base_price': 'What base price should I set?',
-                'category': 'Which category should the product belong to?',
                 'color_name': 'What is the first variant color?',
                 'size_labels': 'Which sizes should I create? Reply like `S, M, L`.',
                 'location_and_quantity': (
                     'If you want initial stock, reply with both location and quantity. '
                     'Otherwise say `no initial stock`.'
+                ),
+                'size_quantity_breakdown': (
+                    'You provided initial stock for multiple sizes. Reply with the quantity for each size, '
+                    'for example `S:10, M:12, L:8`.'
                 ),
             }
             return prompts[missing_fields[0]]
@@ -392,6 +413,7 @@ class ProductsAgent(Agent):
                 'category': memory.get('category', ''),
                 'brand': memory.get('brand', ''),
                 'basePrice': memory['basePrice'],
+                'pickupEnabled': bool(memory.get('pickupEnabled', False)),
                 'categoryId': memory.get('categoryId'),
                 'status': memory.get('status', 'active'),
             },

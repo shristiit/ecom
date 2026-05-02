@@ -96,38 +96,42 @@ locals {
   ])
 
   engine_parameters = {
-    CONVERSATIONAL_ENGINE_ENV                     = "production"
-    CONVERSATIONAL_ENGINE_HOST                    = "0.0.0.0"
-    CONVERSATIONAL_ENGINE_PORT                    = "8000"
-    CONVERSATIONAL_ENGINE_LOG_LEVEL               = "INFO"
-    CONVERSATIONAL_ENGINE_BACKEND_BASE_URL        = "https://${local.api_domain}/api"
-    CONVERSATIONAL_ENGINE_LLM_BASE_URL            = "https://api.openai.com/v1"
-    CONVERSATIONAL_ENGINE_GEMINI_BASE_URL         = "https://generativelanguage.googleapis.com/v1beta"
-    CONVERSATIONAL_ENGINE_DEEPSEEK_BASE_URL       = "https://api.deepseek.com/v1"
-    CONVERSATIONAL_ENGINE_MODEL_BEST              = "gpt-4.1"
-    CONVERSATIONAL_ENGINE_MODEL_OK                = "gpt-4.1-mini"
-    CONVERSATIONAL_ENGINE_EMBEDDINGS_MODEL        = "text-embedding-3-small"
-    CONVERSATIONAL_ENGINE_AGENT_MODEL_TIERS       = "products:best,purchasing:best,inventory:ok,reporting:ok,help:ok,orchestrator_classifier:ok"
-    CONVERSATIONAL_ENGINE_PLANNER_PROVIDER_CHAIN  = "openai,deepseek"
-    CONVERSATIONAL_ENGINE_EXECUTOR_PROVIDER_CHAIN = "openai,deepseek"
-    CONVERSATIONAL_ENGINE_REVIEWER_PROVIDER_CHAIN = "openai,deepseek"
-    CONVERSATIONAL_ENGINE_NARRATOR_PROVIDER_CHAIN = "openai,deepseek"
-    CONVERSATIONAL_ENGINE_OPENAI_PLANNER_MODEL    = "gpt-4.1"
-    CONVERSATIONAL_ENGINE_OPENAI_EXECUTOR_MODEL   = "gpt-4.1-mini"
-    CONVERSATIONAL_ENGINE_OPENAI_REVIEWER_MODEL   = "gpt-4.1"
-    CONVERSATIONAL_ENGINE_OPENAI_NARRATOR_MODEL   = "gpt-4.1-mini"
-    CONVERSATIONAL_ENGINE_GEMINI_PLANNER_MODEL    = "gemini-2.5-flash"
-    CONVERSATIONAL_ENGINE_GEMINI_EXECUTOR_MODEL   = "gemini-2.5-flash"
-    CONVERSATIONAL_ENGINE_GEMINI_REVIEWER_MODEL   = "gemini-2.5-flash"
-    CONVERSATIONAL_ENGINE_GEMINI_NARRATOR_MODEL   = "gemini-2.5-flash"
-    CONVERSATIONAL_ENGINE_DEEPSEEK_PLANNER_MODEL  = "deepseek-chat"
-    CONVERSATIONAL_ENGINE_DEEPSEEK_EXECUTOR_MODEL = "deepseek-chat"
-    CONVERSATIONAL_ENGINE_DEEPSEEK_REVIEWER_MODEL = "deepseek-chat"
-    CONVERSATIONAL_ENGINE_DEEPSEEK_NARRATOR_MODEL = "deepseek-chat"
-    CONVERSATIONAL_ENGINE_FEATURE_ENABLED         = "true"
-    CONVERSATIONAL_ENGINE_MUTATIONS_ENABLED       = "false"
-    CONVERSATIONAL_ENGINE_RETRIEVAL_ENABLED       = "false"
-    CONVERSATIONAL_ENGINE_CORS_ORIGINS            = "https://${local.admin_domain},https://${local.superadmin_domain}"
+    CONVERSATIONAL_ENGINE_AI_MEMORY_BACKEND          = "mongo"
+    CONVERSATIONAL_ENGINE_ENV                        = "production"
+    CONVERSATIONAL_ENGINE_HOST                       = "0.0.0.0"
+    CONVERSATIONAL_ENGINE_PORT                       = "8000"
+    CONVERSATIONAL_ENGINE_LOG_LEVEL                  = "INFO"
+    CONVERSATIONAL_ENGINE_MONGO_DATABASE             = "ecom_ai"
+    CONVERSATIONAL_ENGINE_AWS_REGION                 = var.aws_region
+    CONVERSATIONAL_ENGINE_S3_CHAT_ATTACHMENTS_BUCKET = local.media_bucket_name
+    CONVERSATIONAL_ENGINE_BACKEND_BASE_URL           = "https://${local.api_domain}/api"
+    CONVERSATIONAL_ENGINE_LLM_BASE_URL               = "https://api.openai.com/v1"
+    CONVERSATIONAL_ENGINE_GEMINI_BASE_URL            = "https://generativelanguage.googleapis.com/v1beta"
+    CONVERSATIONAL_ENGINE_DEEPSEEK_BASE_URL          = "https://api.deepseek.com/v1"
+    CONVERSATIONAL_ENGINE_MODEL_BEST                 = "gpt-4.1"
+    CONVERSATIONAL_ENGINE_MODEL_OK                   = "gpt-4.1-mini"
+    CONVERSATIONAL_ENGINE_EMBEDDINGS_MODEL           = "text-embedding-3-small"
+    CONVERSATIONAL_ENGINE_AGENT_MODEL_TIERS          = "products:best,purchasing:best,inventory:ok,reporting:ok,help:ok,orchestrator_classifier:ok"
+    CONVERSATIONAL_ENGINE_PLANNER_PROVIDER_CHAIN     = "openai,deepseek"
+    CONVERSATIONAL_ENGINE_EXECUTOR_PROVIDER_CHAIN    = "openai,deepseek"
+    CONVERSATIONAL_ENGINE_REVIEWER_PROVIDER_CHAIN    = "openai,deepseek"
+    CONVERSATIONAL_ENGINE_NARRATOR_PROVIDER_CHAIN    = "openai,deepseek"
+    CONVERSATIONAL_ENGINE_OPENAI_PLANNER_MODEL       = "gpt-4.1"
+    CONVERSATIONAL_ENGINE_OPENAI_EXECUTOR_MODEL      = "gpt-4.1-mini"
+    CONVERSATIONAL_ENGINE_OPENAI_REVIEWER_MODEL      = "gpt-4.1"
+    CONVERSATIONAL_ENGINE_OPENAI_NARRATOR_MODEL      = "gpt-4.1-mini"
+    CONVERSATIONAL_ENGINE_GEMINI_PLANNER_MODEL       = "gemini-2.5-flash"
+    CONVERSATIONAL_ENGINE_GEMINI_EXECUTOR_MODEL      = "gemini-2.5-flash"
+    CONVERSATIONAL_ENGINE_GEMINI_REVIEWER_MODEL      = "gemini-2.5-flash"
+    CONVERSATIONAL_ENGINE_GEMINI_NARRATOR_MODEL      = "gemini-2.5-flash"
+    CONVERSATIONAL_ENGINE_DEEPSEEK_PLANNER_MODEL     = "deepseek-chat"
+    CONVERSATIONAL_ENGINE_DEEPSEEK_EXECUTOR_MODEL    = "deepseek-chat"
+    CONVERSATIONAL_ENGINE_DEEPSEEK_REVIEWER_MODEL    = "deepseek-chat"
+    CONVERSATIONAL_ENGINE_DEEPSEEK_NARRATOR_MODEL    = "deepseek-chat"
+    CONVERSATIONAL_ENGINE_FEATURE_ENABLED            = "true"
+    CONVERSATIONAL_ENGINE_MUTATIONS_ENABLED          = "false"
+    CONVERSATIONAL_ENGINE_RETRIEVAL_ENABLED          = "false"
+    CONVERSATIONAL_ENGINE_CORS_ORIGINS               = "https://${local.admin_domain},https://${local.superadmin_domain}"
   }
 
   engine_ssm_parameters = {
@@ -138,6 +142,8 @@ locals {
 
   engine_secret_names = toset([
     "CONVERSATIONAL_ENGINE_DATABASE_URL",
+    "CONVERSATIONAL_ENGINE_MONGO_URI",
+    "CONVERSATIONAL_ENGINE_REDIS_URL",
     "CONVERSATIONAL_ENGINE_LLM_API_KEY",
     "CONVERSATIONAL_ENGINE_GEMINI_API_KEY",
     "CONVERSATIONAL_ENGINE_DEEPSEEK_API_KEY",

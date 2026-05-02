@@ -35,11 +35,20 @@ class SemanticToolCatalog:
     def get(self, name: str) -> SemanticTool | None:
         return self._tools.get(name)
 
+    async def prepare(self, name: str, payload: dict[str, Any]) -> dict[str, Any]:
+        tool = self.get(name)
+        if tool is None:
+            raise RuntimeError(f'Unknown semantic tool: {name}')
+        if tool.preparer is None:
+            return payload
+        return await tool.preparer(payload)
+
     async def invoke(self, name: str, payload: dict[str, Any]) -> dict[str, Any]:
         tool = self.get(name)
         if tool is None:
             raise RuntimeError(f'Unknown semantic tool: {name}')
-        return await tool.executor(payload)
+        prepared = await self.prepare(name, payload)
+        return await tool.executor(prepared)
 
     def _build_tools(self) -> dict[str, SemanticTool]:
         resolver = EntityResolver(self._backend, self._auth)

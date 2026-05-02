@@ -13,12 +13,13 @@ import { AssistantMessageBlocks } from './assistant-message-blocks';
 
 type Attachment = {
   id: string;
+  file: File;
   filename: string;
   mimeType: string;
-  textContent: string | null;
   isImage: boolean;
-  dataUrl?: string;
   previewUrl?: string;
+  uploadedId?: string | null;
+  uploadedConversationId?: string | null;
 };
 
 type AssistantChatShellProps = {
@@ -116,16 +117,6 @@ export function AssistantChatShell({
   const attachmentsRef = useRef<Attachment[]>([]);
   attachmentsRef.current = attachments;
 
-  const buildContentWithAttachments = useCallback((text: string) => {
-    const current = attachmentsRef.current;
-    if (current.length === 0) return text;
-    const blocks = current.map((a) => {
-      if (a.isImage) return `[Image attached: ${a.filename}]`;
-      return `[File: ${a.filename}]\n---\n${a.textContent ?? ''}\n---`;
-    });
-    return `${blocks.join('\n\n')}\n\n${text}`;
-  }, []);
-
   const handleAttach = useCallback(() => {
     fileInputRef.current?.click();
   }, []);
@@ -140,37 +131,74 @@ export function AssistantChatShell({
 
     for (const file of files) {
       const isImage = file.type.startsWith('image/');
-      const reader = new FileReader();
+      if (!isImage) {
+        setAttachments((prev) => [
+          ...prev,
+          {
+            id: `${Date.now()}-${Math.random()}`,
+            file,
+            filename: file.name,
+            mimeType: file.type,
+            isImage,
+            previewUrl: undefined,
+            uploadedId: null,
+            uploadedConversationId: null,
+          },
+        ]);
+        continue;
+      }
 
+      const reader = new FileReader();
       reader.onload = () => {
         const result = reader.result as string;
         setAttachments((prev) => [
           ...prev,
           {
             id: `${Date.now()}-${Math.random()}`,
+            file,
             filename: file.name,
             mimeType: file.type,
-            textContent: isImage ? null : result,
             isImage,
-            previewUrl: isImage ? result : undefined,
+            previewUrl: result,
+            uploadedId: null,
+            uploadedConversationId: null,
           },
         ]);
       };
-
-      reader.onerror = () => {
-        setError(`Could not read ${file.name}.`);
-      };
-
-      if (isImage) {
-        reader.readAsDataURL(file);
-      } else {
-        reader.readAsText(file);
-      }
+      reader.onerror = () => setError(`Could not read ${file.name}.`);
+      reader.readAsDataURL(file);
     }
   }, []);
 
   const handleRemoveAttachment = useCallback((id: string) => {
     setAttachments((prev) => prev.filter((a) => a.id !== id));
+  }, []);
+
+  const ensureUploadedAttachments = useCallback(async (targetConversationId: string) => {
+    const current = [...attachmentsRef.current];
+    const attachmentIds: string[] = [];
+
+    for (const attachment of current) {
+      if (attachment.uploadedId && attachment.uploadedConversationId === targetConversationId) {
+        attachmentIds.push(attachment.uploadedId);
+        continue;
+      }
+
+      const uploaded = await assistantService.uploadAttachment({
+        conversationId: targetConversationId,
+        file: attachment.file,
+      });
+      attachmentIds.push(uploaded.id);
+      setAttachments((prev) =>
+        prev.map((item) =>
+          item.id === attachment.id
+            ? { ...item, uploadedId: uploaded.id, uploadedConversationId: targetConversationId }
+            : item,
+        ),
+      );
+    }
+
+    return attachmentIds;
   }, []);
 
   const handleCreateConversation = useCallback(async (nextPrompt: string) => {
@@ -184,30 +212,51 @@ export function AssistantChatShell({
     setStatusMessage(null);
     setIsStreamingRun(true);
 
-    const content = buildContentWithAttachments(trimmedPrompt);
-    const imageAttachments = attachmentsRef.current
-      .filter((a) => a.isImage && a.previewUrl)
-      .map((a) => ({ dataUrl: a.previewUrl!, filename: a.filename }));
-
     try {
-      const result = await assistantService.streamRun(
-        {
-          title: trimmedPrompt.slice(0, 60),
-          content,
-          attachments: imageAttachments.length > 0 ? imageAttachments : undefined,
-        },
-        async (event) => {
-          if (event.type === 'plan.updated') {
-            setStatusMessage('Planning next step...');
-          }
-          if (event.type === 'tool.called') {
-            setStatusMessage(`Running ${String(event.payload?.toolName ?? 'tool')}...`);
-          }
-          if (event.type === 'approval.requested') {
-            setStatusMessage('Approval requested.');
-          }
-        },
-      );
+      const hasAttachments = attachmentsRef.current.length > 0;
+      let result: { runId: string | null; conversationId: string | null; workflowId: string | null };
+
+      if (hasAttachments) {
+        const conversation = await assistantService.createConversation({ title: trimmedPrompt.slice(0, 60) });
+        const targetConversationId = conversation.conversation.id;
+        const attachmentIds = await ensureUploadedAttachments(targetConversationId);
+        result = await assistantService.streamRun(
+          {
+            conversationId: targetConversationId,
+            content: trimmedPrompt,
+            attachmentIds,
+          },
+          async (event) => {
+            if (event.type === 'plan.updated') {
+              setStatusMessage('Planning next step...');
+            }
+            if (event.type === 'tool.called') {
+              setStatusMessage(`Running ${String(event.payload?.toolName ?? 'tool')}...`);
+            }
+            if (event.type === 'approval.requested') {
+              setStatusMessage('Approval requested.');
+            }
+          },
+        );
+      } else {
+        result = await assistantService.streamRun(
+          {
+            title: trimmedPrompt.slice(0, 60),
+            content: trimmedPrompt,
+          },
+          async (event) => {
+            if (event.type === 'plan.updated') {
+              setStatusMessage('Planning next step...');
+            }
+            if (event.type === 'tool.called') {
+              setStatusMessage(`Running ${String(event.payload?.toolName ?? 'tool')}...`);
+            }
+            if (event.type === 'approval.requested') {
+              setStatusMessage('Approval requested.');
+            }
+          },
+        );
+      }
 
       setPrompt('');
       setAttachments([]);
@@ -221,7 +270,7 @@ export function AssistantChatShell({
     } finally {
       setIsStreamingRun(false);
     }
-  }, [buildContentWithAttachments, conversationsQuery, router]);
+  }, [conversationsQuery, ensureUploadedAttachments, router]);
 
   const handleSend = useCallback(async () => {
     const trimmedPrompt = prompt.trim();
@@ -239,14 +288,10 @@ export function AssistantChatShell({
     setStatusMessage(null);
     setIsStreamingRun(true);
 
-    const content = buildContentWithAttachments(trimmedPrompt);
-    const imageAttachments = attachmentsRef.current
-      .filter((a) => a.isImage && a.previewUrl)
-      .map((a) => ({ dataUrl: a.previewUrl!, filename: a.filename }));
-
     try {
+      const attachmentIds = await ensureUploadedAttachments(conversationId);
       await assistantService.streamRun(
-        { conversationId, content, attachments: imageAttachments.length > 0 ? imageAttachments : undefined },
+        { conversationId, content: trimmedPrompt, attachmentIds },
         async (event) => {
           if (event.type === 'plan.updated') {
             setStatusMessage('Planning next step...');
@@ -268,7 +313,7 @@ export function AssistantChatShell({
     } finally {
       setIsStreamingRun(false);
     }
-  }, [conversationId, handleCreateConversation, isThreadMode, prompt, refreshConversationViews]);
+  }, [conversationId, ensureUploadedAttachments, handleCreateConversation, isThreadMode, prompt, refreshConversationViews]);
 
   const handleDecision = useCallback(async (nextDecision: 'confirm' | 'cancel' | 'edit' | 'submit_for_approval') => {
     const workflowId = activeConversation?.workflow?.id;
