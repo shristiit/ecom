@@ -187,3 +187,39 @@ async def test_executor_accepts_parameters_alias():
         'basePrice': 21,
         'variants': [{'sizeLabel': 'XL', 'colorName': 'red'}],
     }
+
+
+class MarkdownFenceRouter:
+    async def complete_json(self, **kwargs):
+        del kwargs
+        return ProviderResponse(
+            provider_name='openai',
+            model_name='gpt-4.1-mini',
+            content='{}',
+            parsed={
+                'action': 'tool',
+                'assistantMessage': 'Creating product.',
+                'toolName': 'products.create_product',
+                'toolArguments': None,
+                'toolArgumentsJson': '```json\n{"styleCode":"SAI-12","name":"sai","basePrice":21}\n```',
+                'requiredInputs': [],
+            },
+            raw_payload={},
+        )
+
+
+async def test_executor_strips_markdown_fences_from_tool_arguments_json():
+    agent = ExecutorAgent(MarkdownFenceRouter())  # type: ignore[arg-type]
+
+    proposal = await agent.propose(
+        user_message='create a product',
+        plan={'action': 'tool'},
+        tools=[],
+        history=[],
+    )
+
+    assert proposal['toolArguments'] == {
+        'styleCode': 'SAI-12',
+        'name': 'sai',
+        'basePrice': 21,
+    }

@@ -5,6 +5,7 @@ from typing import Any
 from conversational_engine.clients.backend import BackendClient
 from conversational_engine.contracts.auth import AuthContext
 from conversational_engine.tools.definitions import SemanticTool
+from conversational_engine.tools.validation import ToolSchemaValidationError, validate_payload
 from .commerce import build_commerce_tools
 from .inventory import build_inventory_tools
 from .products import build_product_tools
@@ -34,6 +35,14 @@ class SemanticToolCatalog:
 
     def get(self, name: str) -> SemanticTool | None:
         return self._tools.get(name)
+
+    def validate(self, name: str, payload: dict[str, Any]) -> None:
+        tool = self.get(name)
+        if tool is None:
+            raise RuntimeError(f'Unknown semantic tool: {name}')
+        issues = validate_payload(tool.input_schema, payload)
+        if issues:
+            raise ToolSchemaValidationError(issues)
 
     async def prepare(self, name: str, payload: dict[str, Any]) -> dict[str, Any]:
         tool = self.get(name)

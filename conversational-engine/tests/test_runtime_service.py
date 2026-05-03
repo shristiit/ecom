@@ -5,6 +5,7 @@ from uuid import uuid4
 
 import pytest
 
+from conversational_engine.clients.backend import BackendValidationError
 from conversational_engine.contracts.api import ApprovalRequestStatus, GovernanceEvaluationResponse
 from conversational_engine.contracts.auth import AuthContext
 from conversational_engine.contracts.common import BlockType, WorkflowStatus
@@ -339,6 +340,23 @@ class FakeApprovalBackendClient(FakeBackendClient):
         return GovernanceEvaluationResponse(requires_approval=True, reason='Threshold exceeded')
 
 
+class FlakyReadBackendClient(FakeBackendClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self.stock_attempts = 0
+
+    async def stock_on_hand(self, *args, **kwargs):
+        del args, kwargs
+        self.stock_attempts += 1
+        if self.stock_attempts == 1:
+            raise BackendValidationError(
+                status_code=400,
+                message='sizeId is required',
+                details=['lines.0.sizeId: required'],
+            )
+        return [{'sku_code': 'TSHIRT-BLACK', 'location_code': 'WH-LON', 'available': 12}]
+
+
 def make_auth() -> AuthContext:
     return AuthContext(
         id='user-1',
@@ -378,6 +396,66 @@ async def test_runtime_service_completes_read_flow():
     assert outcome.status == WorkflowStatus.COMPLETED
     assert any(event_type == 'tool.called' for event_type, _payload in events)
     assert not any(block.type == BlockType.TABLE_RESULT for block in outcome.blocks)
+
+
+async def test_runtime_service_clarifies_invalid_read_tool_payload_before_backend_call():
+    backend = FakeBackendClient()
+    service = AgentRuntimeService(
+        backend_client=backend,  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeExecutor('master.search_locations', {}),
+        reviewer=FakeReviewer(),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        state_updater=FakeStateUpdater(),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='show me warehouse locations',
+        extracted_entities={},
+        recent_messages=[],
+        workflow_status=WorkflowStatus.IDLE,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.NEEDS_INPUT
+    assert any(block.type == BlockType.CLARIFICATION for block in outcome.blocks)
+    assert 'query' in outcome.missing_fields
+
+
+async def test_runtime_service_retries_after_backend_validation_error():
+    backend = FlakyReadBackendClient()
+    service = AgentRuntimeService(
+        backend_client=backend,  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeExecutor('inventory.stock_on_hand', {'sku': 'TSHIRT-BLACK'}),
+        reviewer=FakeReviewer(message='Stock is available in London.'),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='show stock for black t-shirt',
+        extracted_entities={},
+        recent_messages=[],
+        workflow_status=WorkflowStatus.IDLE,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.COMPLETED
+    assert backend.stock_attempts == 2
 
 
 async def test_runtime_service_includes_table_when_user_requests_full_details():

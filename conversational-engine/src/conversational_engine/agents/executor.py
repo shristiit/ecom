@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-import json
 from typing import Any
 
 from conversational_engine.providers.router import ProviderRouter, ProviderTrace
 from conversational_engine.providers.runtime import ProviderMessage
+from conversational_engine.utils.json_parsing import parse_json_object, strip_markdown_fences
 
 EXECUTOR_SCHEMA = {
     'type': 'object',
@@ -98,12 +98,12 @@ def _parse_tool_arguments(raw_arguments: Any) -> dict[str, Any] | None:
     if isinstance(raw_arguments, dict):
         return raw_arguments
     if isinstance(raw_arguments, str):
-        stripped = raw_arguments.strip()
+        stripped = strip_markdown_fences(raw_arguments)
         if not stripped:
             return None
         try:
-            decoded = json.loads(stripped)
-        except json.JSONDecodeError:
+            decoded = parse_json_object(stripped, source='Executor')
+        except RuntimeError:
             decoded = _extract_json_object(stripped)
         if not isinstance(decoded, dict):
             raise RuntimeError('Executor returned a non-object tool argument payload')
@@ -112,6 +112,8 @@ def _parse_tool_arguments(raw_arguments: Any) -> dict[str, Any] | None:
 
 
 def _extract_json_object(raw_arguments: str) -> dict[str, Any] | None:
+    import json
+
     decoder = json.JSONDecoder()
     for start in (index for index, char in enumerate(raw_arguments) if char == '{'):
         try:

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-import json
 from typing import Any
 
 from conversational_engine.providers.router import ProviderRouter, ProviderTrace
 from conversational_engine.providers.runtime import ProviderMessage
+from conversational_engine.utils.json_parsing import parse_json_object
 
 STATE_UPDATER_SCHEMA = {
     'type': 'object',
@@ -132,13 +132,7 @@ def _normalize_state_update_payload(parsed: dict[str, Any]) -> dict[str, Any]:
 
     raw_patches = normalized.get('entityPatchesJson')
     if isinstance(raw_patches, str):
-        try:
-            decoded = json.loads(raw_patches)
-        except json.JSONDecodeError as exc:
-            raise RuntimeError('State updater returned invalid entityPatchesJson') from exc
-        if not isinstance(decoded, dict):
-            raise RuntimeError('State updater returned non-object entityPatchesJson')
-        normalized['entityPatches'] = decoded
+        normalized['entityPatches'] = parse_json_object(raw_patches, source='State updater')
     elif isinstance(raw_patches, dict):
         normalized['entityPatches'] = raw_patches
     else:
