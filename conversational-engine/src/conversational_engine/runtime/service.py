@@ -137,6 +137,17 @@ class AgentRuntimeService:
                     extracted_entities=mark_task_status(current_entities, 'completed'),
                 )
 
+            if state_update.primary_intent == 'off_topic':
+                message = (
+                    'I can help with inventory, products, purchasing, sales orders, suppliers, customers, and reports.'
+                )
+                return RuntimeOutcome(
+                    blocks=render_tool_result(message, 'assistant.response', {}),
+                    status=WorkflowStatus.COMPLETED,
+                    current_task='off_topic_redirected',
+                    extracted_entities=mark_task_status(current_entities, 'completed'),
+                )
+
             for post_action in state_update.new_post_actions:
                 route = post_action.get('route')
                 emit(
@@ -666,6 +677,20 @@ class AgentRuntimeService:
                     )
 
                 if review.get('action') == 'complete':
+                    if self._tool_result_has_no_matches(tool_result):
+                        return RuntimeOutcome(
+                            blocks=render_tool_result("I couldn't find any matches.", tool_name, tool_result),
+                            status=WorkflowStatus.COMPLETED,
+                            current_task='completed',
+                            extracted_entities=mark_task_status(
+                                {
+                                    **current_entities,
+                                    'lastToolName': tool_name,
+                                },
+                                'completed',
+                                clear_post_actions=True,
+                            ),
+                        )
                     message = await self._run_phase(
                         emit=emit,
                         conversation_id=conversation_id,
@@ -1245,6 +1270,11 @@ class AgentRuntimeService:
             'Reply to the user in one short sentence that matches their tone, '
             'acknowledges their message, and invites them to continue.'
         )
+
+    @staticmethod
+    def _tool_result_has_no_matches(tool_result: dict[str, object]) -> bool:
+        rows = tool_result.get('rows')
+        return isinstance(rows, list) and len(rows) == 0
 
     @staticmethod
     def _fallback_clarification_for_intent(primary_intent: str) -> tuple[str, list[str]]:

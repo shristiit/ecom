@@ -149,6 +149,18 @@ class OrchestratorService:
 
         intent = await self._classify_intent_with_providers(user_message, memory, workflow)
         memory['intent'] = intent
+        if intent == 'off_topic':
+            return OrchestratorOutcome(
+                blocks=[
+                    TextBlock(
+                        content='I can help with inventory, products, purchasing, sales orders, suppliers, customers, and reports.'
+                    )
+                ],
+                status=WorkflowStatus.COMPLETED,
+                current_task='off_topic_redirected',
+                extracted_entities=memory,
+                missing_fields=[],
+            )
         await self._audit(
             auth,
             conversation_id=str(conversation.id),

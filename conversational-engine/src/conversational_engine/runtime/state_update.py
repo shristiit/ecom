@@ -22,6 +22,34 @@ _NAVIGATION_PREFIXES = (
     'show me ',
     'show ',
 )
+_INVENTORY_KEYWORDS = (
+    'stock',
+    'inventory',
+    'product',
+    'products',
+    'sku',
+    'size',
+    'sizes',
+    'color',
+    'colors',
+    'purchase',
+    'supplier',
+    'customer',
+    'invoice',
+    'sales order',
+    'warehouse',
+    'location',
+    'report',
+    'movement',
+    'receipt',
+    'transfer',
+    'adjust',
+    'write off',
+    'category',
+    'brand',
+    'price',
+)
+_NON_DOMAIN_SMALL_TALK = ('hi', 'hello', 'thanks', 'thank you')
 _MASTER_CREATE_VERBS = r'(create|add|new|onboard|register)'
 _MASTER_UPDATE_VERBS = r'(update|edit|change|rename)'
 _MASTER_DELETE_VERBS = r'(delete|remove)'
@@ -360,7 +388,25 @@ def _resolve_primary_route_and_intent(text: str) -> tuple[str, str, str, float]:
                 0.96,
             )
 
+    if _is_off_topic(normalized):
+        return (ROUTE_READ, 'off_topic', 'Detected a request outside the inventory domain.', 0.95)
+
     return (ROUTE_READ, 'inventory.stock_on_hand', 'Defaulted to a read workflow.', 0.42)
+
+
+def _is_off_topic(normalized: str) -> bool:
+    if not normalized:
+        return False
+    if normalized in _NON_DOMAIN_SMALL_TALK:
+        return False
+    if any(keyword in normalized for keyword in _INVENTORY_KEYWORDS):
+        return False
+    if any(normalized.startswith(prefix.strip()) for prefix in _NAVIGATION_PREFIXES):
+        return False
+    tokens = re.findall(r"[a-z0-9']+", normalized)
+    if len(tokens) <= 3:
+        return False
+    return True
 
 
 async def _resolve_navigation_rows(

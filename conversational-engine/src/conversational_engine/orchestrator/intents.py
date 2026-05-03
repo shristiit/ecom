@@ -11,6 +11,28 @@ WRITE_PENDING_ACTIONS = [
     PendingActionType.EDIT.value,
     PendingActionType.SUBMIT_FOR_APPROVAL.value,
 ]
+INVENTORY_KEYWORDS = (
+    'stock',
+    'inventory',
+    'product',
+    'sku',
+    'purchase order',
+    'po',
+    'supplier',
+    'customer',
+    'invoice',
+    'sales order',
+    'warehouse',
+    'location',
+    'report',
+    'movement',
+    'receipt',
+    'transfer',
+    'adjust',
+    'category',
+    'brand',
+    'price',
+)
 
 
 def classify_intent(message: str, memory: dict[str, object]) -> str:
@@ -106,4 +128,13 @@ def classify_intent(message: str, memory: dict[str, object]) -> str:
         return 'stock_query'
     if any(phrase in normalized for phrase in ['purchase order', 'po ']):
         return 'reporting_query'
+    if _is_off_topic(normalized):
+        return 'off_topic'
     return str(memory.get('intent') or 'navigation_help')
+
+
+def _is_off_topic(normalized: str) -> bool:
+    if any(keyword in normalized for keyword in INVENTORY_KEYWORDS):
+        return False
+    tokens = normalized.split()
+    return len(tokens) > 3

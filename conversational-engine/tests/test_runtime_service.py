@@ -357,6 +357,12 @@ class FlakyReadBackendClient(FakeBackendClient):
         return [{'sku_code': 'TSHIRT-BLACK', 'location_code': 'WH-LON', 'available': 12}]
 
 
+class EmptyResultsBackendClient(FakeBackendClient):
+    async def stock_on_hand(self, *args, **kwargs):
+        del args, kwargs
+        return []
+
+
 def make_auth() -> AuthContext:
     return AuthContext(
         id='user-1',
@@ -456,6 +462,76 @@ async def test_runtime_service_retries_after_backend_validation_error():
 
     assert outcome.status == WorkflowStatus.COMPLETED
     assert backend.stock_attempts == 2
+
+
+async def test_runtime_service_redirects_off_topic_requests():
+    service = AgentRuntimeService(
+        backend_client=FakeBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeExecutor('inventory.stock_on_hand', {'sku': 'TSHIRT-BLACK'}),
+        reviewer=FakeReviewer(),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        state_updater=FakeStateUpdater(
+            {
+                'what is the size of the earth': {
+                    'useActiveWorkflow': False,
+                    'primaryRoute': 'read',
+                    'primaryIntent': 'off_topic',
+                    'confidence': 0.99,
+                    'rationale': 'Outside the supported inventory domain.',
+                    'entityPatches': {},
+                    'navigationQuery': None,
+                    'postActionQuery': None,
+                }
+            }
+        ),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='what is the size of the earth',
+        extracted_entities={},
+        recent_messages=[],
+        workflow_status=WorkflowStatus.IDLE,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.COMPLETED
+    assert 'inventory' in outcome.blocks[0].content.lower()
+
+
+async def test_runtime_service_returns_no_matches_without_narrator_hallucination():
+    service = AgentRuntimeService(
+        backend_client=EmptyResultsBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeExecutor('inventory.stock_on_hand', {'sku': 'TSHIRT-BLACK'}),
+        reviewer=FakeReviewer(message='This should be ignored.'),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='show stock for black t-shirt',
+        extracted_entities={},
+        recent_messages=[],
+        workflow_status=WorkflowStatus.IDLE,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.COMPLETED
+    assert outcome.blocks[0].content == "I couldn't find any matches."
 
 
 async def test_runtime_service_includes_table_when_user_requests_full_details():
