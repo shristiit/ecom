@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-EMAIL_RE = re.compile(r'[\w.+-]+@[\w.-]+\.\w+')
+EMAIL_RE = re.compile(r'[A-Za-z0-9._+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}')
 UUID_RE = re.compile(r'\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b', re.IGNORECASE)
 TOKEN_RE = re.compile(r'Bearer\s+[A-Za-z0-9._-]+', re.IGNORECASE)
 PHONE_RE = re.compile(r'\b(?:\+\d{1,3}[\s.-]?)?(?:\(?\d{2,4}\)?[\s.-]?){2,3}\d{3,4}\b')

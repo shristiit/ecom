@@ -239,6 +239,10 @@ class InventoryAgent(Agent):
                     rows=rows[:25],
                 ),
             ]
+            if len(rows) > 25:
+                blocks.append(
+                    TextBlock(content='Showing the first 25 stock rows. Refine the search to narrow the result.')
+                )
             return AgentTurnResult(next_action='return_read_result', memory_updates=memory_updates, blocks=blocks)
 
         missing_fields = self._missing_fields(intent, merged)

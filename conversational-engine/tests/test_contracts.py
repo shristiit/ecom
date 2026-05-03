@@ -1,3 +1,6 @@
+import pytest
+from pydantic import ValidationError
+
 from uuid import uuid4
 
 from conversational_engine.contracts.api import ConversationResponse
@@ -12,6 +15,8 @@ from conversational_engine.contracts.common import (
     WorkflowState,
     WorkflowStatus,
 )
+from conversational_engine.contracts.runs import RunRequest
+from conversational_engine.utils.casing import to_camel
 from conversational_engine.utils.time import utc_now
 
 
@@ -56,3 +61,12 @@ def test_conversation_response_serializes_camel_case_aliases():
     assert payload['workflow']['currentTask'] == 'stock_transfer'
     assert payload['messages'][0]['blocks'][1]['type'] == 'confirmation_required'
     assert payload['messages'][0]['blocks'][1]['allowedActions'] == ['confirm', 'cancel']
+
+
+def test_run_request_enforces_content_length():
+    with pytest.raises(ValidationError):
+        RunRequest(content='x' * 4001)
+
+
+def test_to_camel_skips_empty_underscore_parts():
+    assert to_camel('__pending_action') == 'pendingAction'
