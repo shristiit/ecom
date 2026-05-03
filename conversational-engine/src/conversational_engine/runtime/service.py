@@ -1103,6 +1103,7 @@ class AgentRuntimeService:
                 tool_arguments=tool_arguments,
                 approval_required=evaluation.requires_approval,
                 confirmation_prompt=confirmation_prompt,
+                actor=auth.email,
             ),
             status=WorkflowStatus.AWAITING_CONFIRMATION,
             current_task='awaiting_confirmation',
