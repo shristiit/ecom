@@ -771,6 +771,38 @@ async def test_runtime_service_clarifies_missing_required_fields_before_confirma
     assert 'color_name' in outcome.missing_fields
 
 
+async def test_runtime_service_confirmation_preview_uses_authenticated_actor():
+    service = AgentRuntimeService(
+        backend_client=FakeApprovalBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeExecutor(
+            'master.create_customer',
+            {'name': 'Helen Fields', 'email': 'helen@example.com'},
+        ),
+        reviewer=FakeReviewer(),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='create customer Helen Fields',
+        extracted_entities={},
+        recent_messages=[],
+        workflow_status=WorkflowStatus.IDLE,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    preview_blocks = [block for block in outcome.blocks if block.type == BlockType.PREVIEW]
+    assert outcome.status == WorkflowStatus.AWAITING_CONFIRMATION
+    assert preview_blocks[0].actor == 'ops@example.com'
+
+
 async def test_runtime_service_clarifies_missing_customer_name_before_confirmation():
     service = AgentRuntimeService(
         backend_client=FakeApprovalBackendClient(),  # type: ignore[arg-type]

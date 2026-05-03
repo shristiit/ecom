@@ -82,6 +82,7 @@ class RuntimeDecisionHandler:
                         approval_id=approval_id,
                         tool_name=restored_tool_name,
                         tool_arguments=restored_payload,
+                        actor=auth.email,
                     ),
                     status=WorkflowStatus.AWAITING_APPROVAL,
                     current_task='awaiting_approval',
@@ -157,6 +158,7 @@ class RuntimeDecisionHandler:
                 'workflowId': str(workflow_id),
                 'summary': str(memory.get('summary') or tool_name),
                 'reason': str(memory.get('approvalReason') or 'Approval required by policy.'),
+                'requestedBy': auth.email,
                 'preview': memory.get('preview') if isinstance(memory.get('preview'), dict) else {},
                 'executionPayload': execution_payload,
             }
@@ -200,6 +202,7 @@ class RuntimeDecisionHandler:
                     approval_id=approval.id,
                     tool_name=tool_name,
                     tool_arguments=execution_payload,
+                    actor=auth.email,
                 ),
                 status=WorkflowStatus.AWAITING_APPROVAL,
                 current_task='awaiting_approval',

@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
+from fastapi import HTTPException, status
+
 from conversational_engine.ai.attachments import S3AttachmentService
 from conversational_engine.ai.redis_cache import RedisActiveStateCache
 from conversational_engine.ai.repository import AIRepository
@@ -103,6 +105,7 @@ class ConversationService:
         )
         if result is None:
             return None
+        self._ensure_conversation_access(auth, result.conversation)
         safe_workflow = self._outcome_store.sanitize_workflow(result.workflow)
         message_page = MessagePageInfo(
             next_cursor_created_at=result.page.next_cursor_created_at.isoformat()
@@ -133,6 +136,7 @@ class ConversationService:
         )
         if current is None or current.workflow is None:
             return None
+        self._ensure_conversation_access(auth, current.conversation)
         await self._runtime_runner.run_message(
             auth=auth,
             conversation=current.conversation,
@@ -170,6 +174,7 @@ class ConversationService:
             )
 
         conversation, _existing_workflow = conversation_lookup
+        self._ensure_conversation_access(auth, conversation)
         if workflow.extracted_entities.get('_workflowEngine') == 'runtime':
             outcome = await self._runtime_decision_handler.apply(
                 auth=auth,
@@ -203,6 +208,22 @@ class ConversationService:
         approval_id: UUID,
         approve: bool,
     ) -> ApprovalDecisionResponse:
+        approval = await self._backend_client.get_approval_request(
+            access_token=auth.access_token or '',
+            tenant_id=auth.tenant_id,
+            approval_id=str(approval_id),
+        )
+
+        if approval.conversation_id:
+            current = await self._repository.get_conversation(
+                auth.tenant_id,
+                approval.conversation_id,
+                message_limit=self._settings.chat_recent_message_limit,
+            )
+            if current is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Conversation not found.')
+            self._ensure_conversation_access(auth, current.conversation)
+
         result = await self._backend_client.decide_approval(
             access_token=auth.access_token or '',
             tenant_id=auth.tenant_id,
@@ -233,3 +254,16 @@ class ConversationService:
                 )
 
         return result
+
+    def _ensure_conversation_access(self, auth: AuthContext, conversation) -> None:
+        owner_id = getattr(conversation, 'created_by', None)
+        if owner_id is None or owner_id == auth.id or self._is_admin(auth):
+            return
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail='You do not have access to this conversation.',
+        )
+
+    @staticmethod
+    def _is_admin(auth: AuthContext) -> bool:
+        return any('admin' in permission.lower() for permission in auth.permissions)

@@ -93,6 +93,7 @@ def _conversation_from_doc(doc: dict[str, Any]) -> ConversationDetail:
         {
             'id': doc['_id'],
             'title': doc['title'],
+            'createdBy': doc.get('createdBy'),
             'createdAt': doc['createdAt'],
             'updatedAt': doc['updatedAt'],
         }
