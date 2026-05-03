@@ -14,6 +14,21 @@ PARTY_FIELDS = ('name', 'email', 'phone', 'address', 'status')
 LOCATION_FIELDS = ('name', 'code', 'type', 'address', 'status')
 
 
+def commerce_line_schema(*, price_field: str, price_aliases: tuple[str, ...]) -> dict[str, Any]:
+    properties: dict[str, Any] = {
+        'sizeId': {'type': ['string', 'null'], 'description': 'SKU size UUID when already known'},
+        'productName': {'type': ['string', 'null'], 'description': 'Product name used to resolve sizeId'},
+        'sizeLabel': {'type': ['string', 'null'], 'description': 'Size label such as S, M, L, or 32'},
+        'colorName': {'type': ['string', 'null'], 'description': 'Optional colour used to resolve sizeId'},
+        'qty': {'type': ['integer', 'null'], 'description': 'Canonical quantity field expected by the backend'},
+        'quantity': {'type': ['integer', 'null'], 'description': 'Human-friendly quantity alias'},
+        price_field: {'type': ['integer', 'null'], 'description': f'Canonical {price_field} field expected by the backend'},
+    }
+    for alias in price_aliases:
+        properties[alias] = {'type': ['integer', 'null'], 'description': f'Alias for {price_field}'}
+    return object_schema(properties)
+
+
 def build_commerce_tools(
     backend: BackendClient, auth: AuthContext, resolver: EntityResolver
 ) -> dict[str, SemanticTool]:
@@ -86,6 +101,70 @@ def build_commerce_tools(
             if isinstance(value, str) and value.strip():
                 return value.strip()
         return ''
+
+    def as_positive_int(value: Any, *, field_name: str) -> int:
+        try:
+            normalized = int(value)
+        except (TypeError, ValueError) as exc:
+            raise ToolPreparationError(f'{field_name} must be a positive integer.', ['lines']) from exc
+        if normalized <= 0:
+            raise ToolPreparationError(f'{field_name} must be a positive integer.', ['lines'])
+        return normalized
+
+    def as_non_negative_int(value: Any, *, field_name: str) -> int:
+        try:
+            normalized = int(value)
+        except (TypeError, ValueError) as exc:
+            raise ToolPreparationError(f'{field_name} must be a non-negative integer.', ['lines']) from exc
+        if normalized < 0:
+            raise ToolPreparationError(f'{field_name} must be a non-negative integer.', ['lines'])
+        return normalized
+
+    async def resolve_commerce_line(
+        raw_line: dict[str, Any],
+        *,
+        price_field: str,
+        price_aliases: tuple[str, ...],
+        allow_price_lookup: bool,
+    ) -> dict[str, Any]:
+        qty = raw_line.get('qty', raw_line.get('quantity'))
+        if qty is None:
+            raise ToolPreparationError('Each line needs a quantity.', ['lines'])
+
+        price_value = raw_line.get(price_field)
+        if price_value is None:
+            for alias in price_aliases:
+                candidate = raw_line.get(alias)
+                if candidate is not None:
+                    price_value = candidate
+                    break
+
+        size_id = str(raw_line.get('sizeId') or '').strip()
+        resolved_price_value = price_value
+        if not size_id or resolved_price_value is None:
+            try:
+                details = await resolver.sku_size_details(
+                    str(raw_line.get('productName') or '').strip(),
+                    str(raw_line.get('sizeLabel') or '').strip(),
+                    str(raw_line.get('colorName') or '').strip() or None,
+                )
+            except ValueError as exc:
+                raise ToolPreparationError(str(exc), ['lines']) from exc
+            size_id = size_id or str(details['sizeId'])
+            if allow_price_lookup and resolved_price_value is None:
+                resolved_price_value = details.get(price_field)
+
+        if not size_id:
+            raise ToolPreparationError('Each line needs a sizeId or a product/size reference.', ['lines'])
+
+        if resolved_price_value is None:
+            raise ToolPreparationError(f'Each line needs {price_field}.', ['lines'])
+
+        return {
+            'sizeId': size_id,
+            'qty': as_positive_int(qty, field_name='Quantity'),
+            price_field: as_non_negative_int(resolved_price_value, field_name=price_field),
+        }
 
     async def search_locations(payload: dict[str, Any]) -> dict[str, Any]:
         items = await backend.list_locations(token, tenant)
@@ -287,30 +366,13 @@ def build_commerce_tools(
                     'Reply with PO lines in the format `SKUCODE/SIZE xQTY @UNIT_COST`, separated by commas.',
                     ['lines'],
                 )
-
-            qty = raw_line.get('qty', raw_line.get('quantity'))
-            unit_cost = raw_line.get('unitCost', raw_line.get('cost'))
-            if qty is None or int(qty) <= 0 or unit_cost is None:
-                raise ToolPreparationError(
-                    'Each PO line needs an item, quantity, and unit cost.',
-                    ['lines'],
-                )
-
-            size_id = str(raw_line.get('sizeId') or '').strip()
-            if size_id:
-                resolved_size_id = size_id
-            else:
-                try:
-                    resolved_size_id = await resolver.size_from_payload(raw_line)
-                except ValueError as exc:
-                    raise ToolPreparationError(str(exc), ['lines']) from exc
-
             resolved_lines.append(
-                {
-                    'sizeId': resolved_size_id,
-                    'qty': int(qty),
-                    'unitCost': int(unit_cost),
-                }
+                await resolve_commerce_line(
+                    raw_line,
+                    price_field='unitCost',
+                    price_aliases=('cost', 'unit_price', 'price'),
+                    allow_price_lookup=False,
+                )
             )
 
         resolved['lines'] = resolved_lines
@@ -377,7 +439,7 @@ def build_commerce_tools(
             if not isinstance(raw_line, dict):
                 raise ToolPreparationError('Each purchase order receipt line must be an object.', ['lines'])
             qty = raw_line.get('qty', raw_line.get('quantity'))
-            if qty is None or int(qty) <= 0:
+            if qty is None:
                 raise ToolPreparationError('Each purchase order receipt line needs a quantity.', ['lines'])
 
             size_id = str(raw_line.get('sizeId') or '').strip()
@@ -395,7 +457,13 @@ def build_commerce_tools(
                     ['lines'],
                 )
 
-            resolved_lines.append({'sizeId': size_id, 'qty': int(qty), 'unitCost': int(unit_cost)})
+            resolved_lines.append(
+                {
+                    'sizeId': size_id,
+                    'qty': as_positive_int(qty, field_name='Quantity'),
+                    'unitCost': as_non_negative_int(unit_cost, field_name='unitCost'),
+                }
+            )
 
         resolved['lines'] = resolved_lines
         resolved['confirm'] = True
@@ -440,33 +508,13 @@ def build_commerce_tools(
                     'Reply with sales order lines that include item, size, and quantity.',
                     ['lines'],
                 )
-
-            line_size_id = str(raw_line.get('sizeId') or '').strip()
-            qty = raw_line.get('qty', raw_line.get('quantity'))
-            unit_price = raw_line.get('unitPrice')
-
-            if qty is None or int(qty) <= 0:
-                raise ToolPreparationError('Each sales order line needs an item and quantity.', ['lines'])
-
-            if not line_size_id or unit_price is None:
-                try:
-                    details = await resolver.sku_size_details(
-                        str(raw_line.get('productName') or '').strip(),
-                        str(raw_line.get('sizeLabel') or '').strip(),
-                        str(raw_line.get('colorName') or '').strip() or None,
-                    )
-                except ValueError as exc:
-                    raise ToolPreparationError(str(exc), ['lines']) from exc
-                line_size_id = str(details['sizeId'])
-                if unit_price is None:
-                    unit_price = details['unitPrice']
-
             resolved_lines.append(
-                {
-                    'sizeId': line_size_id,
-                    'qty': int(qty),
-                    'unitPrice': int(unit_price),
-                }
+                await resolve_commerce_line(
+                    raw_line,
+                    price_field='unitPrice',
+                    price_aliases=('unit_price', 'price'),
+                    allow_price_lookup=True,
+                )
             )
 
         resolved['lines'] = resolved_lines
@@ -707,7 +755,7 @@ def build_commerce_tools(
                 {
                     'supplierId': {'type': 'string', 'description': 'Supplier name or UUID'},
                     'expectedDate': {'type': ['string', 'null']},
-                    'lines': {'type': 'array', 'items': {'type': 'object'}},
+                    'lines': {'type': 'array', 'items': commerce_line_schema(price_field='unitCost', price_aliases=('cost', 'unit_price', 'price')), 'minItems': 1},
                 },
                 ['supplierId', 'lines'],
             ),
@@ -724,7 +772,11 @@ def build_commerce_tools(
                 {
                     'poId': {'type': 'string', 'description': 'Purchase order number or UUID'},
                     'locationId': {'type': 'string', 'description': 'Location name, code, or UUID'},
-                    'lines': {'type': ['array', 'null'], 'items': {'type': 'object'}},
+                    'lines': {
+                        'type': ['array', 'null'],
+                        'items': commerce_line_schema(price_field='unitCost', price_aliases=('cost', 'unit_price', 'price')),
+                        'minItems': 1,
+                    },
                 },
                 ['poId', 'locationId'],
             ),
@@ -753,7 +805,7 @@ def build_commerce_tools(
             input_schema=object_schema(
                 {
                     'customerId': {'type': 'string', 'description': 'Customer name, email, or UUID'},
-                    'lines': {'type': 'array', 'items': {'type': 'object'}},
+                    'lines': {'type': 'array', 'items': commerce_line_schema(price_field='unitPrice', price_aliases=('unit_price', 'price')), 'minItems': 1},
                 },
                 ['customerId', 'lines'],
             ),
