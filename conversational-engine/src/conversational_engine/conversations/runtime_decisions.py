@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from uuid import UUID
 
+from conversational_engine.audit.service import AuditService
 from conversational_engine.clients.backend import BackendClient, idempotency_scope
 from conversational_engine.contracts.auth import AuthContext
 from conversational_engine.contracts.common import (
@@ -19,8 +20,9 @@ logger = logging.getLogger(__name__)
 
 
 class RuntimeDecisionHandler:
-    def __init__(self, backend_client: BackendClient) -> None:
+    def __init__(self, backend_client: BackendClient, *, audit_service: AuditService | None = None) -> None:
         self._backend_client = backend_client
+        self._audit_service = audit_service
 
     @staticmethod
     def _restore_pending_approval_state(memory: dict[str, object]) -> tuple[str, dict[str, object]]:
@@ -192,6 +194,20 @@ class RuntimeDecisionHandler:
                     extracted_entities=memory,
                     missing_fields=[],
                 )
+            await self._record_audit_event(
+                auth=auth,
+                conversation_id=str(conversation_id),
+                workflow_id=str(workflow_id),
+                approval_id=str(approval.id),
+                event_type='approval_updated' if is_pending_approval_update else 'approval_created',
+                tool_name=tool_name,
+                payload={
+                    'actionType': tool_name,
+                    'summary': str(memory.get('summary') or tool_name),
+                    'status': approval.status,
+                    'executionPayload': execution_payload,
+                },
+            )
             memory['activeApprovalId'] = str(approval.id)
             memory['activeApprovalStatus'] = approval.status
             memory.pop('_pendingApprovalUpdateOriginal', None)
@@ -234,27 +250,20 @@ class RuntimeDecisionHandler:
         memory.pop('activeApprovalStatus', None)
         memory.pop('_pendingApprovalUpdateOriginal', None)
         memory.pop('_approvalOperation', None)
-        try:
-            await self._backend_client.record_audit_event(
-                access_token=auth.access_token or '',
-                tenant_id=auth.tenant_id,
-                payload={
-                    'conversationId': str(conversation_id),
-                    'workflowId': str(workflow_id),
-                    'approvalRequestId': str(active_approval_id) if isinstance(active_approval_id, str) and active_approval_id else None,
-                    'eventType': 'execution_result',
-                    'payload': {
-                        'status': 'success',
-                        'toolName': tool_name,
-                        'actionType': tool_name,
-                        'summary': str(memory.get('summary') or tool_name),
-                        'executionPayload': execution_payload,
-                        'result': result,
-                    },
-                },
-            )
-        except Exception:
-            logger.exception('Failed to persist execution audit event for workflow %s', workflow_id)
+        await self._record_audit_event(
+            auth=auth,
+            conversation_id=str(conversation_id),
+            workflow_id=str(workflow_id),
+            approval_id=str(active_approval_id) if isinstance(active_approval_id, str) and active_approval_id else None,
+            event_type='tool_executed',
+            tool_name=tool_name,
+            payload={
+                'actionType': tool_name,
+                'summary': str(memory.get('summary') or tool_name),
+                'executionPayload': execution_payload,
+                'result': result,
+            },
+        )
         post_action_blocks = render_navigation_blocks(build_post_action_blocks(_post_actions_from_memory(memory)))
         next_entities = mark_task_status(memory, 'completed', clear_post_actions=True)
         return OrchestratorOutcome(
@@ -271,6 +280,34 @@ class RuntimeDecisionHandler:
             extracted_entities=next_entities,
             missing_fields=[],
         )
+
+    async def _record_audit_event(
+        self,
+        *,
+        auth: AuthContext,
+        conversation_id: str,
+        workflow_id: str,
+        event_type: str,
+        payload: dict[str, object],
+        tool_name: str | None = None,
+        approval_id: str | None = None,
+    ) -> None:
+        if self._audit_service is None:
+            return
+        try:
+            await self._audit_service.record(
+                tenant_id=auth.tenant_id,
+                user_id=auth.id,
+                actor_email=auth.email,
+                event_type=event_type,
+                conversation_id=conversation_id,
+                workflow_id=workflow_id,
+                approval_id=approval_id,
+                tool_name=tool_name,
+                payload=payload,
+            )
+        except Exception:
+            logger.exception('Failed to persist runtime decision audit event %s', event_type)
 
 
 def _post_actions_from_memory(memory: dict[str, object]) -> list[dict[str, object]]:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 
+from conversational_engine.audit.service import AuditService
 from conversational_engine.clients.backend import BackendClient, idempotency_scope
 from conversational_engine.contracts.auth import AuthContext
 from conversational_engine.contracts.common import ErrorBlock, WorkflowStatus
@@ -15,8 +16,9 @@ logger = logging.getLogger(__name__)
 
 
 class RuntimeApprovalExecutor:
-    def __init__(self, backend_client: BackendClient) -> None:
+    def __init__(self, backend_client: BackendClient, *, audit_service: AuditService | None = None) -> None:
         self._backend_client = backend_client
+        self._audit_service = audit_service
 
     async def execute(self, *, auth: AuthContext, approval) -> OrchestratorOutcome:
         if approval.status not in {'approved', 'auto_approved', 'rejected'}:
@@ -123,27 +125,19 @@ class RuntimeApprovalExecutor:
             )
 
         task_context = approval.preview.get('taskContext') if isinstance(approval.preview, dict) else None
-        try:
-            await self._backend_client.record_audit_event(
-                access_token=auth.access_token or '',
-                tenant_id=auth.tenant_id,
-                payload={
-                    'conversationId': str(approval.conversation_id) if approval.conversation_id else None,
-                    'workflowId': str(approval.workflow_id) if approval.workflow_id else None,
-                    'approvalRequestId': str(approval.id),
-                    'eventType': 'execution_result',
-                    'payload': {
-                        'status': 'success',
-                        'toolName': approval.tool_name,
-                        'actionType': approval.action_type,
-                        'summary': approval.summary,
-                        'executionPayload': approval.execution_payload,
-                        'result': result,
-                    },
-                },
-            )
-        except Exception:
-            pass
+        await self._record_audit_event(
+            auth=auth,
+            approval=approval,
+            event_type='approval_executed',
+            payload={
+                'status': 'success',
+                'toolName': approval.tool_name,
+                'actionType': approval.action_type,
+                'summary': approval.summary,
+                'executionPayload': approval.execution_payload,
+                'result': result,
+            },
+        )
         next_entities = mark_task_status(
             {
                 'lastApprovalId': str(approval.id),
@@ -175,3 +169,28 @@ class RuntimeApprovalExecutor:
             missing_fields=[],
             active_approval_id=None,
         )
+
+    async def _record_audit_event(
+        self,
+        *,
+        auth: AuthContext,
+        approval,
+        event_type: str,
+        payload: dict[str, object],
+    ) -> None:
+        if self._audit_service is None:
+            return
+        try:
+            await self._audit_service.record(
+                tenant_id=auth.tenant_id,
+                user_id=auth.id,
+                actor_email=auth.email,
+                event_type=event_type,
+                conversation_id=str(approval.conversation_id) if approval.conversation_id else None,
+                workflow_id=str(approval.workflow_id) if approval.workflow_id else None,
+                approval_id=str(approval.id),
+                tool_name=approval.tool_name,
+                payload=payload,
+            )
+        except Exception:
+            logger.exception('Failed to persist approval audit event %s', event_type)

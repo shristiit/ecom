@@ -8,6 +8,7 @@ from fastapi import HTTPException, status
 from conversational_engine.ai.attachments import S3AttachmentService
 from conversational_engine.ai.redis_cache import RedisActiveStateCache
 from conversational_engine.ai.repository import AIRepository
+from conversational_engine.audit.service import AuditService
 from conversational_engine.clients.backend import BackendClient
 from conversational_engine.config.settings import Settings
 from conversational_engine.contracts.api import (
@@ -34,12 +35,14 @@ class ConversationService:
         repository: AIRepository,
         backend_client: BackendClient,
         runtime_service: AgentRuntimeService,
+        audit_service: AuditService | None,
         attachment_service: S3AttachmentService,
         redis_cache: RedisActiveStateCache,
         settings: Settings,
     ) -> None:
         self._repository = repository
         self._backend_client = backend_client
+        self._audit_service = audit_service
         self._attachment_service = attachment_service
         self._redis_cache = redis_cache
         self._settings = settings
@@ -51,9 +54,10 @@ class ConversationService:
             attachment_service=attachment_service,
             redis_cache=redis_cache,
             settings=settings,
+            audit_service=audit_service,
         )
-        self._approval_executor = RuntimeApprovalExecutor(backend_client)
-        self._runtime_decision_handler = RuntimeDecisionHandler(backend_client)
+        self._approval_executor = RuntimeApprovalExecutor(backend_client, audit_service=audit_service)
+        self._runtime_decision_handler = RuntimeDecisionHandler(backend_client, audit_service=audit_service)
 
     async def list_conversations(self, auth: AuthContext) -> ConversationListResponse:
         return ConversationListResponse(items=await self._repository.list_conversations(auth.tenant_id))
@@ -235,6 +239,26 @@ class ConversationService:
             tenant_id=auth.tenant_id,
             approval_id=str(approval_id),
         )
+        if not approve and self._audit_service is not None:
+            try:
+                await self._audit_service.record(
+                    tenant_id=auth.tenant_id,
+                    user_id=auth.id,
+                    actor_email=auth.email,
+                    event_type='approval_rejected',
+                    conversation_id=str(approval.conversation_id) if approval.conversation_id else None,
+                    workflow_id=str(approval.workflow_id) if approval.workflow_id else None,
+                    approval_id=str(approval.id),
+                    tool_name=approval.tool_name,
+                    payload={
+                        'actionType': approval.action_type,
+                        'summary': approval.summary,
+                        'status': approval.status,
+                        'executionPayload': approval.execution_payload,
+                    },
+                )
+            except Exception:
+                pass
 
         if approval.workflow_id and approval.conversation_id:
             workflow = await self._repository.find_workflow_by_id(auth.tenant_id, approval.workflow_id)

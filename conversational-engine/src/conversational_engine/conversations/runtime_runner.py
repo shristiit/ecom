@@ -6,6 +6,7 @@ from collections.abc import AsyncIterator, Callable
 from conversational_engine.ai.attachments import S3AttachmentService
 from conversational_engine.ai.redis_cache import RedisActiveStateCache
 from conversational_engine.ai.repository import AIRepository
+from conversational_engine.audit.service import AuditService
 from conversational_engine.config.settings import Settings
 from conversational_engine.contracts.auth import AuthContext
 from conversational_engine.contracts.common import ConversationDetail, MessageRole, TextBlock, WorkflowState, WorkflowStatus
@@ -25,6 +26,7 @@ class ConversationRuntimeRunner:
         attachment_service: S3AttachmentService,
         redis_cache: RedisActiveStateCache,
         settings: Settings,
+        audit_service: AuditService | None = None,
     ) -> None:
         self._repository = repository
         self._runtime_service = runtime_service
@@ -32,6 +34,7 @@ class ConversationRuntimeRunner:
         self._attachment_service = attachment_service
         self._redis_cache = redis_cache
         self._settings = settings
+        self._audit_service = audit_service
 
     async def stream_run(
         self,
@@ -113,6 +116,23 @@ class ConversationRuntimeRunner:
             raw_text=content_with_attachments,
             attachments=attachment_payload.attachment_refs,
         )
+        if self._audit_service is not None:
+            try:
+                await self._audit_service.record(
+                    tenant_id=auth.tenant_id,
+                    user_id=auth.id,
+                    actor_email=auth.email,
+                    event_type='incoming_message',
+                    conversation_id=str(conversation.id),
+                    workflow_id=str(workflow.id),
+                    payload={
+                        'content': content,
+                        'attachmentIds': attachment_ids,
+                        'inlineAttachmentCount': len(inline_attachments),
+                    },
+                )
+            except Exception:
+                pass
         run = await self._repository.create_run(
             tenant_id=auth.tenant_id,
             conversation_id=conversation.id,
