@@ -1286,6 +1286,81 @@ async def test_runtime_service_invalid_executor_proposal_requests_clarification(
     assert outcome.status == WorkflowStatus.NEEDS_INPUT
     assert outcome.missing_fields == ['customer_id', 'lines']
     assert any(block.type == BlockType.CLARIFICATION for block in outcome.blocks)
+    assert outcome.extracted_entities['pendingTask']['intent'] == 'sales.create_invoice'
+    assert outcome.extracted_entities['pendingTask']['missingFields'] == ['customer_id', 'lines']
+
+
+async def test_runtime_service_uses_pending_task_for_short_alias_follow_up():
+    service = AgentRuntimeService(
+        backend_client=FakeBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeExecutor('products.create_product', {}),
+        reviewer=FakeReviewer(),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        state_updater=FakeStateUpdater(
+            {
+                'FFS-001': {
+                    'useActiveWorkflow': False,
+                    'primaryRoute': 'read',
+                    'primaryIntent': 'inventory.stock_on_hand',
+                    'confidence': 0.35,
+                    'rationale': 'Recovered a style code value.',
+                    'entityPatches': {'styleCode': 'FFS-001'},
+                    'navigationQuery': None,
+                    'postActionQuery': None,
+                }
+            }
+        ),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    extracted_entities = {
+        '_workflowEngine': 'runtime',
+        'toolName': 'products.create_product',
+        'executionPayload': {
+            'product': {
+                'name': 'Field Fresh Short',
+                'basePrice': 100,
+            },
+            'variants': [
+                {
+                    'colorName': 'Sand',
+                    'sizes': [{'sizeLabel': 'M'}],
+                }
+            ],
+        },
+        'taskContext': {
+            'primaryRoute': 'mutation',
+            'primaryIntent': 'products.create_product',
+            'entities': {
+                'name': 'Field Fresh Short',
+                'basePrice': 100,
+                'colorName': 'Sand',
+                'sizeLabels': ['M'],
+            },
+            'missingFields': ['style_code'],
+            'postActions': [],
+            'clarificationCount': 0,
+            'status': 'drafting',
+        },
+    }
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='FFS-001',
+        extracted_entities=extracted_entities,
+        recent_messages=[],
+        workflow_status=WorkflowStatus.NEEDS_INPUT,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.AWAITING_CONFIRMATION
+    assert outcome.extracted_entities['executionPayload']['product']['styleCode'] == 'FFS-001'
 
 
 async def test_runtime_service_handles_small_talk_without_tool_planning():

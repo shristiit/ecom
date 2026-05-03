@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
 from conversational_engine.contracts.common import PendingActionType
 
 from .parsing import matches_intent_pattern, normalize_text
@@ -33,15 +35,15 @@ INVENTORY_KEYWORDS = (
     'brand',
     'price',
 )
+PENDING_TASK_TTL = timedelta(minutes=30)
 
 
 def classify_intent(message: str, memory: dict[str, object]) -> str:
     normalized = normalize_text(message)
+    pending_task = _active_pending_task(memory)
 
-    if memory.get('intent') and any(
-        word in normalized for word in ['yes', 'update', 'change', 'it', 'that', 'for', 'with', 'at']
-    ):
-        return str(memory['intent'])
+    if pending_task and _looks_like_pending_follow_up(normalized):
+        return str(pending_task['intent'])
 
     if matches_intent_pattern(
         message,
@@ -128,6 +130,8 @@ def classify_intent(message: str, memory: dict[str, object]) -> str:
         return 'stock_query'
     if any(phrase in normalized for phrase in ['purchase order', 'po ']):
         return 'reporting_query'
+    if pending_task:
+        return str(pending_task['intent'])
     if _is_off_topic(normalized):
         return 'off_topic'
     return str(memory.get('intent') or 'navigation_help')
@@ -138,3 +142,34 @@ def _is_off_topic(normalized: str) -> bool:
         return False
     tokens = normalized.split()
     return len(tokens) > 3
+
+
+def _active_pending_task(memory: dict[str, object]) -> dict[str, object] | None:
+    raw = memory.get('pendingTask')
+    if not isinstance(raw, dict):
+        raw = memory.get('pending_task')
+    if not isinstance(raw, dict):
+        return None
+    updated_at = raw.get('updatedAt')
+    if not isinstance(updated_at, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(updated_at.replace('Z', '+00:00'))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    if datetime.now(UTC) - parsed > PENDING_TASK_TTL:
+        return None
+    if not raw.get('intent'):
+        return None
+    return raw
+
+
+def _looks_like_pending_follow_up(normalized: str) -> bool:
+    if not normalized or normalized.endswith('?'):
+        return False
+    tokens = normalized.split()
+    if len(tokens) <= 4:
+        return True
+    return ':' in normalized

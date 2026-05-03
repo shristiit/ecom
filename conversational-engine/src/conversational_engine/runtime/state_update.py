@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from conversational_engine.retrieval.service import RetrievalService
+from conversational_engine.utils.casing import to_camel
+from conversational_engine.utils.time import utc_now
 
 if TYPE_CHECKING:
     from conversational_engine.agents.state_updater import StateUpdateAgent
@@ -50,6 +53,7 @@ _INVENTORY_KEYWORDS = (
     'price',
 )
 _NON_DOMAIN_SMALL_TALK = ('hi', 'hello', 'thanks', 'thank you')
+_PENDING_TASK_TTL = timedelta(minutes=30)
 _MASTER_CREATE_VERBS = r'(create|add|new|onboard|register)'
 _MASTER_UPDATE_VERBS = r'(update|edit|change|rename)'
 _MASTER_DELETE_VERBS = r'(delete|remove)'
@@ -144,7 +148,14 @@ def task_context_from_entities(extracted_entities: dict[str, Any]) -> dict[str, 
     if isinstance(existing, dict):
         context = dict(existing)
     else:
-        context = {'primaryRoute': None, 'primaryIntent': None}
+        pending_task = _active_pending_task(extracted_entities)
+        context = {
+            'primaryRoute': pending_task.get('route') if pending_task else None,
+            'primaryIntent': pending_task.get('intent') if pending_task else None,
+            'entities': dict(pending_task.get('entities') or {}) if pending_task else {},
+            'missingFields': list(pending_task.get('missingFields') or []) if pending_task else [],
+            'status': str(pending_task.get('status') or 'drafting') if pending_task else 'drafting',
+        }
     context.setdefault('primaryRoute', None)
     context.setdefault('primaryIntent', None)
     context.setdefault('entities', {})
@@ -163,6 +174,7 @@ def apply_task_context(extracted_entities: dict[str, Any], task_context: dict[st
     if isinstance(entities, dict):
         for key, value in entities.items():
             merged[key] = value
+    _sync_pending_task(merged, task_context)
     return merged
 
 
@@ -181,6 +193,8 @@ def mark_task_status(
     updated = dict(extracted_entities)
     task_context = task_context_from_entities(updated)
     task_context['status'] = status
+    if status in {'awaiting_confirmation', 'awaiting_approval', 'completed'}:
+        task_context['missingFields'] = []
     if clear_post_actions:
         task_context['postActions'] = []
     updated['taskContext'] = task_context
@@ -288,7 +302,7 @@ async def resolve_state_update(
     active_intent = str(task_context.get('primaryIntent') or '')
     if primary_intent == 'master.create_location' or active_intent == 'master.create_location':
         merged_entities.update(_extract_location_create_entities(action_text or text))
-    if not is_workflow_edit and _should_continue_pending_mutation(
+    if not is_workflow_edit and _should_continue_pending_task(
         text=action_text or text,
         task_context=task_context,
         route_fallback=route_fallback,
@@ -538,7 +552,46 @@ def _extract_location_create_entities(text: str) -> dict[str, Any]:
     return extracted
 
 
-def _should_continue_pending_mutation(
+def _active_pending_task(extracted_entities: dict[str, Any]) -> dict[str, Any] | None:
+    raw = extracted_entities.get('pendingTask')
+    if not isinstance(raw, dict):
+        raw = extracted_entities.get('pending_task')
+    if not isinstance(raw, dict):
+        return None
+    updated_at = raw.get('updatedAt')
+    if not isinstance(updated_at, str):
+        return None
+    try:
+        age = utc_now() - datetime.fromisoformat(updated_at.replace('Z', '+00:00'))
+    except ValueError:
+        return None
+    if age > _PENDING_TASK_TTL:
+        return None
+    return raw
+
+
+def _sync_pending_task(extracted_entities: dict[str, Any], task_context: dict[str, Any]) -> None:
+    status = str(task_context.get('status') or '')
+    if status in {'completed', 'failed'}:
+        extracted_entities.pop('pendingTask', None)
+        extracted_entities.pop('pending_task', None)
+        return
+    primary_intent = str(task_context.get('primaryIntent') or '')
+    if not primary_intent:
+        extracted_entities.pop('pendingTask', None)
+        extracted_entities.pop('pending_task', None)
+        return
+    extracted_entities['pendingTask'] = {
+        'route': task_context.get('primaryRoute'),
+        'intent': primary_intent,
+        'entities': dict(task_context.get('entities') or {}),
+        'missingFields': list(task_context.get('missingFields') or []),
+        'status': status or 'drafting',
+        'updatedAt': utc_now().isoformat(),
+    }
+
+
+def _should_continue_pending_task(
     *,
     text: str,
     task_context: dict[str, Any],
@@ -549,7 +602,7 @@ def _should_continue_pending_mutation(
     active_route = str(task_context.get('primaryRoute') or '')
     active_intent = str(task_context.get('primaryIntent') or '')
     missing_fields = [str(item) for item in task_context.get('missingFields') or []]
-    if active_route != ROUTE_MUTATION or not active_intent or not missing_fields:
+    if active_route not in {ROUTE_MUTATION, ROUTE_READ} or not active_intent or not missing_fields:
         return False
     if route_fallback == ROUTE_MUTATION and intent_fallback and intent_fallback != active_intent:
         return False
@@ -558,14 +611,39 @@ def _should_continue_pending_mutation(
     normalized = _normalize(text)
     if not normalized or normalized.endswith('?'):
         return False
-    return ':' in text or '\n' in text
+    if ':' in text or '\n' in text:
+        return True
+    return len(re.findall(r"[a-z0-9']+", normalized)) <= 4
 
 
 def _entity_has_value(entities: dict[str, Any], field: str) -> bool:
-    value = entities.get(field)
-    if isinstance(value, str):
-        return bool(value.strip())
-    return value is not None
+    for key in _entity_field_aliases(field):
+        value = entities.get(key)
+        if isinstance(value, str) and value.strip():
+            return True
+        if value is not None:
+            return True
+    return False
+
+
+def _entity_field_aliases(field: str) -> tuple[str, ...]:
+    aliases = {
+        'sku_and_size': ('sizeId', 'skuCode', 'sizeLabel'),
+        'location_and_quantity': ('locationId', 'quantity'),
+        'color_name': ('colorName',),
+        'size_labels': ('sizeLabels',),
+        'base_price': ('basePrice',),
+        'style_code': ('styleCode',),
+        'product_id': ('productId',),
+        'supplier_id': ('supplierId',),
+        'customer_id': ('customerId',),
+        'po_id': ('poId',),
+        'invoice_id': ('invoiceId',),
+        'location_id': ('locationId',),
+        'from_location_id': ('fromLocationId',),
+        'to_location_id': ('toLocationId',),
+    }
+    return (field, to_camel(field), *aliases.get(field, ()))
 
 
 def _looks_like_location_code(value: str) -> bool:
