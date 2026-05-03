@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 from contextlib import contextmanager
 from contextvars import ContextVar
 from hashlib import sha256
 import json
+import random
 
 import httpx
 
@@ -55,8 +57,23 @@ def idempotency_scope(key: str):
 
 
 class BackendClient:
-    def __init__(self, base_url: str) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        *,
+        max_connections: int = 20,
+        max_keepalive_connections: int = 10,
+        retry_attempts: int = 3,
+    ) -> None:
         self._base_url = base_url.rstrip('/')
+        self._retry_attempts = max(1, retry_attempts)
+        self._client = httpx.AsyncClient(
+            timeout=20.0,
+            limits=httpx.Limits(
+                max_connections=max_connections,
+                max_keepalive_connections=max_keepalive_connections,
+            ),
+        )
 
     def _headers(self, access_token: str, tenant_id: str | None) -> dict[str, str]:
         headers = {
@@ -77,29 +94,31 @@ class BackendClient:
         json: dict[str, object] | None = None,
         params: dict[str, object] | None = None,
     ) -> object:
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            normalized_method = method.upper()
-            headers = self._headers(access_token, tenant_id)
-            if normalized_method in {'POST', 'PATCH', 'PUT', 'DELETE'}:
-                headers['Idempotency-Key'] = self._idempotency_key(
-                    method=normalized_method,
-                    path=path,
-                    tenant_id=tenant_id,
-                    json_payload=json,
-                    params=params,
-                )
-            response = await client.request(
-                normalized_method,
-                f'{self._base_url}{path}',
-                headers=headers,
-                json=json,
+        normalized_method = method.upper()
+        headers = self._headers(access_token, tenant_id)
+        if normalized_method in {'POST', 'PATCH', 'PUT', 'DELETE'}:
+            headers['Idempotency-Key'] = self._idempotency_key(
+                method=normalized_method,
+                path=path,
+                tenant_id=tenant_id,
+                json_payload=json,
                 params=params,
             )
+        response = await self._request_with_retry(
+            normalized_method,
+            path,
+            headers=headers,
+            json=json,
+            params=params,
+        )
         if response.is_success:
             if not response.content:
                 return {}
             return response.json()
         raise self._error_from_response(response)
+
+    async def aclose(self) -> None:
+        await self._client.aclose()
 
     def _idempotency_key(
         self,
@@ -190,6 +209,47 @@ class BackendClient:
             if isinstance(message, str) and message.strip():
                 flattened.append(f'{rendered_path}: {message}'.strip(': '))
         return flattened
+
+    async def _request_with_retry(
+        self,
+        method: str,
+        path: str,
+        *,
+        headers: dict[str, str],
+        json: dict[str, object] | None,
+        params: dict[str, object] | None,
+    ) -> httpx.Response:
+        can_retry = method in {'GET', 'HEAD'} or bool(headers.get('Idempotency-Key'))
+        last_exc: Exception | None = None
+
+        for attempt in range(1, self._retry_attempts + 1):
+            try:
+                response = await self._client.request(
+                    method,
+                    f'{self._base_url}{path}',
+                    headers=headers,
+                    json=json,
+                    params=params,
+                )
+            except httpx.TransportError as exc:
+                last_exc = exc
+                if not can_retry or attempt >= self._retry_attempts:
+                    raise RuntimeError(f'Backend transport failed: {exc}') from exc
+                await self._sleep_before_retry(attempt)
+                continue
+
+            if response.status_code < 500 or not can_retry or attempt >= self._retry_attempts:
+                return response
+
+            await self._sleep_before_retry(attempt)
+
+        if last_exc is not None:
+            raise RuntimeError(f'Backend transport failed: {last_exc}') from last_exc
+        raise RuntimeError('Backend request failed after retries.')
+
+    async def _sleep_before_retry(self, attempt: int) -> None:
+        base_delay = min(1.5, 0.15 * (2 ** (attempt - 1)))
+        await asyncio.sleep(base_delay + random.uniform(0.0, 0.1))
 
     async def resolve_auth_context(self, access_token: str, tenant_id: str | None) -> AuthContext:
         payload = await self._request('GET', '/auth/me', access_token, tenant_id)
