@@ -1,12 +1,17 @@
 from __future__ import annotations
 
-from conversational_engine.clients.backend import BackendClient
+import logging
+
+from conversational_engine.clients.backend import BackendClient, idempotency_scope
 from conversational_engine.contracts.auth import AuthContext
 from conversational_engine.contracts.common import ErrorBlock, WorkflowStatus
 from conversational_engine.orchestrator.service import OrchestratorOutcome
 from conversational_engine.runtime.renderer import render_navigation_blocks, render_tool_result
 from conversational_engine.runtime.state_update import build_post_action_blocks, mark_task_status
 from conversational_engine.tools.catalog import SemanticToolCatalog
+from conversational_engine.tools.validation import ToolSchemaValidationError
+
+logger = logging.getLogger(__name__)
 
 
 class RuntimeApprovalExecutor:
@@ -14,6 +19,24 @@ class RuntimeApprovalExecutor:
         self._backend_client = backend_client
 
     async def execute(self, *, auth: AuthContext, approval) -> OrchestratorOutcome:
+        if approval.status not in {'approved', 'auto_approved', 'rejected'}:
+            return OrchestratorOutcome(
+                blocks=[
+                    ErrorBlock(
+                        title='Approval execution blocked',
+                        message='This approval request is not ready for execution.',
+                    )
+                ],
+                status=WorkflowStatus.FAILED,
+                current_task='approval_not_ready',
+                extracted_entities={
+                    'lastApprovalId': str(approval.id),
+                    'lastApprovalStatus': approval.status,
+                },
+                missing_fields=[],
+                active_approval_id=None,
+            )
+
         if approval.status == 'rejected':
             rejected_entities = mark_task_status(
                 {
@@ -58,10 +81,37 @@ class RuntimeApprovalExecutor:
             )
 
         try:
-            result = await catalog.invoke(approval.tool_name, approval.execution_payload)
-        except Exception as exc:
+            catalog.validate(approval.tool_name, approval.execution_payload)
+        except ToolSchemaValidationError:
             return OrchestratorOutcome(
-                blocks=[ErrorBlock(title='Approval execution failed', message=str(exc))],
+                blocks=[
+                    ErrorBlock(
+                        title='Approval execution failed',
+                        message='The saved approval payload is no longer valid.',
+                    )
+                ],
+                status=WorkflowStatus.FAILED,
+                current_task='approval_payload_invalid',
+                extracted_entities={
+                    'lastApprovalId': str(approval.id),
+                    'lastApprovalStatus': approval.status,
+                },
+                missing_fields=[],
+                active_approval_id=None,
+            )
+
+        try:
+            with idempotency_scope(f'approval:{approval.id}'):
+                result = await catalog.invoke(approval.tool_name, approval.execution_payload)
+        except Exception as exc:
+            logger.exception('Approval execution failed for approval %s', approval.id)
+            return OrchestratorOutcome(
+                blocks=[
+                    ErrorBlock(
+                        title='Approval execution failed',
+                        message='The approved action could not be completed.',
+                    )
+                ],
                 status=WorkflowStatus.FAILED,
                 current_task='approval_execution_failed',
                 extracted_entities={

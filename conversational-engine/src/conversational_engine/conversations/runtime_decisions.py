@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from uuid import UUID
 
-from conversational_engine.clients.backend import BackendClient
+from conversational_engine.clients.backend import BackendClient, idempotency_scope
 from conversational_engine.contracts.auth import AuthContext
 from conversational_engine.contracts.common import (
     ClarificationBlock,
@@ -210,7 +210,8 @@ class RuntimeDecisionHandler:
 
         catalog = SemanticToolCatalog(backend=self._backend_client, auth=auth)
         try:
-            result = await catalog.invoke(tool_name, execution_payload)
+            with idempotency_scope(f'confirmation:{workflow_id}:{tool_name}'):
+                result = await catalog.invoke(tool_name, execution_payload)
         except Exception:
             logger.exception('Failed to execute runtime confirmation tool %s', tool_name)
             return OrchestratorOutcome(

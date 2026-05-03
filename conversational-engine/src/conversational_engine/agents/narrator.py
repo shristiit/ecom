@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-import json
 from typing import Any
 
 from conversational_engine.providers.router import ProviderRouter, ProviderTrace
 from conversational_engine.providers.runtime import ProviderMessage
+from conversational_engine.utils.json_parsing import parse_json_object
 
 NARRATOR_SCHEMA = {
     'type': 'object',
@@ -134,13 +134,12 @@ class NarratorAgent:
         if not cleaned:
             return ''
         try:
-            payload = json.loads(cleaned)
-        except json.JSONDecodeError:
+            payload = parse_json_object(cleaned, source='Narrator')
+        except RuntimeError:
             return cleaned
-        if isinstance(payload, dict):
-            message = payload.get('message')
-            if isinstance(message, str):
-                return message.strip()
+        message = payload.get('message')
+        if isinstance(message, str):
+            return message.strip()
         return cleaned
 
     @staticmethod

@@ -13,7 +13,7 @@ from conversational_engine.agents.narrator import NarratorAgent
 from conversational_engine.agents.planner import PlannerAgent
 from conversational_engine.agents.reviewer import ReviewerAgent
 from conversational_engine.agents.state_updater import StateUpdateAgent
-from conversational_engine.clients.backend import BackendClient
+from conversational_engine.clients.backend import BackendClient, BackendValidationError
 from conversational_engine.contracts.auth import AuthContext
 from conversational_engine.contracts.common import PendingActionType, TextBlock, WorkflowStatus
 from conversational_engine.memory.layered import LayeredMemoryService
@@ -38,6 +38,7 @@ from conversational_engine.runtime.state_update import (
 )
 from conversational_engine.tools.catalog import SemanticToolCatalog
 from conversational_engine.tools.catalog.utils import ToolPreparationError
+from conversational_engine.tools.validation import ToolSchemaValidationError
 from conversational_engine.training.service import TrainingDataService
 
 EventSink = Callable[[str, dict[str, object]], None]
@@ -525,6 +526,15 @@ class AgentRuntimeService:
                     )
 
                 try:
+                    catalog.validate(tool_name, tool_arguments)
+                except ToolSchemaValidationError as exc:
+                    return self._clarification_outcome_from_schema_error(
+                        current_entities=current_entities,
+                        required=exc.required_fields,
+                        prompt=exc.prompt,
+                    )
+
+                try:
                     tool_result = await self._run_phase(
                         emit=emit,
                         conversation_id=conversation_id,
@@ -534,6 +544,37 @@ class AgentRuntimeService:
                         intent=state_update.primary_intent,
                         tool_name=tool_name,
                         action=lambda: catalog.invoke(tool_name, tool_arguments),
+                    )
+                except BackendValidationError as exc:
+                    last_error = exc.user_message
+                    emit(
+                        'tool.error',
+                        self._event_payload(
+                            conversation_id=conversation_id,
+                            workflow_id=workflow_id,
+                            phase='execution',
+                            route=state_update.primary_route,
+                            intent=state_update.primary_intent,
+                            tool_name=tool_name,
+                            status='failed',
+                            extra={'error': last_error},
+                        ),
+                    )
+                    tool_history.append(
+                        {
+                            'plan': plan,
+                            'proposal': proposal,
+                            'toolError': last_error,
+                            'errorType': 'backend_validation',
+                        }
+                    )
+                    if iteration < 2:
+                        continue
+                    return RuntimeOutcome(
+                        blocks=render_failure(last_error),
+                        status=WorkflowStatus.FAILED,
+                        current_task='tool_validation_failed',
+                        extracted_entities=current_entities,
                     )
                 except Exception as exc:
                     emit(
@@ -951,6 +992,16 @@ class AgentRuntimeService:
         )
         try:
             prepared_arguments = await catalog.prepare(tool_name, tool_arguments)
+        except ToolSchemaValidationError as exc:
+            return self._clarification_outcome_from_schema_error(
+                current_entities={
+                    **current_entities,
+                    'toolName': tool_name,
+                    'executionPayload': tool_arguments,
+                },
+                required=exc.required_fields,
+                prompt=exc.prompt,
+            )
         except ToolPreparationError as exc:
             required = [str(item) for item in exc.missing_fields]
             emit(
@@ -1056,6 +1107,28 @@ class AgentRuntimeService:
             status=WorkflowStatus.AWAITING_CONFIRMATION,
             current_task='awaiting_confirmation',
             extracted_entities=next_entities,
+        )
+
+    def _clarification_outcome_from_schema_error(
+        self,
+        *,
+        current_entities: dict[str, object],
+        required: list[str],
+        prompt: str,
+    ) -> RuntimeOutcome:
+        next_entities = mark_task_status(
+            apply_task_context(
+                current_entities,
+                increment_clarification_count(task_context_from_entities(current_entities)),
+            ),
+            'drafting',
+        )
+        return RuntimeOutcome(
+            blocks=render_clarification(prompt, required),
+            status=WorkflowStatus.NEEDS_INPUT,
+            current_task='clarification_requested',
+            extracted_entities=next_entities,
+            missing_fields=required,
         )
 
     async def _run_phase(

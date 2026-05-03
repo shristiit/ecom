@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import json
 from typing import Any
 
 import httpx
 
 from conversational_engine.providers.runtime import ProviderMessage, ProviderResponse, RuntimeProvider
+from conversational_engine.utils.json_parsing import parse_json_object
 
 
 class GeminiRuntimeProvider(RuntimeProvider):
@@ -95,12 +95,7 @@ class GeminiRuntimeProvider(RuntimeProvider):
             response.raise_for_status()
             data = response.json()
         raw = self._extract_text(data if isinstance(data, dict) else {})
-        try:
-            parsed = json.loads(raw)
-        except json.JSONDecodeError as exc:
-            raise RuntimeError(f'gemini returned invalid JSON: {exc}') from exc
-        if not isinstance(parsed, dict):
-            raise RuntimeError('gemini returned a non-object JSON payload')
+        parsed = parse_json_object(raw, source='gemini')
         return ProviderResponse(
             provider_name=self.name,
             model_name=model,

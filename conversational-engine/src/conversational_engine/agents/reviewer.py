@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-import json
 from typing import Any
 
 from conversational_engine.providers.router import ProviderRouter, ProviderTrace
 from conversational_engine.providers.runtime import ProviderMessage
+from conversational_engine.utils.json_parsing import parse_json_object
 
 REVIEWER_SCHEMA = {
     'type': 'object',
@@ -78,13 +78,7 @@ def _normalize_reviewer_payload(parsed: dict[str, Any]) -> dict[str, Any]:
     normalized = dict(parsed)
     raw_entities = normalized.get('resolvedEntitiesJson')
     if isinstance(raw_entities, str):
-        try:
-            decoded = json.loads(raw_entities)
-        except json.JSONDecodeError as exc:
-            raise RuntimeError('Reviewer returned invalid resolvedEntitiesJson') from exc
-        if not isinstance(decoded, dict):
-            raise RuntimeError('Reviewer returned non-object resolvedEntitiesJson')
-        normalized['resolvedEntities'] = decoded
+        normalized['resolvedEntities'] = parse_json_object(raw_entities, source='Reviewer')
     elif isinstance(raw_entities, dict):
         normalized['resolvedEntities'] = raw_entities
     else:
