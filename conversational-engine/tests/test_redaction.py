@@ -20,3 +20,11 @@ def test_redact_text_covers_common_secrets_and_identifiers():
     assert '[redacted-aws-secret]' in redacted
     assert '[redacted-secret]' in redacted
     assert '[redacted-uuid]' in redacted
+
+
+def test_redact_text_ignores_invalid_email_like_strings():
+    value = 'not-an-email@ localhost user@@example'
+
+    redacted = redact_text(value)
+
+    assert redacted == value

@@ -14,7 +14,7 @@ REVIEWER_SCHEMA = {
         'action': {'type': 'string', 'enum': ['complete', 'continue', 'clarify']},
         'assistantMessage': {'type': 'string'},
         'feedback': {'type': ['string', 'null']},
-        'requiredInputs': {'type': 'array', 'items': {'type': 'string'}},
+        'requiredInputs': {'type': 'array', 'items': {'type': 'string'}, 'minItems': 0},
         'includeTable': {'type': 'boolean'},
         'resolvedEntitiesJson': {'type': 'string'},
     },

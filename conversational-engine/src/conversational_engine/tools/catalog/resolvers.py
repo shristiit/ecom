@@ -31,8 +31,7 @@ class EntityResolver:
         match = best_match(items, name_or_id, 'name', 'code')
         if match:
             return str(match['id'])
-        available = ', '.join(str(location.get('name') or location.get('code')) for location in items[:10])
-        raise ValueError(f'Location "{name_or_id}" not found. Available: {available}')
+        raise ValueError(f'Location "{name_or_id}" not found. Search to see available locations.')
 
     async def supplier(self, name_or_id: str) -> str:
         if is_uuid(name_or_id):
@@ -41,8 +40,7 @@ class EntityResolver:
         match = best_match(items, name_or_id, 'name', 'code')
         if match:
             return str(match['id'])
-        available = ', '.join(str(s.get('name')) for s in items[:10])
-        raise ValueError(f'Supplier "{name_or_id}" not found. Available: {available}')
+        raise ValueError(f'Supplier "{name_or_id}" not found. Search to see available suppliers.')
 
     async def customer(self, name_or_id: str) -> str:
         if is_uuid(name_or_id):
@@ -51,8 +49,7 @@ class EntityResolver:
         match = best_match(items, name_or_id, 'name', 'email', 'code')
         if match:
             return str(match['id'])
-        available = ', '.join(str(c.get('name')) for c in items[:10])
-        raise ValueError(f'Customer "{name_or_id}" not found. Available: {available}')
+        raise ValueError(f'Customer "{name_or_id}" not found. Search to see available customers.')
 
     async def category(self, name_or_id: str) -> str:
         if is_uuid(name_or_id):
@@ -61,8 +58,7 @@ class EntityResolver:
         match = best_match(items, name_or_id, 'name')
         if match:
             return str(match['id'])
-        available = ', '.join(str(c.get('name')) for c in items[:10])
-        raise ValueError(f'Category "{name_or_id}" not found. Available: {available}')
+        raise ValueError(f'Category "{name_or_id}" not found. Search to see available categories.')
 
     async def purchase_order(self, number_or_id: str) -> str:
         if is_uuid(number_or_id):
@@ -73,8 +69,7 @@ class EntityResolver:
         match = best_match(rows, number_or_id, 'number', 'id', 'supplierName', 'supplier_name')
         if match:
             return str(match['id'])
-        available = ', '.join(str(row.get('number') or row.get('id')) for row in rows[:10])
-        raise ValueError(f'Purchase order "{number_or_id}" not found. Available: {available or "none"}')
+        raise ValueError(f'Purchase order "{number_or_id}" not found. Search to see available purchase orders.')
 
     async def invoice(self, number_or_id: str) -> str:
         if is_uuid(number_or_id):
@@ -85,8 +80,7 @@ class EntityResolver:
         match = best_match(rows, number_or_id, 'number', 'id', 'customerName', 'customer_name')
         if match:
             return str(match['id'])
-        available = ', '.join(str(row.get('number') or row.get('id')) for row in rows[:10])
-        raise ValueError(f'Sales order "{number_or_id}" not found. Available: {available or "none"}')
+        raise ValueError(f'Sales order "{number_or_id}" not found. Search to see available sales orders.')
 
     async def sku_size(
         self,
