@@ -43,6 +43,7 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        await app.state.services.backend_client.aclose()
         mongo_client.close()
         if redis_client is not None:
             await redis_client.close()

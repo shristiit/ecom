@@ -43,7 +43,12 @@ class AppServices:
 
 
 def build_app_services(*, settings: Settings, mongo_client, redis_client, s3_client) -> AppServices:
-    backend_client = BackendClient(settings.backend_base_url)
+    backend_client = BackendClient(
+        settings.backend_base_url,
+        max_connections=settings.backend_http_max_connections,
+        max_keepalive_connections=settings.backend_http_max_keepalive_connections,
+        retry_attempts=settings.backend_http_retry_attempts,
+    )
     repository = MongoAIRepository(mongo_client, settings)
     redis_cache = RedisActiveStateCache(redis_client)
     semantic_memory_service = SemanticMemoryService(repository, settings)
@@ -105,7 +110,12 @@ async def get_conversation_service(request: Request) -> ConversationService:
 @lru_cache(maxsize=1)
 def get_backend_client() -> BackendClient:
     settings = get_settings()
-    return BackendClient(settings.backend_base_url)
+    return BackendClient(
+        settings.backend_base_url,
+        max_connections=settings.backend_http_max_connections,
+        max_keepalive_connections=settings.backend_http_max_keepalive_connections,
+        retry_attempts=settings.backend_http_retry_attempts,
+    )
 
 
 async def get_retrieval_service(request: Request) -> RetrievalService:
