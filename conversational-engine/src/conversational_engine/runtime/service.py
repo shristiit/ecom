@@ -344,10 +344,7 @@ class AgentRuntimeService:
                             status='needs_input',
                         ),
                     )
-                    next_entities = mark_task_status(
-                        apply_task_context(current_entities, increment_clarification_count(task_context_from_entities(current_entities))),
-                        'drafting',
-                    )
+                    next_entities = self._clarification_entities(current_entities, required)
                     return RuntimeOutcome(
                         blocks=render_clarification(question, required),
                         status=WorkflowStatus.NEEDS_INPUT,
@@ -441,10 +438,7 @@ class AgentRuntimeService:
                             status='needs_input',
                         ),
                     )
-                    next_entities = mark_task_status(
-                        apply_task_context(current_entities, increment_clarification_count(task_context_from_entities(current_entities))),
-                        'drafting',
-                    )
+                    next_entities = self._clarification_entities(current_entities, required)
                     return RuntimeOutcome(
                         blocks=render_clarification(question, required),
                         status=WorkflowStatus.NEEDS_INPUT,
@@ -491,13 +485,7 @@ class AgentRuntimeService:
                         blocks=render_clarification(prompt, required),
                         status=WorkflowStatus.NEEDS_INPUT,
                         current_task='tool_call_invalid',
-                        extracted_entities=mark_task_status(
-                            apply_task_context(
-                                current_entities,
-                                increment_clarification_count(task_context_from_entities(current_entities)),
-                            ),
-                            'drafting',
-                        ),
+                        extracted_entities=self._clarification_entities(current_entities, required),
                         missing_fields=required,
                     )
 
@@ -680,10 +668,7 @@ class AgentRuntimeService:
                             status='needs_input',
                         ),
                     )
-                    next_entities = mark_task_status(
-                        apply_task_context(current_entities, increment_clarification_count(task_context_from_entities(current_entities))),
-                        'drafting',
-                    )
+                    next_entities = self._clarification_entities(current_entities, required)
                     return RuntimeOutcome(
                         blocks=render_clarification(question, required),
                         status=WorkflowStatus.NEEDS_INPUT,
@@ -914,6 +899,11 @@ class AgentRuntimeService:
                     'reason',
                 } and value is not None:
                     updated_payload[key] = value
+            updated_payload = self._merge_follow_up_entities_into_payload(
+                tool_name=tool_name,
+                updated_payload=updated_payload,
+                task_entities=task_entities,
+            )
 
         planner_text = state_update.planner_message.lower()
         if tool_name == 'inventory.receive_stock':
@@ -981,6 +971,11 @@ class AgentRuntimeService:
             for key, value in task_entities.items():
                 if value is not None:
                     updated_payload[key] = value
+            updated_payload = self._merge_follow_up_entities_into_payload(
+                tool_name=tool_name,
+                updated_payload=updated_payload,
+                task_entities=task_entities,
+            )
 
         summary_suffix = ''
         if state_update.new_post_actions:
@@ -1062,10 +1057,7 @@ class AgentRuntimeService:
                 'toolName': tool_name,
                 'executionPayload': tool_arguments,
             }
-            next_entities = mark_task_status(
-                apply_task_context(draft_entities, increment_clarification_count(task_context_from_entities(draft_entities))),
-                'drafting',
-            )
+            next_entities = self._clarification_entities(draft_entities, required)
             return RuntimeOutcome(
                 blocks=render_clarification(exc.prompt, required),
                 status=WorkflowStatus.NEEDS_INPUT,
@@ -1089,6 +1081,7 @@ class AgentRuntimeService:
             confirmation_prompt = 'Review these details and confirm to continue.'
 
         enriched_task_context = task_context_from_entities(state_update.extracted_entities)
+        enriched_task_context['missingFields'] = []
         enriched_entities = dict(enriched_task_context.get('entities') or {})
         enriched_entities.update(
             self._derived_context_entities(
@@ -1158,13 +1151,7 @@ class AgentRuntimeService:
         required: list[str],
         prompt: str,
     ) -> RuntimeOutcome:
-        next_entities = mark_task_status(
-            apply_task_context(
-                current_entities,
-                increment_clarification_count(task_context_from_entities(current_entities)),
-            ),
-            'drafting',
-        )
+        next_entities = self._clarification_entities(current_entities, required)
         return RuntimeOutcome(
             blocks=render_clarification(prompt, required),
             status=WorkflowStatus.NEEDS_INPUT,
@@ -1172,6 +1159,34 @@ class AgentRuntimeService:
             extracted_entities=next_entities,
             missing_fields=required,
         )
+
+    @staticmethod
+    def _clarification_entities(current_entities: dict[str, object], required: list[str]) -> dict[str, object]:
+        task_context = increment_clarification_count(task_context_from_entities(current_entities))
+        task_context['missingFields'] = list(required)
+        return mark_task_status(apply_task_context(current_entities, task_context), 'drafting')
+
+    @staticmethod
+    def _merge_follow_up_entities_into_payload(
+        *,
+        tool_name: str,
+        updated_payload: dict[str, object],
+        task_entities: dict[str, object],
+    ) -> dict[str, object]:
+        if tool_name != 'products.create_product':
+            return updated_payload
+
+        merged_payload = dict(updated_payload)
+        product = dict(merged_payload.get('product') or {})
+        if task_entities.get('styleCode'):
+            product['styleCode'] = task_entities['styleCode']
+        if task_entities.get('name'):
+            product['name'] = task_entities['name']
+        if task_entities.get('basePrice') is not None:
+            product['basePrice'] = task_entities['basePrice']
+        if product:
+            merged_payload['product'] = product
+        return merged_payload
 
     async def _run_phase(
         self,
