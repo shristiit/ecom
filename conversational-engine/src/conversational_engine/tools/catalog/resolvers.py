@@ -14,6 +14,7 @@ class EntityResolver:
     def __init__(self, backend: BackendClient, auth: AuthContext) -> None:
         self._backend = backend
         self._auth = auth
+        self._cache: dict[str, object] = {}
 
     @property
     def _token(self) -> str:
@@ -26,7 +27,7 @@ class EntityResolver:
     async def location(self, name_or_id: str) -> str:
         if is_uuid(name_or_id):
             return name_or_id
-        items = await self._backend.list_locations(self._token, self._tenant)
+        items = await self._cached_rows('locations', lambda: self._backend.list_locations(self._token, self._tenant))
         match = best_match(items, name_or_id, 'name', 'code')
         if match:
             return str(match['id'])
@@ -36,7 +37,7 @@ class EntityResolver:
     async def supplier(self, name_or_id: str) -> str:
         if is_uuid(name_or_id):
             return name_or_id
-        items = await self._backend.list_suppliers(self._token, self._tenant)
+        items = await self._cached_rows('suppliers', lambda: self._backend.list_suppliers(self._token, self._tenant))
         match = best_match(items, name_or_id, 'name', 'code')
         if match:
             return str(match['id'])
@@ -46,7 +47,7 @@ class EntityResolver:
     async def customer(self, name_or_id: str) -> str:
         if is_uuid(name_or_id):
             return name_or_id
-        items = await self._backend.list_customers(self._token, self._tenant)
+        items = await self._cached_rows('customers', lambda: self._backend.list_customers(self._token, self._tenant))
         match = best_match(items, name_or_id, 'name', 'email', 'code')
         if match:
             return str(match['id'])
@@ -56,7 +57,7 @@ class EntityResolver:
     async def category(self, name_or_id: str) -> str:
         if is_uuid(name_or_id):
             return name_or_id
-        items = await self._backend.list_categories(self._token, self._tenant)
+        items = await self._cached_rows('categories', lambda: self._backend.list_categories(self._token, self._tenant))
         match = best_match(items, name_or_id, 'name')
         if match:
             return str(match['id'])
@@ -66,7 +67,7 @@ class EntityResolver:
     async def purchase_order(self, number_or_id: str) -> str:
         if is_uuid(number_or_id):
             return number_or_id
-        payload = await self._backend.list_pos(self._token, self._tenant)
+        payload = await self._cached_value('purchase_orders', lambda: self._backend.list_pos(self._token, self._tenant))
         items = payload.get('items') if isinstance(payload, dict) else None
         rows = items if isinstance(items, list) else []
         match = best_match(rows, number_or_id, 'number', 'id', 'supplierName', 'supplier_name')
@@ -78,7 +79,7 @@ class EntityResolver:
     async def invoice(self, number_or_id: str) -> str:
         if is_uuid(number_or_id):
             return number_or_id
-        payload = await self._backend.list_invoices(self._token, self._tenant)
+        payload = await self._cached_value('invoices', lambda: self._backend.list_invoices(self._token, self._tenant))
         items = payload.get('items') if isinstance(payload, dict) else None
         rows = items if isinstance(items, list) else []
         match = best_match(rows, number_or_id, 'number', 'id', 'customerName', 'customer_name')
@@ -238,6 +239,25 @@ class EntityResolver:
             )
         details = await self.sku_size_details(product_name, size_label, color_name)
         return str(details['sizeId'])
+
+    async def _cached_rows(
+        self,
+        key: str,
+        loader,
+    ) -> list[dict[str, object]]:
+        cached = self._cache.get(key)
+        if isinstance(cached, list):
+            return cached
+        rows = await loader()
+        self._cache[key] = rows
+        return rows
+
+    async def _cached_value(self, key: str, loader):
+        if key in self._cache:
+            return self._cache[key]
+        value = await loader()
+        self._cache[key] = value
+        return value
 
     async def size_lines_from_product(
         self,

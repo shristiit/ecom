@@ -11,6 +11,12 @@ pytestmark = pytest.mark.anyio
 
 class FakeBackendClient:
     def __init__(self) -> None:
+        self.list_call_counts: dict[str, int] = {
+            'locations': 0,
+            'suppliers': 0,
+            'customers': 0,
+            'categories': 0,
+        }
         self.location_payloads: list[dict[str, object]] = []
         self.location_updates: list[tuple[str, dict[str, object]]] = []
         self.deleted_locations: list[str] = []
@@ -176,18 +182,22 @@ class FakeBackendClient:
 
     async def list_locations(self, access_token: str, tenant_id: str | None):
         del access_token, tenant_id
+        self.list_call_counts['locations'] += 1
         return self.locations
 
     async def list_suppliers(self, access_token: str, tenant_id: str | None):
         del access_token, tenant_id
+        self.list_call_counts['suppliers'] += 1
         return self.suppliers
 
     async def list_customers(self, access_token: str, tenant_id: str | None):
         del access_token, tenant_id
+        self.list_call_counts['customers'] += 1
         return self.customers
 
     async def list_categories(self, access_token: str, tenant_id: str | None):
         del access_token, tenant_id
+        self.list_call_counts['categories'] += 1
         return self.categories
 
     async def search_products(self, access_token: str, tenant_id: str | None, q: str | None = None, **kwargs):
@@ -435,6 +445,35 @@ async def test_sales_create_invoice_requires_color_and_size_when_product_is_ambi
                 ],
             },
         )
+
+
+async def test_entity_resolver_caches_repeated_customer_and_location_lookups():
+    backend = FakeBackendClient()
+    catalog = SemanticToolCatalog(backend=backend, auth=make_auth())  # type: ignore[arg-type]
+
+    await catalog.prepare(
+        'sales.dispatch_invoice',
+        {
+            'invoiceId': 'SO-0001',
+            'locationId': 'Main Warehouse',
+        },
+    )
+    await catalog.prepare(
+        'master.delete_customer',
+        {
+            'customerId': 'bob@example.com',
+        },
+    )
+    await catalog.prepare(
+        'master.update_customer',
+        {
+            'customerId': 'bob@example.com',
+            'patch': {'phone': '12345'},
+        },
+    )
+
+    assert backend.list_call_counts['locations'] == 1
+    assert backend.list_call_counts['customers'] == 1
 
 
 async def test_inventory_receive_stock_expands_all_sizes_for_a_color():
