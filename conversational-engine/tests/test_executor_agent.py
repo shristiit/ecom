@@ -223,3 +223,127 @@ async def test_executor_strips_markdown_fences_from_tool_arguments_json():
         'name': 'sai',
         'basePrice': 21,
     }
+
+
+class RootLevelProductArgumentsRouter:
+    async def complete_json(self, **kwargs):
+        del kwargs
+        return ProviderResponse(
+            provider_name='openai',
+            model_name='gpt-4.1-mini',
+            content='{}',
+            parsed={
+                'action': 'tool',
+                'assistantMessage': 'Creating product.',
+                'name': 'saitees',
+                'styleCode': 'sai-0204',
+                'basePrice': 100,
+                'variants': [{'colorName': 'black', 'sizes': [{'sizeLabel': 'XL'}]}],
+                'toolArguments': None,
+                'requiredInputs': [],
+            },
+            raw_payload={},
+        )
+
+
+async def test_executor_recovers_root_level_product_arguments_using_expected_tool_name():
+    agent = ExecutorAgent(RootLevelProductArgumentsRouter())  # type: ignore[arg-type]
+
+    proposal = await agent.propose(
+        user_message='create a product named saitees with style code sai-0204 in black xl at 100',
+        plan={'action': 'tool'},
+        tools=[],
+        history=[],
+        expected_tool_name='products.create_product',
+    )
+
+    assert proposal['toolName'] == 'products.create_product'
+    assert proposal['toolArguments'] == {
+        'name': 'saitees',
+        'styleCode': 'sai-0204',
+        'basePrice': 100,
+        'variants': [{'colorName': 'black', 'sizes': [{'sizeLabel': 'XL'}]}],
+    }
+
+
+class DottedNameToolRouter:
+    async def complete_json(self, **kwargs):
+        del kwargs
+        return ProviderResponse(
+            provider_name='openai',
+            model_name='gpt-4.1-mini',
+            content='{}',
+            parsed={
+                'action': 'tool',
+                'assistantMessage': 'Creating supplier.',
+                'name': 'master.create_supplier',
+                'toolArguments': {
+                    'name': 'raghu',
+                    'email': 'raghu@bez.com',
+                    'phone': '190284039',
+                    'address': 'london',
+                },
+                'requiredInputs': [],
+            },
+            raw_payload={},
+        )
+
+
+async def test_executor_promotes_dotted_name_field_to_tool_name():
+    agent = ExecutorAgent(DottedNameToolRouter())  # type: ignore[arg-type]
+
+    proposal = await agent.propose(
+        user_message='create supplier raghu with email raghu@bez.com phone 190284039 address london',
+        plan={'action': 'tool'},
+        tools=[],
+        history=[],
+    )
+
+    assert proposal['toolName'] == 'master.create_supplier'
+    assert proposal['toolArguments'] == {
+        'name': 'raghu',
+        'email': 'raghu@bez.com',
+        'phone': '190284039',
+        'address': 'london',
+    }
+
+
+class RootLevelSupplierArgumentsRouter:
+    async def complete_json(self, **kwargs):
+        del kwargs
+        return ProviderResponse(
+            provider_name='openai',
+            model_name='gpt-4.1-mini',
+            content='{}',
+            parsed={
+                'action': 'tool',
+                'assistantMessage': 'Creating supplier.',
+                'name': 'raghu',
+                'email': '[raghu@bez.com](mailto:raghu@bez.com)',
+                'phone': '190284039',
+                'address': 'london',
+                'toolArguments': None,
+                'requiredInputs': [],
+            },
+            raw_payload={},
+        )
+
+
+async def test_executor_recovers_root_level_supplier_arguments_using_expected_tool_name():
+    agent = ExecutorAgent(RootLevelSupplierArgumentsRouter())  # type: ignore[arg-type]
+
+    proposal = await agent.propose(
+        user_message='create supplier raghu with email raghu@bez.com phone 190284039 address london',
+        plan={'action': 'tool'},
+        tools=[],
+        history=[],
+        expected_tool_name='master.create_supplier',
+    )
+
+    assert proposal['toolName'] == 'master.create_supplier'
+    assert proposal['toolArguments'] == {
+        'name': 'raghu',
+        'email': '[raghu@bez.com](mailto:raghu@bez.com)',
+        'phone': '190284039',
+        'address': 'london',
+    }

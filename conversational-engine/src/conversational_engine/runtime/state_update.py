@@ -302,6 +302,9 @@ async def resolve_state_update(
     active_intent = str(task_context.get('primaryIntent') or '')
     if primary_intent == 'master.create_location' or active_intent == 'master.create_location':
         merged_entities.update(_extract_location_create_entities(action_text or text))
+    if primary_intent in {'master.create_supplier', 'master.create_customer'} or \
+            active_intent in {'master.create_supplier', 'master.create_customer'}:
+        merged_entities.update(_extract_contact_create_entities(action_text or text))
     if not is_workflow_edit and _should_continue_pending_task(
         text=action_text or text,
         task_context=task_context,
@@ -335,7 +338,16 @@ async def resolve_state_update(
             task_context['postActions'] = [*existing_actions] if isinstance(existing_actions, list) else []
             task_context['postActions'].extend(new_post_actions)
 
-    task_context['missingFields'] = list(task_context.get('missingFields') or [])
+    # When continuing an active workflow, remove any missing fields that are
+    # now satisfied by the merged entities so the planner doesn't keep asking
+    # for them even after the user has supplied the values.
+    if is_workflow_edit:
+        task_context['missingFields'] = [
+            field for field in (task_context.get('missingFields') or [])
+            if not _entity_has_value(merged_entities, field)
+        ]
+    else:
+        task_context['missingFields'] = list(task_context.get('missingFields') or [])
     updated_entities = apply_task_context(extracted_entities, task_context)
     planner_message = _build_planner_message(
         original_message=text,
@@ -604,15 +616,26 @@ def _should_continue_pending_task(
     missing_fields = [str(item) for item in task_context.get('missingFields') or []]
     if active_route not in {ROUTE_MUTATION, ROUTE_READ} or not active_intent or not missing_fields:
         return False
+    # A new mutation for a *different* intent starts a fresh workflow.
     if route_fallback == ROUTE_MUTATION and intent_fallback and intent_fallback != active_intent:
         return False
+    # Always continue when an entity extracted from this turn satisfies a missing field.
     if any(_entity_has_value(merged_entities, field) for field in missing_fields):
         return True
     normalized = _normalize(text)
     if not normalized or normalized.endswith('?'):
         return False
+    # Structured input (key:value or multiline) is clearly a follow-up.
     if ':' in text or '\n' in text:
         return True
+    # When an active mutation workflow is waiting for input and the user's
+    # message didn't resolve to a competing mutation intent, treat any
+    # non-question reply as continuation — regardless of how many tokens it
+    # has.  This handles detailed follow-ups like
+    # "tshirt, tees-1202, base price 100, xl size, black color".
+    if active_route == ROUTE_MUTATION and route_fallback != ROUTE_MUTATION:
+        return True
+    # Legacy short-message heuristic for read workflows.
     return len(re.findall(r"[a-z0-9']+", normalized)) <= 4
 
 
@@ -662,6 +685,60 @@ def _normalize_location_type(value: str) -> str | None:
     if collapsed == 'outlet':
         return 'outlet'
     return None
+
+
+def _extract_contact_create_entities(text: str) -> dict[str, Any]:
+    """Extract name/email/phone/address from a supplier or customer creation message.
+
+    Handles inputs like:
+      "raghu"
+      "name : raghu"
+      "name : raghubez email raghu@bez.com"
+      "raghu, raghu@example.com, +447700123456, 10 Baker St"
+    """
+    extracted: dict[str, Any] = {}
+    working = text.strip()
+
+    # ── email ──────────────────────────────────────────────────────────────────
+    email_match = re.search(r'\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b', working)
+    if email_match:
+        extracted['email'] = email_match.group(0)
+        working = (working[: email_match.start()] + ' ' + working[email_match.end() :]).strip()
+
+    # ── phone ──────────────────────────────────────────────────────────────────
+    phone_match = re.search(r'(?<!\w)(\+?[0-9][\d\s\-()]{6,15}[0-9])(?!\w)', working)
+    if phone_match:
+        extracted['phone'] = phone_match.group(1).strip()
+        working = (working[: phone_match.start()] + ' ' + working[phone_match.end() :]).strip()
+
+    # ── labelled fields (field : value  or  field = value) ────────────────────
+    # Allow optional stray punctuation after the separator, e.g. "name:; raghu" or "name:, raghu".
+    _CONTACT_FIELDS = ('name', 'email', 'phone', 'address', 'status')
+    _FIELD_BOUNDARY = r'(?=\s*(?:$|,|;|\b(?:name|email|phone|address|status)\b))'
+    for field in _CONTACT_FIELDS:
+        if field in extracted:
+            continue
+        m = re.search(
+            rf'\b{field}\b\s*[:=][;,]?\s*([^\n,;:]+?){_FIELD_BOUNDARY}',
+            working,
+            re.IGNORECASE,
+        )
+        if m:
+            value = m.group(1).strip().strip('"\'')
+            if value:
+                extracted[field] = value
+
+    # ── bare name fallback ─────────────────────────────────────────────────────
+    if 'name' not in extracted:
+        _COMMAND_WORDS = r'\b(create|add|new|onboard|register|supplier|customer|vendor|client)\b'
+        # Also strip any remaining "field:;" style label artifacts before extracting the bare name.
+        _LABEL_ARTIFACTS = r'\b(?:name|email|phone|address|status)\b\s*[:=][;,]?\s*'
+        candidate = re.sub(_COMMAND_WORDS, '', working, flags=re.IGNORECASE)
+        candidate = re.sub(_LABEL_ARTIFACTS, '', candidate, flags=re.IGNORECASE).strip(' ,;:')
+        if candidate:
+            extracted['name'] = candidate
+
+    return extracted
 
 
 def _looks_like_location_creation_request(value: str) -> bool:
