@@ -10,7 +10,7 @@ from conversational_engine.orchestrator.service import OrchestratorOutcome
 from conversational_engine.runtime.renderer import render_navigation_blocks, render_tool_result
 from conversational_engine.runtime.state_update import build_post_action_blocks, mark_task_status
 from conversational_engine.tools.catalog import SemanticToolCatalog
-from conversational_engine.tools.validation import ToolSchemaValidationError
+from conversational_engine.tools.catalog.utils import ToolPreparationError
 
 logger = logging.getLogger(__name__)
 
@@ -82,29 +82,35 @@ class RuntimeApprovalExecutor:
                 active_approval_id=None,
             )
 
+        # NOTE: We intentionally skip catalog.validate() here.
+        # The execution_payload stored during confirmation is the *prepared* (normalised)
+        # output, whose shape may differ from the raw input_schema (e.g. products.create_product
+        # normalises to {product: {...}, variants: [...]} while the input_schema expects flat
+        # {styleCode, name, basePrice, variants}).  Calling catalog.invoke() already runs the
+        # preparer again (idempotent), so any structural issues will surface as ToolPreparationError.
         try:
-            catalog.validate(approval.tool_name, approval.execution_payload)
-        except ToolSchemaValidationError:
+            with idempotency_scope(f'approval:{approval.id}'):
+                result = await catalog.invoke(approval.tool_name, approval.execution_payload)
+        except ToolPreparationError as exc:
+            logger.warning(
+                'Approval preparation error for approval %s: %s', approval.id, exc.prompt
+            )
             return OrchestratorOutcome(
                 blocks=[
                     ErrorBlock(
                         title='Approval execution failed',
-                        message='The saved approval payload is no longer valid.',
+                        message=exc.prompt,
                     )
                 ],
                 status=WorkflowStatus.FAILED,
-                current_task='approval_payload_invalid',
+                current_task='approval_preparation_failed',
                 extracted_entities={
                     'lastApprovalId': str(approval.id),
                     'lastApprovalStatus': approval.status,
                 },
-                missing_fields=[],
+                missing_fields=exc.missing_fields,
                 active_approval_id=None,
             )
-
-        try:
-            with idempotency_scope(f'approval:{approval.id}'):
-                result = await catalog.invoke(approval.tool_name, approval.execution_payload)
         except Exception as exc:
             logger.exception('Approval execution failed for approval %s', approval.id)
             return OrchestratorOutcome(

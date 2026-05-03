@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from conversational_engine.clients.backend import BackendClient
@@ -12,6 +13,11 @@ from .utils import ToolPreparationError, object_schema, search_rows
 
 PARTY_FIELDS = ('name', 'email', 'phone', 'address', 'status')
 LOCATION_FIELDS = ('name', 'code', 'type', 'address', 'status')
+
+_MARKDOWN_MAILTO_RE = re.compile(
+    r'^\[(?P<label>[^\]]+)\]\(\s*mailto:(?P<target>[^)]+)\s*\)$',
+    re.IGNORECASE,
+)
 
 
 def commerce_line_schema(*, price_field: str, price_aliases: tuple[str, ...]) -> dict[str, Any]:
@@ -43,6 +49,13 @@ def build_commerce_tools(
                 continue
             if isinstance(value, str):
                 cleaned = value.strip()
+                if field == 'email':
+                    markdown_match = _MARKDOWN_MAILTO_RE.match(cleaned)
+                    if markdown_match:
+                        candidate = markdown_match.group('target').strip()
+                        if candidate:
+                            cleaned = candidate
+                    cleaned = cleaned.strip('<>')
                 if not cleaned:
                     continue
                 normalized[field] = cleaned
@@ -244,7 +257,10 @@ def build_commerce_tools(
         return normalized
 
     async def create_supplier(payload: dict[str, Any]) -> dict[str, Any]:
-        return {'result': await backend.create_supplier(token, tenant, payload)}
+        # Re-apply field cleaning as a defensive measure before hitting the backend.
+        # The preparer already does this, but the approval path may replay a stored payload.
+        clean = clean_party_fields(payload)
+        return {'result': await backend.create_supplier(token, tenant, clean)}
 
     async def prepare_update_supplier(payload: dict[str, Any]) -> dict[str, Any]:
         supplier = first_reference(payload, 'supplierId', 'supplier', 'supplierName', 'reference', 'id')
@@ -281,7 +297,10 @@ def build_commerce_tools(
         return normalized
 
     async def create_customer(payload: dict[str, Any]) -> dict[str, Any]:
-        return {'result': await backend.create_customer(token, tenant, payload)}
+        # Re-apply field cleaning as a defensive measure before hitting the backend.
+        # The preparer already does this, but the approval path may replay a stored payload.
+        clean = clean_party_fields(payload)
+        return {'result': await backend.create_customer(token, tenant, clean)}
 
     async def prepare_update_customer(payload: dict[str, Any]) -> dict[str, Any]:
         customer = first_reference(

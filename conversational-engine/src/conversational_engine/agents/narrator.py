@@ -145,13 +145,17 @@ class NarratorAgent:
     @staticmethod
     def _looks_like_internal_instruction(message: str, directive: str) -> bool:
         normalized_message = ' '.join(message.split()).strip().lower()
-        normalized_directive = ' '.join(directive.split()).strip().lower()
         if not normalized_message:
             return True
-        if normalized_message == normalized_directive:
-            return True
+        # Reject messages that are literally meta-instructions leaked from the prompt.
+        # NOTE: Do NOT reject messages that happen to match the directive — a clarification
+        # question directive IS the message we want to send to the user.
         if normalized_message.startswith('reply naturally to the user'):
             return True
         if normalized_message.startswith('directive for what to communicate'):
+            return True
+        if normalized_message.startswith('write a natural'):
+            return True
+        if normalized_message.startswith('communicate that'):
             return True
         return False

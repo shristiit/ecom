@@ -388,6 +388,7 @@ class AgentRuntimeService:
                         plan=plan,
                         tools=self._schema_catalog_for_state(catalog, state_update),
                         history=tool_history,
+                        expected_tool_name=state_update.primary_intent or None,
                         trace_callback=record_trace('executor', iteration),
                     ),
                 )
@@ -1337,17 +1338,113 @@ class AgentRuntimeService:
 
     @staticmethod
     def _fallback_clarification_for_intent(primary_intent: str) -> tuple[str, list[str]]:
-        if primary_intent == 'sales.create_invoice':
-            return (
-                'Reply with the customer plus product, color, size, and quantity for each sales order line.',
-                ['customer_id', 'lines'],
-            )
+        # Products
         if primary_intent == 'products.create_product':
             return (
                 'Reply with the product name, style code, base price, color, and size details.',
                 ['style_code', 'name', 'base_price', 'color_name', 'size_labels'],
             )
-        return ('Please restate the action with the key details I should use.', [])
+        if primary_intent == 'products.update_product':
+            return (
+                'Which product should I update, and what should change (name, price, category, or variant details)?',
+                ['product_id', 'changes'],
+            )
+
+        # Sales
+        if primary_intent == 'sales.create_invoice':
+            return (
+                'Reply with the customer plus product, color, size, and quantity for each sales order line.',
+                ['customer_id', 'lines'],
+            )
+        if primary_intent == 'sales.dispatch_invoice':
+            return (
+                'Which sales order should I dispatch, and from which location?',
+                ['sales_order_id', 'location_id'],
+            )
+        if primary_intent == 'sales.cancel_invoice':
+            return ('Which sales order should I cancel?', ['sales_order_id'])
+
+        # Purchasing
+        if primary_intent == 'purchasing.create_po':
+            return (
+                'Reply with the supplier name and PO lines in the format `SKUCODE/SIZE xQTY @UNIT_COST`, separated by commas.',
+                ['supplier_id', 'lines'],
+            )
+        if primary_intent == 'purchasing.receive_po':
+            return (
+                'Which purchase order should I receive, and which location should it go to?',
+                ['po_id', 'location_id'],
+            )
+        if primary_intent == 'purchasing.close_po':
+            return ('Which purchase order should I close?', ['po_id'])
+
+        # Inventory movements
+        if primary_intent == 'inventory.transfer_stock':
+            return (
+                'Reply with the SKU/size (e.g. `SKUCODE/XL`), quantity, source location, and destination location.',
+                ['sku_and_size', 'quantity', 'from_location_id', 'to_location_id'],
+            )
+        if primary_intent in {'inventory.adjust_stock', 'inventory.receive_stock', 'inventory.write_off_stock'}:
+            return (
+                'Reply with the SKU/size (e.g. `SKUCODE/XL`), quantity, and location.',
+                ['sku_and_size', 'quantity', 'location_id'],
+            )
+        if primary_intent == 'inventory.stock_on_hand':
+            return (
+                'Which product, SKU, or location would you like stock details for?',
+                ['productName'],
+            )
+
+        # Suppliers
+        if primary_intent == 'master.create_supplier':
+            return (
+                'Reply with the supplier name, and optionally email, phone, and address.',
+                ['name'],
+            )
+        if primary_intent == 'master.update_supplier':
+            return (
+                'Which supplier should I update, and what should change (name, email, phone, or address)?',
+                ['supplier_id', 'patch'],
+            )
+        if primary_intent == 'master.delete_supplier':
+            return ('Which supplier should I delete?', ['supplier_id'])
+
+        # Customers
+        if primary_intent == 'master.create_customer':
+            return (
+                'Reply with the customer name, and optionally email, phone, and address.',
+                ['name'],
+            )
+        if primary_intent == 'master.update_customer':
+            return (
+                'Which customer should I update, and what should change (name, email, phone, or address)?',
+                ['customer_id', 'patch'],
+            )
+        if primary_intent == 'master.delete_customer':
+            return ('Which customer should I delete?', ['customer_id'])
+
+        # Locations
+        if primary_intent == 'master.create_location':
+            return (
+                'Reply with the location name, code, and type (warehouse, store, or outlet). Address and status are optional.',
+                ['name', 'code', 'type'],
+            )
+        if primary_intent == 'master.update_location':
+            return (
+                'Which location should I update, and what should change?',
+                ['location_id', 'patch'],
+            )
+        if primary_intent == 'master.delete_location':
+            return ('Which location should I delete?', ['location_id'])
+
+        # Reporting
+        if primary_intent == 'reporting.stock_summary':
+            return (
+                'Which report do you need: stock summary, movement, purchase orders, or receipts?',
+                ['report_type'],
+            )
+
+        return ('Could you clarify what you\'d like me to do? Please include the key details for your request.', [])
 
     @staticmethod
     def _derived_context_entities(

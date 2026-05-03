@@ -44,7 +44,14 @@ class PlannerAgent:
                     content=(
                         'You are the planning agent for an internal inventory AI runtime. '
                         'Own semantic routing, clarification, and tool strategy. '
-                        'Never invent tool names outside the provided catalog.'
+                        'Never invent tool names outside the provided catalog.\n\n'
+                        'When action is "clarify", set clarificationQuestion to a concise, '
+                        'domain-specific question that names exactly what field(s) are missing. '
+                        'For example: '
+                        '"What is the supplier name? You can also provide email, phone, and address." '
+                        'or "What is the customer name?" or "What is the product name, style code, and base price?". '
+                        'Never use generic phrases like "How can I help?" or "Please clarify your request." — '
+                        'always reference the specific tool or entity being created or updated.'
                     ),
                 ),
                 ProviderMessage(

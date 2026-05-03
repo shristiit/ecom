@@ -591,6 +591,19 @@ async def test_master_create_supplier_requires_name_and_keeps_optional_fields():
     assert backend.supplier_payloads == [{'name': 'Acme Supply', 'email': 'ops@acme.example', 'phone': '555-0101'}]
 
 
+async def test_master_create_supplier_normalizes_markdown_mailto_email():
+    backend = FakeBackendClient()
+    catalog = SemanticToolCatalog(backend=backend, auth=make_auth())  # type: ignore[arg-type]
+
+    result = await catalog.invoke(
+        'master.create_supplier',
+        {'name': 'Raghu', 'email': '[raghu@bez.com](mailto:raghu@bez.com)'},
+    )
+
+    assert result['result']['ok'] is True
+    assert backend.supplier_payloads == [{'name': 'Raghu', 'email': 'raghu@bez.com'}]
+
+
 async def test_master_create_location_requires_core_fields_and_keeps_optional_fields():
     backend = FakeBackendClient()
     catalog = SemanticToolCatalog(backend=backend, auth=make_auth())  # type: ignore[arg-type]
@@ -617,6 +630,19 @@ async def test_master_create_customer_accepts_optional_fields():
 
     assert result['result']['ok'] is True
     assert backend.customer_payloads == [{'name': 'Helen Barrows', 'email': 'helen41@yahoo.com', 'address': 'London'}]
+
+
+async def test_master_create_customer_normalizes_markdown_mailto_email():
+    backend = FakeBackendClient()
+    catalog = SemanticToolCatalog(backend=backend, auth=make_auth())  # type: ignore[arg-type]
+
+    result = await catalog.invoke(
+        'master.create_customer',
+        {'name': 'Helen Barrows', 'email': '[helen41@yahoo.com](mailto:helen41@yahoo.com)'},
+    )
+
+    assert result['result']['ok'] is True
+    assert backend.customer_payloads == [{'name': 'Helen Barrows', 'email': 'helen41@yahoo.com'}]
 
 
 async def test_master_update_supplier_resolves_name_and_accepts_partial_patch():
