@@ -264,6 +264,21 @@ async def test_product_create_does_not_require_category():
     assert any(block.type == BlockType.PREVIEW for block in outcome.blocks)
 
 
+async def test_orchestrator_redirects_off_topic_questions():
+    service = make_service()
+
+    outcome = await service.handle_message(
+        make_auth(),
+        make_conversation(),
+        make_workflow(),
+        'what is the size of the earth',
+    )
+
+    assert outcome.status == WorkflowStatus.COMPLETED
+    assert outcome.blocks[0].type == BlockType.TEXT
+    assert 'inventory' in outcome.blocks[0].content.lower()
+
+
 async def test_create_a_product_phrase_routes_to_product_workflow():
     service = make_service()
 
