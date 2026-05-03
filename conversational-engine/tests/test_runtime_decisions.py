@@ -41,6 +41,15 @@ class FakeBackendClient:
         return {'ok': True}
 
 
+class FakeAuditService:
+    def __init__(self) -> None:
+        self.events: list[dict[str, object]] = []
+
+    async def record(self, **kwargs):
+        self.events.append(kwargs)
+        return kwargs
+
+
 def make_auth() -> AuthContext:
     return AuthContext(
         id='user-1',
@@ -53,7 +62,8 @@ def make_auth() -> AuthContext:
 
 
 async def test_runtime_decision_confirm_routes_to_approval_when_required():
-    handler = RuntimeDecisionHandler(FakeBackendClient())  # type: ignore[arg-type]
+    audit = FakeAuditService()
+    handler = RuntimeDecisionHandler(FakeBackendClient(), audit_service=audit)  # type: ignore[arg-type]
     workflow = WorkflowState(
         id=uuid4(),
         status=WorkflowStatus.AWAITING_CONFIRMATION,
@@ -81,6 +91,8 @@ async def test_runtime_decision_confirm_routes_to_approval_when_required():
 
     assert outcome.status == WorkflowStatus.AWAITING_APPROVAL
     assert any(block.type == BlockType.APPROVAL_PENDING for block in outcome.blocks)
+    assert audit.events[0]['event_type'] == 'approval_created'
+    assert audit.events[0]['tool_name'] == 'products.create_product'
 
 
 async def test_runtime_decision_edit_returns_to_needs_input():

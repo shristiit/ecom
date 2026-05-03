@@ -363,6 +363,15 @@ class EmptyResultsBackendClient(FakeBackendClient):
         return []
 
 
+class FakeAuditService:
+    def __init__(self) -> None:
+        self.events: list[dict[str, object]] = []
+
+    async def record(self, **kwargs):
+        self.events.append(kwargs)
+        return kwargs
+
+
 def make_auth() -> AuthContext:
     return AuthContext(
         id='user-1',
@@ -562,6 +571,41 @@ async def test_runtime_service_includes_table_when_user_requests_full_details():
     assert outcome.status == WorkflowStatus.COMPLETED
     assert any(event_type == 'tool.called' for event_type, _payload in events)
     assert any(block.type == BlockType.TABLE_RESULT for block in outcome.blocks)
+
+
+async def test_runtime_service_records_tool_execution_audit_event():
+    audit = FakeAuditService()
+    service = AgentRuntimeService(
+        backend_client=FakeBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeExecutor('inventory.stock_on_hand', {'sku': 'TSHIRT-BLACK'}),
+        reviewer=FakeReviewer(message='Stock is available in London.'),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        audit_service=audit,  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    conversation_id = uuid4()
+    workflow_id = uuid4()
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=conversation_id,
+        workflow_id=workflow_id,
+        user_message='show stock for black t-shirt',
+        extracted_entities={},
+        recent_messages=[],
+        workflow_status=WorkflowStatus.IDLE,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.COMPLETED
+    assert audit.events[0]['event_type'] == 'tool_executed'
+    assert audit.events[0]['conversation_id'] == str(conversation_id)
+    assert audit.events[0]['workflow_id'] == str(workflow_id)
+    assert audit.events[0]['tool_name'] == 'inventory.stock_on_hand'
 
 
 async def test_runtime_service_requests_approval_for_high_risk_writes():

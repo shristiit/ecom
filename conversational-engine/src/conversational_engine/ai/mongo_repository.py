@@ -183,6 +183,13 @@ class MongoAIRepository(AIRepository):
         await self._db.ai_traces.create_index([('tenantId', ASCENDING), ('createdAt', DESCENDING)])
         await self._db.ai_traces.create_index('expiresAt', expireAfterSeconds=0)
 
+        await self._db.ai_audit_events.create_index([('tenantId', ASCENDING), ('createdAt', DESCENDING)])
+        await self._db.ai_audit_events.create_index([('tenantId', ASCENDING), ('conversationId', ASCENDING), ('createdAt', DESCENDING)])
+        await self._db.ai_audit_events.create_index([('tenantId', ASCENDING), ('workflowId', ASCENDING), ('createdAt', DESCENDING)])
+        await self._db.ai_audit_events.create_index([('tenantId', ASCENDING), ('approvalId', ASCENDING), ('createdAt', DESCENDING)])
+        await self._db.ai_audit_events.create_index([('tenantId', ASCENDING), ('eventType', ASCENDING), ('createdAt', DESCENDING)])
+        await self._db.ai_audit_events.create_index('expiresAt', expireAfterSeconds=0)
+
         await self._db.ai_entity_memory.create_index([('tenantId', ASCENDING), ('conversationId', ASCENDING), ('createdAt', DESCENDING)])
         await self._db.ai_entity_memory.create_index([('tenantId', ASCENDING), ('userId', ASCENDING), ('createdAt', DESCENDING)])
         await self._db.ai_entity_memory.create_index([('tenantId', ASCENDING), ('entityType', ASCENDING), ('normalizedLabel', ASCENDING)])
@@ -695,6 +702,52 @@ class MongoAIRepository(AIRepository):
             )
             for doc in docs
         ]
+
+    async def record_audit_event(
+        self,
+        *,
+        tenant_id: str,
+        user_id: str | None,
+        actor_email: str | None,
+        event_type: str,
+        conversation_id: str | None = None,
+        workflow_id: str | None = None,
+        approval_id: str | None = None,
+        tool_name: str | None = None,
+        payload: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        now = utc_now()
+        doc = {
+            '_id': str(uuid4()),
+            'tenantId': tenant_id,
+            'userId': user_id,
+            'actorEmail': actor_email,
+            'eventType': event_type,
+            'conversationId': conversation_id,
+            'workflowId': workflow_id,
+            'approvalId': approval_id,
+            'toolName': tool_name,
+            'payload': payload or {},
+            'createdAt': now,
+            'expiresAt': await self._get_retention_expiry(tenant_id, 'raw_messages', now=now),
+        }
+        await self._db.ai_audit_events.insert_one(doc)
+        return doc
+
+    async def list_audit_events(
+        self,
+        *,
+        tenant_id: str,
+        limit: int,
+        conversation_id: str | None = None,
+        workflow_id: str | None = None,
+    ) -> list[dict[str, object]]:
+        filters: dict[str, Any] = {'tenantId': tenant_id}
+        if conversation_id:
+            filters['conversationId'] = conversation_id
+        if workflow_id:
+            filters['workflowId'] = workflow_id
+        return await self._db.ai_audit_events.find(filters).sort('createdAt', DESCENDING).limit(limit).to_list(length=limit)
 
     async def record_trace(
         self,

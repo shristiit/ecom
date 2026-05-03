@@ -13,6 +13,7 @@ from conversational_engine.agents.narrator import NarratorAgent
 from conversational_engine.agents.planner import PlannerAgent
 from conversational_engine.agents.reviewer import ReviewerAgent
 from conversational_engine.agents.state_updater import StateUpdateAgent
+from conversational_engine.audit.service import AuditService
 from conversational_engine.clients.backend import BackendClient, BackendValidationError
 from conversational_engine.contracts.auth import AuthContext
 from conversational_engine.contracts.common import PendingActionType, TextBlock, WorkflowStatus
@@ -59,6 +60,7 @@ class AgentRuntimeService:
         reviewer: ReviewerAgent,
         narrator: NarratorAgent,
         state_updater: StateUpdateAgent | None = None,
+        audit_service: AuditService | None = None,
         memory_service: LayeredMemoryService,
         training_data_service: TrainingDataService,
         retrieval_service: RetrievalService,
@@ -69,6 +71,7 @@ class AgentRuntimeService:
         self._reviewer = reviewer
         self._state_updater = state_updater
         self._narrator = narrator
+        self._audit_service = audit_service
         self._memory_service = memory_service
         self._training_data_service = training_data_service
         self._retrieval_service = retrieval_service
@@ -614,6 +617,19 @@ class AgentRuntimeService:
                         tool_name=tool_name,
                         status='completed',
                     ),
+                )
+                await self._record_audit_event(
+                    auth=auth,
+                    conversation_id=conversation_id,
+                    workflow_id=workflow_id,
+                    event_type='tool_executed',
+                    tool_name=tool_name,
+                    payload={
+                        'route': state_update.primary_route,
+                        'intent': state_update.primary_intent,
+                        'toolArguments': tool_arguments,
+                        'toolResult': tool_result,
+                    },
                 )
 
                 review = await self._run_phase(
@@ -1196,6 +1212,34 @@ class AgentRuntimeService:
             ),
         )
         return result
+
+    async def _record_audit_event(
+        self,
+        *,
+        auth: AuthContext,
+        conversation_id: UUID,
+        workflow_id: UUID,
+        event_type: str,
+        payload: dict[str, object],
+        tool_name: str | None = None,
+        approval_id: str | None = None,
+    ) -> None:
+        if self._audit_service is None:
+            return
+        try:
+            await self._audit_service.record(
+                tenant_id=auth.tenant_id,
+                user_id=auth.id,
+                actor_email=auth.email,
+                event_type=event_type,
+                conversation_id=str(conversation_id),
+                workflow_id=str(workflow_id),
+                approval_id=approval_id,
+                tool_name=tool_name,
+                payload=payload,
+            )
+        except Exception:
+            logger.exception('Failed to persist runtime audit event %s', event_type)
 
     def _schema_catalog_for_state(
         self,
