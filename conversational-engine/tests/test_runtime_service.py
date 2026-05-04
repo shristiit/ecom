@@ -685,6 +685,163 @@ async def test_runtime_service_requests_approval_for_customer_create():
     assert not any(event_type == 'approval.requested' for event_type, _payload in events)
 
 
+async def test_runtime_service_starts_fresh_contact_workflow_when_intent_changes():
+    service = AgentRuntimeService(
+        backend_client=FakeApprovalBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeExecutor(
+            'master.create_customer',
+            {
+                'name': 'Aibuyer',
+                'email': 'aibuyer@gmail.com',
+            },
+        ),
+        reviewer=FakeReviewer(),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        state_updater=FakeStateUpdater(
+            {
+                'create a customer named Aibuyer with email aibuyer@gmail.com': {
+                    'useActiveWorkflow': False,
+                    'primaryRoute': 'mutation',
+                    'primaryIntent': 'master.create_customer',
+                    'confidence': 0.97,
+                    'rationale': 'The user started a new customer creation request.',
+                    'entityPatches': {},
+                    'navigationQuery': None,
+                    'postActionQuery': None,
+                }
+            }
+        ),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='create a customer named Aibuyer with email aibuyer@gmail.com',
+        extracted_entities={
+            '_workflowEngine': 'runtime',
+            'toolName': 'master.create_supplier',
+            'executionPayload': {
+                'name': 'aiseller',
+                'email': 'aisell@sell.com',
+                'address': 'london',
+            },
+            'activeApprovalId': str(uuid4()),
+            'activeApprovalStatus': 'pending',
+            'basePrice': 25,
+            'styleCode': 'ai-0033',
+            'taskContext': {
+                'primaryRoute': 'mutation',
+                'primaryIntent': 'master.create_supplier',
+                'entities': {
+                    'name': 'aiseller',
+                    'email': 'aisell@sell.com',
+                    'address': 'london',
+                    'basePrice': 25,
+                    'styleCode': 'ai-0033',
+                },
+                'missingFields': [],
+                'postActions': [],
+                'clarificationCount': 0,
+                'status': 'awaiting_approval',
+            },
+        },
+        recent_messages=[],
+        workflow_status=WorkflowStatus.AWAITING_APPROVAL,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.AWAITING_CONFIRMATION
+    assert outcome.extracted_entities['executionPayload'] == {
+        'name': 'Aibuyer',
+        'email': 'aibuyer@gmail.com',
+    }
+    assert outcome.extracted_entities['preview']['preparedArguments'] == {
+        'name': 'Aibuyer',
+        'email': 'aibuyer@gmail.com',
+    }
+    assert outcome.extracted_entities['activeApprovalId'] is None
+    assert outcome.extracted_entities['_approvalOperation'] == 'create_new'
+    assert 'basePrice' not in outcome.extracted_entities['taskContext']['entities']
+    assert 'styleCode' not in outcome.extracted_entities['taskContext']['entities']
+
+
+async def test_runtime_service_keeps_existing_contact_name_when_user_confirms_reuse_with_yes():
+    service = AgentRuntimeService(
+        backend_client=FakeApprovalBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeExecutor(
+            'master.create_supplier',
+            {
+                'name': 'aiseller',
+                'email': 'aisell@sell.com',
+                'address': 'london',
+            },
+        ),
+        reviewer=FakeReviewer(),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        state_updater=FakeStateUpdater(
+            {
+                'yes': {
+                    'useActiveWorkflow': True,
+                    'primaryRoute': 'mutation',
+                    'primaryIntent': 'master.create_supplier',
+                    'confidence': 0.96,
+                    'rationale': 'The user confirmed that the existing supplier details should be reused.',
+                    'entityPatches': {},
+                    'navigationQuery': None,
+                    'postActionQuery': None,
+                }
+            }
+        ),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='yes',
+        extracted_entities={
+            '_workflowEngine': 'runtime',
+            'toolName': 'master.create_supplier',
+            'executionPayload': {
+                'name': 'aiseller',
+                'email': 'aisell@sell.com',
+                'address': 'london',
+            },
+            'taskContext': {
+                'primaryRoute': 'mutation',
+                'primaryIntent': 'master.create_supplier',
+                'entities': {
+                    'name': 'aiseller',
+                    'email': 'aisell@sell.com',
+                    'address': 'london',
+                },
+                'missingFields': ['name'],
+                'postActions': [],
+                'clarificationCount': 1,
+                'status': 'drafting',
+            },
+        },
+        recent_messages=[],
+        workflow_status=WorkflowStatus.NEEDS_INPUT,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.AWAITING_CONFIRMATION
+    assert outcome.extracted_entities['executionPayload']['name'] == 'aiseller'
+    assert outcome.extracted_entities['preview']['preparedArguments']['name'] == 'aiseller'
+
+
 async def test_runtime_service_handles_trace_attempts_without_crashing():
     service = AgentRuntimeService(
         backend_client=FakeBackendClient(),  # type: ignore[arg-type]
