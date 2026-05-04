@@ -167,6 +167,19 @@ def task_context_from_entities(extracted_entities: dict[str, Any]) -> dict[str, 
     return context
 
 
+def fresh_task_context() -> dict[str, Any]:
+    return {
+        'primaryRoute': None,
+        'primaryIntent': None,
+        'entities': {},
+        'missingFields': [],
+        'postActions': [],
+        'lastResolvedRoute': None,
+        'clarificationCount': 0,
+        'status': 'drafting',
+    }
+
+
 def apply_task_context(extracted_entities: dict[str, Any], task_context: dict[str, Any]) -> dict[str, Any]:
     merged = dict(extracted_entities)
     merged['taskContext'] = task_context
@@ -298,13 +311,16 @@ async def resolve_state_update(
         primary_route = ROUTE_MIXED
         rationale = f'{rationale} Queued a post-action navigation step after the mutation succeeds.'
 
-    merged_entities.update(patches)
     active_intent = str(task_context.get('primaryIntent') or '')
+    merged_entities.update(patches)
     if primary_intent == 'master.create_location' or active_intent == 'master.create_location':
         merged_entities.update(_extract_location_create_entities(action_text or text))
-    if primary_intent in {'master.create_supplier', 'master.create_customer'} or \
-            active_intent in {'master.create_supplier', 'master.create_customer'}:
+    if (
+        primary_intent in {'master.create_supplier', 'master.create_customer'}
+        or active_intent in {'master.create_supplier', 'master.create_customer'}
+    ):
         merged_entities.update(_extract_contact_create_entities(action_text or text))
+
     if not is_workflow_edit and _should_continue_pending_task(
         text=action_text or text,
         task_context=task_context,
@@ -318,6 +334,19 @@ async def resolve_state_update(
         rationale = 'Applied this turn as missing-field input for the active workflow.'
         confidence = max(confidence, 0.91)
         used_memory = True
+    elif _should_reset_mutation_context(
+        task_context=task_context,
+        primary_route=primary_route,
+        primary_intent=primary_intent,
+    ):
+        extracted_entities = _clear_runtime_workflow_state(extracted_entities, task_context)
+        task_context = fresh_task_context()
+        merged_entities = dict(patches)
+        if primary_intent == 'master.create_location':
+            merged_entities.update(_extract_location_create_entities(action_text or text))
+        if primary_intent in {'master.create_supplier', 'master.create_customer'}:
+            merged_entities.update(_extract_contact_create_entities(action_text or text))
+
     task_context['primaryRoute'] = primary_route
     task_context['primaryIntent'] = primary_intent
     task_context['entities'] = merged_entities
@@ -603,6 +632,52 @@ def _sync_pending_task(extracted_entities: dict[str, Any], task_context: dict[st
     }
 
 
+def _should_reset_mutation_context(
+    *,
+    task_context: dict[str, Any],
+    primary_route: str,
+    primary_intent: str,
+) -> bool:
+    active_route = str(task_context.get('primaryRoute') or '')
+    active_intent = str(task_context.get('primaryIntent') or '')
+    if active_route != ROUTE_MUTATION or primary_route != ROUTE_MUTATION:
+        return False
+    if not active_intent or not primary_intent:
+        return False
+    return active_intent != primary_intent
+
+
+def _clear_runtime_workflow_state(
+    extracted_entities: dict[str, Any],
+    task_context: dict[str, Any],
+) -> dict[str, Any]:
+    cleared = dict(extracted_entities)
+    entities = task_context.get('entities')
+    if isinstance(entities, dict):
+        for key in entities:
+            cleared.pop(key, None)
+
+    for key in (
+        'taskContext',
+        'pendingTask',
+        'pending_task',
+        'toolName',
+        'executionPayload',
+        'preview',
+        'approvalRequired',
+        'approvalReason',
+        'summary',
+        'activeApprovalId',
+        'activeApprovalStatus',
+        '_pendingActions',
+        '_pendingPrompt',
+        '_pendingApprovalUpdateOriginal',
+        '_approvalOperation',
+    ):
+        cleared.pop(key, None)
+    return cleared
+
+
 def _should_continue_pending_task(
     *,
     text: str,
@@ -735,7 +810,22 @@ def _extract_contact_create_entities(text: str) -> dict[str, Any]:
         _LABEL_ARTIFACTS = r'\b(?:name|email|phone|address|status)\b\s*[:=][;,]?\s*'
         candidate = re.sub(_COMMAND_WORDS, '', working, flags=re.IGNORECASE)
         candidate = re.sub(_LABEL_ARTIFACTS, '', candidate, flags=re.IGNORECASE).strip(' ,;:')
-        if candidate:
+        normalized_candidate = _normalize(candidate)
+        if candidate and normalized_candidate not in {
+            'yes',
+            'yeah',
+            'yep',
+            'ok',
+            'okay',
+            'sure',
+            'same',
+            'same one',
+            'same details',
+            'same as before',
+            'use same',
+            'use same details',
+            'again',
+        }:
             extracted['name'] = candidate
 
     return extracted

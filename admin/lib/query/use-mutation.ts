@@ -1,14 +1,26 @@
 import { useCallback, useState } from 'react';
 import { ApiError } from '@admin/lib/api';
 import type { MutationState } from './types';
+import { queryClient } from './query-client';
+import type { QueryKey } from './types';
 
 type UseMutationOptions<TPayload, TResult> = {
   mutationFn: (payload: TPayload) => Promise<TResult>;
   onSuccess?: (result: TResult, payload: TPayload) => void;
   onError?: (error: ApiError, payload: TPayload) => void;
+  invalidateAll?: boolean;
+  invalidateKeys?: QueryKey[] | ((result: TResult, payload: TPayload) => QueryKey[]);
+  invalidatePrefixes?: QueryKey[] | ((result: TResult, payload: TPayload) => QueryKey[]);
 };
 
-export function useMutation<TPayload, TResult>({ mutationFn, onSuccess, onError }: UseMutationOptions<TPayload, TResult>) {
+export function useMutation<TPayload, TResult>({
+  mutationFn,
+  onSuccess,
+  onError,
+  invalidateAll = true,
+  invalidateKeys,
+  invalidatePrefixes,
+}: UseMutationOptions<TPayload, TResult>) {
   const [state, setState] = useState<MutationState<TResult>>({
     data: null,
     error: null,
@@ -23,6 +35,17 @@ export function useMutation<TPayload, TResult>({ mutationFn, onSuccess, onError 
       try {
         const result = await mutationFn(payload);
         setState({ data: result, error: null, isPending: false, isSuccess: true });
+
+        const resolvedInvalidateKeys = typeof invalidateKeys === 'function' ? invalidateKeys(result, payload) : invalidateKeys ?? [];
+        const resolvedInvalidatePrefixes =
+          typeof invalidatePrefixes === 'function' ? invalidatePrefixes(result, payload) : invalidatePrefixes ?? [];
+
+        if (invalidateAll) {
+          queryClient.invalidateAll();
+        }
+        resolvedInvalidateKeys.forEach((key) => queryClient.invalidateQuery(key));
+        resolvedInvalidatePrefixes.forEach((prefix) => queryClient.invalidateQueries(prefix));
+
         onSuccess?.(result, payload);
         return result;
       } catch (error) {
@@ -32,7 +55,7 @@ export function useMutation<TPayload, TResult>({ mutationFn, onSuccess, onError 
         throw apiError;
       }
     },
-    [mutationFn, onError, onSuccess],
+    [invalidateAll, invalidateKeys, invalidatePrefixes, mutationFn, onError, onSuccess],
   );
 
   const reset = useCallback(() => {

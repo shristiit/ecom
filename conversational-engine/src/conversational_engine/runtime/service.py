@@ -1022,10 +1022,12 @@ class AgentRuntimeService:
         emit: EventSink,
     ) -> RuntimeOutcome:
         active_approval_id = current_entities.get('activeApprovalId')
+        existing_tool_name = str(current_entities.get('toolName') or '')
         has_pending_approval = (
             isinstance(active_approval_id, str)
             and bool(active_approval_id)
             and current_entities.get('activeApprovalStatus') == 'pending'
+            and existing_tool_name == tool_name
         )
         try:
             prepared_arguments = await catalog.prepare(tool_name, tool_arguments)
@@ -1107,6 +1109,7 @@ class AgentRuntimeService:
             'preview': {
                 'tool': tool_name,
                 'arguments': tool_arguments,
+                'preparedArguments': prepared_arguments,
                 'taskContext': enriched_task_context,
             },
             'approvalRequired': evaluation.requires_approval,
@@ -1135,7 +1138,7 @@ class AgentRuntimeService:
             blocks=render_confirmation_required(
                 message=message_hint,
                 tool_name=tool_name,
-                tool_arguments=tool_arguments,
+                tool_arguments=prepared_arguments,
                 approval_required=evaluation.requires_approval,
                 confirmation_prompt=confirmation_prompt,
                 actor=auth.email,

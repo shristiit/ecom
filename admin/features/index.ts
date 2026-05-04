@@ -1,4 +1,4 @@
-export * as aiFeature from './ai';
+export * as aiFeature from './assistant';
 export * as auditFeature from './audit';
 export * as authFeature from './auth';
 export * as dashboardFeature from './dashboard';

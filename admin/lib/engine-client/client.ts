@@ -1,11 +1,13 @@
 import { request, streamRequest } from '@admin/lib/api';
+import type { QueryParams } from '@admin/lib/api';
 import { ENGINE_BASE_URL } from './config';
 
-export function engineGet<TResponse>(path: string) {
+export function engineGet<TResponse>(path: string, query?: QueryParams) {
   return request<TResponse>({
     method: 'GET',
     path,
     baseUrl: ENGINE_BASE_URL,
+    query,
   });
 }
 

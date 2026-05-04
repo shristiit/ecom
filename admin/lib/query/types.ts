@@ -10,6 +10,7 @@ export type QueryState<TData> = {
   status: QueryStatus;
   isLoading: boolean;
   isFetching: boolean;
+  updatedAt: number | null;
 };
 
 export type MutationState<TResult> = {
@@ -17,4 +18,21 @@ export type MutationState<TResult> = {
   error: ApiError | null;
   isPending: boolean;
   isSuccess: boolean;
+};
+
+export type QueryCacheEntry<TData> = QueryState<TData> & {
+  key: QueryKey;
+  invalidated: boolean;
+  persist: boolean;
+};
+
+export type QueryPersistenceEntry = {
+  key: QueryKey;
+  data: unknown;
+  updatedAt: number | null;
+};
+
+export type QueryPersistenceEnvelope = {
+  version: 1;
+  entries: QueryPersistenceEntry[];
 };

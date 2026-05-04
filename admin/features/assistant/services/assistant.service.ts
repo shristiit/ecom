@@ -79,8 +79,19 @@ export const assistantService = {
     );
   },
 
-  getConversation(id: string) {
-    return engineGet<AssistantConversation>(`/api/chat/conversations/${id}`);
+  getConversation(
+    id: string,
+    options?: {
+      messageLimit?: number;
+      beforeCreatedAt?: string | null;
+      beforeId?: string | null;
+    },
+  ) {
+    return engineGet<AssistantConversation>(`/api/chat/conversations/${id}`, {
+      message_limit: options?.messageLimit,
+      before_created_at: options?.beforeCreatedAt ?? undefined,
+      before_id: options?.beforeId ?? undefined,
+    });
   },
 
   createConversation(input: { title?: string; initialMessage?: string | null; attachmentIds?: string[] }) {
