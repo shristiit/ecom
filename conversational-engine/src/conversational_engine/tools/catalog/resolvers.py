@@ -32,10 +32,17 @@ class ResolutionError(ValueError):
 class EntityResolver:
     """Resolves human-readable names (locations, suppliers, products…) to backend UUIDs."""
 
-    def __init__(self, backend: BackendClient, auth: AuthContext) -> None:
+    def __init__(
+        self,
+        backend: BackendClient,
+        auth: AuthContext,
+        *,
+        context_entities: dict[str, Any] | None = None,
+    ) -> None:
         self._backend = backend
         self._auth = auth
         self._cache: dict[str, object] = {}
+        self._context_entities = dict(context_entities or {})
 
     @property
     def _token(self) -> str:
@@ -63,6 +70,13 @@ class EntityResolver:
     async def supplier(self, name_or_id: str) -> str:
         if is_uuid(name_or_id):
             return name_or_id
+        relative = self._relative_context_value(
+            name_or_id,
+            terms=('same supplier', 'this supplier', 'that supplier', 'supplier we just created'),
+            value_keys=('supplierId',),
+        )
+        if relative is not None:
+            return self._require_resolved(relative)
         items = await self._cached_rows('suppliers', lambda: self._backend.list_suppliers(self._token, self._tenant))
         return self._require_resolved(
             self._resolve_named_entity(
@@ -78,6 +92,13 @@ class EntityResolver:
     async def customer(self, name_or_id: str) -> str:
         if is_uuid(name_or_id):
             return name_or_id
+        relative = self._relative_context_value(
+            name_or_id,
+            terms=('same customer', 'this customer', 'that customer', 'customer we just created'),
+            value_keys=('customerId',),
+        )
+        if relative is not None:
+            return self._require_resolved(relative)
         items = await self._cached_rows('customers', lambda: self._backend.list_customers(self._token, self._tenant))
         return self._require_resolved(
             self._resolve_named_entity(
@@ -111,6 +132,22 @@ class EntityResolver:
         payload = await self._cached_value('purchase_orders', lambda: self._backend.list_pos(self._token, self._tenant))
         items = payload.get('items') if isinstance(payload, dict) else None
         rows = items if isinstance(items, list) else []
+        relative = self._relative_context_value(
+            number_or_id,
+            terms=('this purchase order', 'that purchase order', 'this po', 'that po'),
+            value_keys=('poId',),
+        )
+        if relative is not None:
+            return self._require_resolved(relative)
+        latest = self._latest_list_reference(
+            number_or_id,
+            terms=('last purchase order', 'my last purchase order', 'last po', 'my last po', 'latest po'),
+            rows=rows,
+            label_fields=('number', 'supplierName', 'supplier_name'),
+            singular='purchase order',
+        )
+        if latest is not None:
+            return self._require_resolved(latest)
         return self._require_resolved(
             self._resolve_named_entity(
                 rows,
@@ -128,6 +165,22 @@ class EntityResolver:
         payload = await self._cached_value('invoices', lambda: self._backend.list_invoices(self._token, self._tenant))
         items = payload.get('items') if isinstance(payload, dict) else None
         rows = items if isinstance(items, list) else []
+        relative = self._relative_context_value(
+            number_or_id,
+            terms=('this sales order', 'that sales order', 'this invoice', 'that invoice', 'this so', 'that so'),
+            value_keys=('invoiceId',),
+        )
+        if relative is not None:
+            return self._require_resolved(relative)
+        latest = self._latest_list_reference(
+            number_or_id,
+            terms=('last sales order', 'my last sales order', 'last invoice', 'my last invoice', 'latest sales order'),
+            rows=rows,
+            label_fields=('number', 'customerName', 'customer_name'),
+            singular='sales order',
+        )
+        if latest is not None:
+            return self._require_resolved(latest)
         return self._require_resolved(
             self._resolve_named_entity(
                 rows,
@@ -477,9 +530,54 @@ class EntityResolver:
 
     @staticmethod
     def _require_resolved(result: ResolutionResult) -> str:
-        if result.status == 'resolved' and result.value:
+        if result.status in {'resolved', 'relative_reference'} and result.value:
             return result.value
         raise ResolutionError(result)
+
+    def _relative_context_value(
+        self,
+        query: str,
+        *,
+        terms: tuple[str, ...],
+        value_keys: tuple[str, ...],
+    ) -> ResolutionResult | None:
+        normalized_query = query.strip().lower()
+        if normalized_query not in terms:
+            return None
+        for key in value_keys:
+            value = self._context_entities.get(key)
+            if isinstance(value, str) and value.strip():
+                return ResolutionResult(status='relative_reference', value=value.strip())
+        missing_label = terms[0]
+        return ResolutionResult(
+            status='not_found',
+            message=f'I do not have an active reference for "{missing_label}". Please specify the exact record.',
+        )
+
+    def _latest_list_reference(
+        self,
+        query: str,
+        *,
+        terms: tuple[str, ...],
+        rows: list[dict[str, object]],
+        label_fields: tuple[str, ...],
+        singular: str,
+    ) -> ResolutionResult | None:
+        normalized_query = query.strip().lower()
+        if normalized_query not in terms:
+            return None
+        if not rows:
+            return ResolutionResult(
+                status='not_found',
+                message=f'I could not find any {singular}s to use as the latest reference.',
+            )
+        identifier = str(rows[0].get('id') or '').strip()
+        if not identifier:
+            return ResolutionResult(
+                status='not_found',
+                message=f'The latest {singular} is missing an id.',
+            )
+        return ResolutionResult(status='relative_reference', value=identifier)
 
     def _resolve_named_entity(
         self,

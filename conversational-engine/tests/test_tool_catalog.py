@@ -1121,3 +1121,70 @@ async def test_master_search_tools_return_filtered_rows(tool_name: str, query: s
     result = await catalog.invoke(tool_name, {'query': query})
 
     assert result == {'rows': expected}
+
+
+async def test_catalog_resolves_same_supplier_from_context_for_po_create():
+    backend = FakeBackendClient()
+    catalog = SemanticToolCatalog(
+        backend=backend,
+        auth=make_auth(),
+        context_entities={'supplierId': 'sup-1', 'supplierName': 'Acme Supply'},
+    )  # type: ignore[arg-type]
+
+    prepared = await catalog.prepare(
+        'purchasing.create_po',
+        {
+            'supplierId': 'same supplier',
+            'lines': [{'productName': 'Field Fresh Short', 'colorName': 'Sand', 'sizeLabel': 'M', 'qty': 2}],
+        },
+    )
+
+    assert prepared['supplierId'] == 'sup-1'
+
+
+async def test_catalog_resolves_last_po_from_latest_list_item():
+    backend = FakeBackendClient()
+    backend.purchase_orders = [
+        {'id': 'po-9', 'number': 'PO-0009', 'supplierName': 'Beta Goods'},
+        {'id': 'po-1', 'number': 'PO-0001', 'supplierName': 'Acme Supply'},
+    ]
+    catalog = SemanticToolCatalog(backend=backend, auth=make_auth())  # type: ignore[arg-type]
+
+    prepared = await catalog.prepare(
+        'purchasing.update_po',
+        {'poId': 'my last PO', 'expectedDate': '2026-05-30'},
+    )
+
+    assert prepared['poId'] == 'po-9'
+    assert prepared['headerPatch'] == {'expectedDate': '2026-05-30'}
+
+
+async def test_catalog_resolves_that_sales_order_from_context():
+    backend = FakeBackendClient()
+    catalog = SemanticToolCatalog(
+        backend=backend,
+        auth=make_auth(),
+        context_entities={'invoiceId': 'inv-1', 'invoiceNumber': 'SO-0001'},
+    )  # type: ignore[arg-type]
+
+    prepared = await catalog.prepare(
+        'sales.dispatch_invoice',
+        {'invoiceId': 'that sales order', 'locationId': 'WH1'},
+    )
+
+    assert prepared['invoiceId'] == 'inv-1'
+    assert prepared['locationId'] == 'loc-1'
+
+
+async def test_catalog_relative_reference_requires_context_when_missing():
+    backend = FakeBackendClient()
+    catalog = SemanticToolCatalog(backend=backend, auth=make_auth())  # type: ignore[arg-type]
+
+    with pytest.raises(
+        ToolPreparationError,
+        match='I do not have an active reference for "this sales order". Please specify the exact record.',
+    ):
+        await catalog.prepare(
+            'sales.dispatch_invoice',
+            {'invoiceId': 'that sales order', 'locationId': 'WH1'},
+        )

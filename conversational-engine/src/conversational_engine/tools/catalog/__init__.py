@@ -13,9 +13,16 @@ from .resolvers import EntityResolver
 
 
 class SemanticToolCatalog:
-    def __init__(self, *, backend: BackendClient, auth: AuthContext) -> None:
+    def __init__(
+        self,
+        *,
+        backend: BackendClient,
+        auth: AuthContext,
+        context_entities: dict[str, Any] | None = None,
+    ) -> None:
         self._backend = backend
         self._auth = auth
+        self._context_entities = dict(context_entities or {})
         self._tools = self._build_tools()
 
     def definitions(self) -> list[SemanticTool]:
@@ -60,7 +67,7 @@ class SemanticToolCatalog:
         return await tool.executor(prepared)
 
     def _build_tools(self) -> dict[str, SemanticTool]:
-        resolver = EntityResolver(self._backend, self._auth)
+        resolver = EntityResolver(self._backend, self._auth, context_entities=self._context_entities)
         return {
             **build_commerce_tools(self._backend, self._auth, resolver),
             **build_inventory_tools(self._backend, self._auth, resolver),

@@ -247,7 +247,11 @@ class AgentRuntimeService:
         user_message = queued_message
         extracted_entities = queued_entities
         tool_history: list[dict[str, object]] = []
-        catalog = SemanticToolCatalog(backend=self._backend_client, auth=auth)
+        catalog = SemanticToolCatalog(
+            backend=self._backend_client,
+            auth=auth,
+            context_entities=extracted_entities,
+        )
         usage_entries: list[dict[str, object]] = []
         trace_tasks: list[asyncio.Task[None]] = []
 
@@ -1116,7 +1120,11 @@ class AgentRuntimeService:
         )
         return await self._prepare_confirmation(
             auth=auth,
-            catalog=SemanticToolCatalog(backend=self._backend_client, auth=auth),
+            catalog=SemanticToolCatalog(
+                backend=self._backend_client,
+                auth=auth,
+                context_entities=current_entities,
+            ),
             conversation_id=conversation_id,
             workflow_id=workflow_id,
             state_update=state_update,
@@ -1186,7 +1194,11 @@ class AgentRuntimeService:
         )
         return await self._prepare_confirmation(
             auth=auth,
-            catalog=SemanticToolCatalog(backend=self._backend_client, auth=auth),
+            catalog=SemanticToolCatalog(
+                backend=self._backend_client,
+                auth=auth,
+                context_entities=current_entities,
+            ),
             conversation_id=conversation_id,
             workflow_id=workflow_id,
             state_update=state_update,
