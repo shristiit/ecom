@@ -163,6 +163,7 @@ class ConversationSummary(ContractModel):
 class ConversationDetail(ContractModel):
     id: UUID
     title: str
+    created_by: str | None = None
     created_at: datetime
     updated_at: datetime
 

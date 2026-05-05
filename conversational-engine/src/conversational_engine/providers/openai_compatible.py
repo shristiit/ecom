@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from typing import Any
 
 import httpx
@@ -12,6 +11,7 @@ from conversational_engine.providers.base import (
     IntentClassifier,
     ProviderMessage,
 )
+from conversational_engine.utils.json_parsing import parse_json_object
 
 
 class OpenAICompatibleChatProvider(ChatProvider):
@@ -82,13 +82,7 @@ class OpenAICompatibleChatProvider(ChatProvider):
         raw = data.get('choices', [{}])[0].get('message', {}).get('content')
         if not isinstance(raw, str) or not raw.strip():
             raise RuntimeError('LLM returned empty JSON content')
-        try:
-            parsed = json.loads(raw)
-        except json.JSONDecodeError as exc:
-            raise RuntimeError(f'LLM returned invalid JSON: {exc}') from exc
-        if not isinstance(parsed, dict):
-            raise RuntimeError('LLM JSON output was not an object')
-        return parsed
+        return parse_json_object(raw, source='LLM')
 
 
 class OpenAICompatibleEmbeddingsProvider(EmbeddingsProvider):

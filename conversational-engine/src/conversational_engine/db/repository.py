@@ -211,7 +211,7 @@ class EngineRepository:
         with self._connection() as conn, conn.cursor() as cur:
             cur.execute(
                 """
-                SELECT id, title, created_at, updated_at
+                SELECT id, title, created_by, created_at, updated_at
                 FROM ai_conversations
                 WHERE tenant_id = %s AND id = %s
                 """,
@@ -300,6 +300,7 @@ class EngineRepository:
                 SELECT
                   c.id AS conversation_id,
                   c.title,
+                  c.created_by,
                   c.created_at,
                   c.updated_at,
                   w.id,

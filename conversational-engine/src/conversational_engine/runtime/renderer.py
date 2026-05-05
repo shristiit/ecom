@@ -69,6 +69,7 @@ def render_approval_pending(
     approval_id: UUID,
     tool_name: str,
     tool_arguments: dict[str, Any],
+    actor: str,
 ) -> list[MessageBlock]:
     entities = [
         PreviewEntity(label=key, value=str(value))
@@ -79,7 +80,7 @@ def render_approval_pending(
         TextBlock(content=message),
         PreviewBlock(
             action_type=tool_name.replace('.', ' ').title(),
-            actor='AI runtime',
+            actor=actor,
             entities=entities,
             warnings=[],
             approval_required=True,
@@ -100,6 +101,8 @@ def render_confirmation_required(
     tool_arguments: dict[str, Any],
     approval_required: bool,
     confirmation_prompt: str,
+    actor: str,
+    warnings: list[str] | None = None,
 ) -> list[MessageBlock]:
     entities = [
         PreviewEntity(label=key, value=str(value))
@@ -110,9 +113,9 @@ def render_confirmation_required(
         TextBlock(content=message),
         PreviewBlock(
             action_type=tool_name.replace('.', ' ').title(),
-            actor='AI runtime',
+            actor=actor,
             entities=entities,
-            warnings=[],
+            warnings=list(warnings or []),
             approval_required=approval_required,
             next_step=confirmation_prompt,
         ),

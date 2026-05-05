@@ -10,6 +10,37 @@ from .normalizers import normalize_product_create_payload
 from .resolvers import EntityResolver
 from .utils import ToolPreparationError, is_uuid, object_schema
 
+PRODUCT_SIZE_SCHEMA = object_schema(
+    {
+        'sizeLabel': {'type': ['string', 'null']},
+        'size': {'type': ['string', 'null']},
+        'barcode': {'type': ['string', 'null']},
+        'locationId': {'type': ['string', 'null']},
+        'quantity': {'type': ['integer', 'null']},
+        'stockByLocation': {
+            'type': ['array', 'null'],
+            'items': object_schema(
+                {
+                    'locationId': {'type': 'string'},
+                    'quantity': {'type': 'integer'},
+                }
+            ),
+        },
+    }
+)
+PRODUCT_VARIANT_SCHEMA = object_schema(
+    {
+        'colorName': {'type': ['string', 'null']},
+        'color': {'type': ['string', 'null']},
+        'skuCode': {'type': ['string', 'null']},
+        'sizes': {'type': ['array', 'null'], 'items': PRODUCT_SIZE_SCHEMA},
+        'sizeLabel': {'type': ['string', 'null']},
+        'size': {'type': ['string', 'null']},
+        'locationId': {'type': ['string', 'null']},
+        'quantity': {'type': ['integer', 'null']},
+    }
+)
+
 
 def build_product_tools(
     backend: BackendClient, auth: AuthContext, resolver: EntityResolver
@@ -114,7 +145,7 @@ def build_product_tools(
                     'categoryId': {'type': ['string', 'null'], 'description': 'Category name or UUID'},
                     'basePrice': {'type': 'integer'},
                     'pickupEnabled': {'type': ['boolean', 'null']},
-                    'variants': {'type': 'array', 'items': {'type': 'object'}},
+                    'variants': {'type': 'array', 'items': PRODUCT_VARIANT_SCHEMA},
                 },
                 ['styleCode', 'name', 'basePrice', 'variants'],
             ),

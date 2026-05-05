@@ -91,6 +91,9 @@ class Settings(BaseSettings):
         default='http://localhost:4000/api',
         validation_alias=AliasChoices('CONVERSATIONAL_ENGINE_BACKEND_BASE_URL', 'BACKEND_BASE_URL'),
     )
+    backend_http_max_connections: int = Field(default=20)
+    backend_http_max_keepalive_connections: int = Field(default=10)
+    backend_http_retry_attempts: int = Field(default=3)
 
     llm_base_url: str = Field(
         default='https://api.openai.com/v1',

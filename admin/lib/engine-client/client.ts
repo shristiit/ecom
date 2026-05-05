@@ -1,11 +1,13 @@
 import { request, streamRequest } from '@admin/lib/api';
+import type { QueryParams } from '@admin/lib/api';
 import { ENGINE_BASE_URL } from './config';
 
-export function engineGet<TResponse>(path: string) {
+export function engineGet<TResponse>(path: string, query?: QueryParams) {
   return request<TResponse>({
     method: 'GET',
     path,
     baseUrl: ENGINE_BASE_URL,
+    query,
   });
 }
 
@@ -31,6 +33,7 @@ export function engineStream<TEvent, TBody = unknown>(
   path: string,
   body: TBody,
   onEvent: (event: TEvent) => void | Promise<void>,
+  options?: { signal?: AbortSignal },
 ) {
   return streamRequest<TEvent, TBody>({
     method: 'POST',
@@ -38,5 +41,6 @@ export function engineStream<TEvent, TBody = unknown>(
     body,
     baseUrl: ENGINE_BASE_URL,
     onEvent,
+    signal: options?.signal,
   });
 }

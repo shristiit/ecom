@@ -3,9 +3,12 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import UUID
 
+from fastapi import HTTPException, status
+
 from conversational_engine.ai.attachments import S3AttachmentService
 from conversational_engine.ai.redis_cache import RedisActiveStateCache
 from conversational_engine.ai.repository import AIRepository
+from conversational_engine.audit.service import AuditService
 from conversational_engine.clients.backend import BackendClient
 from conversational_engine.config.settings import Settings
 from conversational_engine.contracts.api import (
@@ -32,12 +35,14 @@ class ConversationService:
         repository: AIRepository,
         backend_client: BackendClient,
         runtime_service: AgentRuntimeService,
+        audit_service: AuditService | None,
         attachment_service: S3AttachmentService,
         redis_cache: RedisActiveStateCache,
         settings: Settings,
     ) -> None:
         self._repository = repository
         self._backend_client = backend_client
+        self._audit_service = audit_service
         self._attachment_service = attachment_service
         self._redis_cache = redis_cache
         self._settings = settings
@@ -49,9 +54,14 @@ class ConversationService:
             attachment_service=attachment_service,
             redis_cache=redis_cache,
             settings=settings,
+            audit_service=audit_service,
         )
-        self._approval_executor = RuntimeApprovalExecutor(backend_client)
-        self._runtime_decision_handler = RuntimeDecisionHandler(backend_client)
+        self._approval_executor = RuntimeApprovalExecutor(backend_client, audit_service=audit_service)
+        self._runtime_decision_handler = RuntimeDecisionHandler(
+            backend_client,
+            audit_service=audit_service,
+            runtime_service=runtime_service,
+        )
 
     async def list_conversations(self, auth: AuthContext) -> ConversationListResponse:
         return ConversationListResponse(items=await self._repository.list_conversations(auth.tenant_id))
@@ -103,6 +113,7 @@ class ConversationService:
         )
         if result is None:
             return None
+        self._ensure_conversation_access(auth, result.conversation)
         safe_workflow = self._outcome_store.sanitize_workflow(result.workflow)
         message_page = MessagePageInfo(
             next_cursor_created_at=result.page.next_cursor_created_at.isoformat()
@@ -133,6 +144,7 @@ class ConversationService:
         )
         if current is None or current.workflow is None:
             return None
+        self._ensure_conversation_access(auth, current.conversation)
         await self._runtime_runner.run_message(
             auth=auth,
             conversation=current.conversation,
@@ -170,6 +182,7 @@ class ConversationService:
             )
 
         conversation, _existing_workflow = conversation_lookup
+        self._ensure_conversation_access(auth, conversation)
         if workflow.extracted_entities.get('_workflowEngine') == 'runtime':
             outcome = await self._runtime_decision_handler.apply(
                 auth=auth,
@@ -203,6 +216,22 @@ class ConversationService:
         approval_id: UUID,
         approve: bool,
     ) -> ApprovalDecisionResponse:
+        approval = await self._backend_client.get_approval_request(
+            access_token=auth.access_token or '',
+            tenant_id=auth.tenant_id,
+            approval_id=str(approval_id),
+        )
+
+        if approval.conversation_id:
+            current = await self._repository.get_conversation(
+                auth.tenant_id,
+                approval.conversation_id,
+                message_limit=self._settings.chat_recent_message_limit,
+            )
+            if current is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail='Conversation not found.')
+            self._ensure_conversation_access(auth, current.conversation)
+
         result = await self._backend_client.decide_approval(
             access_token=auth.access_token or '',
             tenant_id=auth.tenant_id,
@@ -214,6 +243,26 @@ class ConversationService:
             tenant_id=auth.tenant_id,
             approval_id=str(approval_id),
         )
+        if not approve and self._audit_service is not None:
+            try:
+                await self._audit_service.record(
+                    tenant_id=auth.tenant_id,
+                    user_id=auth.id,
+                    actor_email=auth.email,
+                    event_type='approval_rejected',
+                    conversation_id=str(approval.conversation_id) if approval.conversation_id else None,
+                    workflow_id=str(approval.workflow_id) if approval.workflow_id else None,
+                    approval_id=str(approval.id),
+                    tool_name=approval.tool_name,
+                    payload={
+                        'actionType': approval.action_type,
+                        'summary': approval.summary,
+                        'status': approval.status,
+                        'executionPayload': approval.execution_payload,
+                    },
+                )
+            except Exception:
+                pass
 
         if approval.workflow_id and approval.conversation_id:
             workflow = await self._repository.find_workflow_by_id(auth.tenant_id, approval.workflow_id)
@@ -233,3 +282,16 @@ class ConversationService:
                 )
 
         return result
+
+    def _ensure_conversation_access(self, auth: AuthContext, conversation) -> None:
+        owner_id = getattr(conversation, 'created_by', None)
+        if owner_id is None or owner_id == auth.id or self._is_admin(auth):
+            return
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail='You do not have access to this conversation.',
+        )
+
+    @staticmethod
+    def _is_admin(auth: AuthContext) -> bool:
+        return any('admin' in permission.lower() for permission in auth.permissions)

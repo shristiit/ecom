@@ -17,6 +17,7 @@ from conversational_engine.agents.narrator import NarratorAgent
 from conversational_engine.agents.planner import PlannerAgent
 from conversational_engine.agents.reviewer import ReviewerAgent
 from conversational_engine.agents.state_updater import StateUpdateAgent
+from conversational_engine.audit.service import AuditService
 from conversational_engine.clients.backend import BackendClient
 from conversational_engine.config.settings import Settings, get_settings
 from conversational_engine.conversations.service import ConversationService
@@ -34,6 +35,7 @@ class AppServices:
     backend_client: BackendClient
     repository: MongoAIRepository
     redis_cache: RedisActiveStateCache
+    audit_service: AuditService
     attachment_service: S3AttachmentService
     semantic_memory_service: SemanticMemoryService
     tenant_settings_service: TenantAISettingsService
@@ -43,9 +45,15 @@ class AppServices:
 
 
 def build_app_services(*, settings: Settings, mongo_client, redis_client, s3_client) -> AppServices:
-    backend_client = BackendClient(settings.backend_base_url)
+    backend_client = BackendClient(
+        settings.backend_base_url,
+        max_connections=settings.backend_http_max_connections,
+        max_keepalive_connections=settings.backend_http_max_keepalive_connections,
+        retry_attempts=settings.backend_http_retry_attempts,
+    )
     repository = MongoAIRepository(mongo_client, settings)
     redis_cache = RedisActiveStateCache(redis_client)
+    audit_service = AuditService(repository)
     semantic_memory_service = SemanticMemoryService(repository, settings)
     attachment_service = S3AttachmentService(repository, settings, s3_client)
     retrieval_service = RetrievalService(repository)
@@ -60,6 +68,7 @@ def build_app_services(*, settings: Settings, mongo_client, redis_client, s3_cli
         reviewer=ReviewerAgent(router),
         state_updater=StateUpdateAgent(router),
         narrator=NarratorAgent(router),
+        audit_service=audit_service,
         memory_service=LayeredMemoryService(
             repository=repository,
             settings=settings,
@@ -73,6 +82,7 @@ def build_app_services(*, settings: Settings, mongo_client, redis_client, s3_cli
         backend_client=backend_client,
         repository=repository,
         redis_cache=redis_cache,
+        audit_service=audit_service,
         attachment_service=attachment_service,
         semantic_memory_service=semantic_memory_service,
         tenant_settings_service=TenantAISettingsService(repository),
@@ -82,6 +92,7 @@ def build_app_services(*, settings: Settings, mongo_client, redis_client, s3_cli
             repository=repository,
             backend_client=backend_client,
             runtime_service=runtime_service,
+            audit_service=audit_service,
             attachment_service=attachment_service,
             redis_cache=redis_cache,
             settings=settings,
@@ -105,7 +116,12 @@ async def get_conversation_service(request: Request) -> ConversationService:
 @lru_cache(maxsize=1)
 def get_backend_client() -> BackendClient:
     settings = get_settings()
-    return BackendClient(settings.backend_base_url)
+    return BackendClient(
+        settings.backend_base_url,
+        max_connections=settings.backend_http_max_connections,
+        max_keepalive_connections=settings.backend_http_max_keepalive_connections,
+        retry_attempts=settings.backend_http_retry_attempts,
+    )
 
 
 async def get_retrieval_service(request: Request) -> RetrievalService:

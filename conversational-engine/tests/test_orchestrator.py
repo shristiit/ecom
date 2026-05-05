@@ -17,6 +17,7 @@ from conversational_engine.config.model_routing import ModelRouting
 from conversational_engine.contracts.api import ApprovalRequestStatus, GovernanceEvaluationResponse
 from conversational_engine.contracts.auth import AuthContext
 from conversational_engine.contracts.common import BlockType, ConversationDetail, WorkflowState, WorkflowStatus
+from conversational_engine.orchestrator.intents import classify_intent
 from conversational_engine.orchestrator.service import OrchestratorService
 from conversational_engine.providers.base import ChatProvider, ProviderMessage
 
@@ -264,6 +265,21 @@ async def test_product_create_does_not_require_category():
     assert any(block.type == BlockType.PREVIEW for block in outcome.blocks)
 
 
+async def test_orchestrator_redirects_off_topic_questions():
+    service = make_service()
+
+    outcome = await service.handle_message(
+        make_auth(),
+        make_conversation(),
+        make_workflow(),
+        'what is the size of the earth',
+    )
+
+    assert outcome.status == WorkflowStatus.COMPLETED
+    assert outcome.blocks[0].type == BlockType.TEXT
+    assert 'inventory' in outcome.blocks[0].content.lower()
+
+
 async def test_create_a_product_phrase_routes_to_product_workflow():
     service = make_service()
 
@@ -398,3 +414,18 @@ async def test_inventory_receipt_does_not_require_reason():
     assert outcome.status == WorkflowStatus.AWAITING_CONFIRMATION
     assert 'reason' not in outcome.missing_fields
     assert any(block.type == BlockType.PREVIEW for block in outcome.blocks)
+
+
+def test_classify_intent_prefers_fresh_pending_task_for_short_follow_up():
+    intent = classify_intent(
+        'blue',
+        {
+            'pendingTask': {
+                'intent': 'product_create',
+                'missingFields': ['color_name'],
+                'updatedAt': datetime.now(UTC).isoformat(),
+            }
+        },
+    )
+
+    assert intent == 'product_create'
