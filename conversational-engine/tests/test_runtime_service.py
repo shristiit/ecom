@@ -459,6 +459,20 @@ class EmptyResultsBackendClient(FakeBackendClient):
         return []
 
 
+class ScopedLatestBackendClient(FakeBackendClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self.invoices = [
+            {'id': 'inv-9', 'number': 'SO-0009', 'customerName': 'Alice Jones'},
+            {'id': 'inv-7', 'number': 'SO-0007', 'customerName': 'Bob Smith'},
+            {'id': 'inv-1', 'number': 'SO-0001', 'customerName': 'Bob Smith'},
+        ]
+
+    async def list_invoices(self, *args, **kwargs):
+        del args, kwargs
+        return {'items': self.invoices}
+
+
 class FakeAuditService:
     def __init__(self) -> None:
         self.events: list[dict[str, object]] = []
@@ -1916,6 +1930,238 @@ async def test_runtime_service_missing_resolved_write_reference_requests_clarifi
     assert outcome.missing_fields == ['sales_order_id']
     assert any(block.type == BlockType.CLARIFICATION for block in outcome.blocks)
     assert outcome.extracted_entities['pendingTask']['intent'] == 'sales.cancel_invoice'
+
+
+async def test_runtime_service_recovers_update_last_po_from_sparse_executor_proposal():
+    service = AgentRuntimeService(
+        backend_client=FakeBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeInvalidExecutor(),  # type: ignore[arg-type]
+        reviewer=FakeReviewer(),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        state_updater=FakeStateUpdater(
+            {
+                'update my last PO expected date to 2026-05-30': {
+                    'useActiveWorkflow': False,
+                    'primaryRoute': 'mutation',
+                    'primaryIntent': 'purchasing.update_po',
+                    'confidence': 0.96,
+                    'rationale': 'Update request detected.',
+                    'entityPatches': {},
+                    'navigationQuery': None,
+                    'postActionQuery': None,
+                }
+            }
+        ),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='update my last PO expected date to 2026-05-30',
+        extracted_entities={},
+        recent_messages=[],
+        workflow_status=WorkflowStatus.IDLE,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.AWAITING_CONFIRMATION
+    assert outcome.extracted_entities['toolName'] == 'purchasing.update_po'
+    assert outcome.extracted_entities['executionPayload'] == {
+        'poId': 'po-1',
+        'headerPatch': {'expectedDate': '2026-05-30'},
+    }
+
+
+async def test_runtime_service_recovers_cancel_last_sales_order_for_customer_from_sparse_executor_proposal():
+    service = AgentRuntimeService(
+        backend_client=ScopedLatestBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeInvalidExecutor(),  # type: ignore[arg-type]
+        reviewer=FakeReviewer(),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        state_updater=FakeStateUpdater(
+            {
+                'cancel the last sales order for Bob Smith': {
+                    'useActiveWorkflow': False,
+                    'primaryRoute': 'mutation',
+                    'primaryIntent': 'sales.cancel_invoice',
+                    'confidence': 0.96,
+                    'rationale': 'Sales cancellation request detected.',
+                    'entityPatches': {},
+                    'navigationQuery': None,
+                    'postActionQuery': None,
+                }
+            }
+        ),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='cancel the last sales order for Bob Smith',
+        extracted_entities={},
+        recent_messages=[],
+        workflow_status=WorkflowStatus.IDLE,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.AWAITING_CONFIRMATION
+    assert outcome.extracted_entities['toolName'] == 'sales.cancel_invoice'
+    assert outcome.extracted_entities['executionPayload'] == {
+        'invoiceId': 'inv-7',
+        'confirm': True,
+    }
+
+
+async def test_runtime_service_recovers_dispatch_last_sales_order_from_sparse_executor_proposal():
+    service = AgentRuntimeService(
+        backend_client=ScopedLatestBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeInvalidExecutor(),  # type: ignore[arg-type]
+        reviewer=FakeReviewer(),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        state_updater=FakeStateUpdater(
+            {
+                'dispatch the last sales order for Bob Smith from Warehouse A': {
+                    'useActiveWorkflow': False,
+                    'primaryRoute': 'mutation',
+                    'primaryIntent': 'sales.dispatch_invoice',
+                    'confidence': 0.96,
+                    'rationale': 'Sales dispatch request detected.',
+                    'entityPatches': {},
+                    'navigationQuery': None,
+                    'postActionQuery': None,
+                }
+            }
+        ),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='dispatch the last sales order for Bob Smith from Warehouse A',
+        extracted_entities={},
+        recent_messages=[],
+        workflow_status=WorkflowStatus.IDLE,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.AWAITING_CONFIRMATION
+    assert outcome.extracted_entities['toolName'] == 'sales.dispatch_invoice'
+    assert outcome.extracted_entities['executionPayload'] == {
+        'invoiceId': 'inv-7',
+        'locationId': LOCATION_A,
+        'confirm': True,
+    }
+
+
+async def test_runtime_service_recovers_receive_last_po_from_sparse_executor_proposal():
+    service = AgentRuntimeService(
+        backend_client=FakeBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeInvalidExecutor(),  # type: ignore[arg-type]
+        reviewer=FakeReviewer(),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        state_updater=FakeStateUpdater(
+            {
+                'receive my last PO at Warehouse A': {
+                    'useActiveWorkflow': False,
+                    'primaryRoute': 'mutation',
+                    'primaryIntent': 'purchasing.receive_po',
+                    'confidence': 0.96,
+                    'rationale': 'PO receipt request detected.',
+                    'entityPatches': {},
+                    'navigationQuery': None,
+                    'postActionQuery': None,
+                }
+            }
+        ),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='receive my last PO at Warehouse A',
+        extracted_entities={},
+        recent_messages=[],
+        workflow_status=WorkflowStatus.IDLE,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.AWAITING_CONFIRMATION
+    assert outcome.extracted_entities['toolName'] == 'purchasing.receive_po'
+    assert outcome.extracted_entities['executionPayload'] == {
+        'poId': 'po-1',
+        'locationId': LOCATION_A,
+        'lines': [
+            {'sizeId': 'size-sand-m', 'qty': 20, 'unitCost': 42},
+            {'sizeId': 'size-sand-l', 'qty': 10, 'unitCost': 42},
+        ],
+        'confirm': True,
+    }
+
+
+async def test_runtime_service_recovers_get_last_po_from_sparse_executor_proposal():
+    service = AgentRuntimeService(
+        backend_client=FakeBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeInvalidExecutor(),  # type: ignore[arg-type]
+        reviewer=FakeReviewer(message='PO status is draft.'),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        state_updater=FakeStateUpdater(
+            {
+                'what is the status of my last PO': {
+                    'useActiveWorkflow': False,
+                    'primaryRoute': 'read',
+                    'primaryIntent': 'purchasing.get_po',
+                    'confidence': 0.96,
+                    'rationale': 'PO status request detected.',
+                    'entityPatches': {},
+                    'navigationQuery': None,
+                    'postActionQuery': None,
+                }
+            }
+        ),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='what is the status of my last PO',
+        extracted_entities={},
+        recent_messages=[],
+        workflow_status=WorkflowStatus.IDLE,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.COMPLETED
+    assert any(block.type == BlockType.TEXT for block in outcome.blocks)
 
 
 def test_runtime_service_sanitizes_write_arguments_from_task_context_entities():

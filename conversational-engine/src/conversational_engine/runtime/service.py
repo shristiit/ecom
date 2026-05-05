@@ -199,6 +199,54 @@ def _merge_line_ops(
     return merged_ops
 
 
+def _extract_purchase_order_reference(message: str) -> str | None:
+    patterns = (
+        re.compile(
+            r'\b(?:my\s+last|last|latest)\s+(?:purchase order|po)\s+for\s+[^,.;]+?(?=\s+(?:expected|status|with|from|to|at|change|update|cancel|close|receive|dispatch)\b|$)',
+            re.IGNORECASE,
+        ),
+        re.compile(r'\b(?:my\s+last|last|latest)\s+(?:purchase order|po)\b', re.IGNORECASE),
+        re.compile(r'\b(?:this|that)\s+(?:purchase order|po)\b', re.IGNORECASE),
+        re.compile(r'\bpo[-\s]?\d+\b', re.IGNORECASE),
+        re.compile(
+            r'\b(?:purchase order|po)\s+for\s+([^,.;]+?)(?=\s+(?:expected|status|with|from|to|at|change|update|cancel|close|receive)\b|$)',
+            re.IGNORECASE,
+        ),
+    )
+    for pattern in patterns:
+        match = pattern.search(message)
+        if not match:
+            continue
+        if match.lastindex:
+            return str(match.group(1)).strip()
+        return match.group(0).strip()
+    return None
+
+
+def _extract_invoice_reference(message: str) -> str | None:
+    patterns = (
+        re.compile(
+            r'\b(?:my\s+last|last|latest)\s+(?:sales order|invoice|so)\s+for\s+[^,.;]+?(?=\s+(?:from|to|at|status|with|change|update|cancel|dispatch|receive)\b|$)',
+            re.IGNORECASE,
+        ),
+        re.compile(r'\b(?:my\s+last|last|latest)\s+(?:sales order|invoice|so)\b', re.IGNORECASE),
+        re.compile(r'\b(?:this|that)\s+(?:sales order|invoice|so)\b', re.IGNORECASE),
+        re.compile(r'\bso[-\s]?\d+\b', re.IGNORECASE),
+        re.compile(
+            r'\b(?:sales order|invoice|so)\s+for\s+([^,.;]+?)(?=\s+(?:from|to|at|status|with|change|update|cancel|dispatch)\b|$)',
+            re.IGNORECASE,
+        ),
+    )
+    for pattern in patterns:
+        match = pattern.search(message)
+        if not match:
+            continue
+        if match.lastindex:
+            return str(match.group(1)).strip()
+        return match.group(0).strip()
+    return None
+
+
 class AgentRuntimeService:
     def __init__(
         self,
@@ -649,6 +697,30 @@ class AgentRuntimeService:
                         tool_arguments=tool_arguments,
                         current_entities=current_entities,
                     )
+                if (
+                    not tool_name
+                    or not isinstance(tool_arguments, dict)
+                    or self._tool_arguments_need_clarification(tool_name=tool_name, tool_arguments=tool_arguments)
+                ):
+                    recovered = await self._recover_sparse_mutation_payload(
+                        auth=auth,
+                        user_message=state_update.planner_message,
+                        primary_intent=state_update.primary_intent,
+                        current_entities=current_entities,
+                    )
+                    if recovered is not None:
+                        tool_name, tool_arguments = recovered
+                    else:
+                        logger.error('Invalid executor proposal: %s', proposal)
+                        prompt, required = self._fallback_clarification_for_intent(state_update.primary_intent)
+                        return RuntimeOutcome(
+                            blocks=render_clarification(prompt, required),
+                            status=WorkflowStatus.NEEDS_INPUT,
+                            current_task='tool_call_invalid',
+                            extracted_entities=self._clarification_entities(current_entities, required),
+                            missing_fields=required,
+                        )
+
                 if (
                     not tool_name
                     or not isinstance(tool_arguments, dict)
@@ -1314,6 +1386,126 @@ class AgentRuntimeService:
 
         return merged_payload
 
+    async def _recover_sparse_mutation_payload(
+        self,
+        *,
+        auth: AuthContext,
+        user_message: str,
+        primary_intent: str,
+        current_entities: dict[str, object],
+    ) -> tuple[str, dict[str, object]] | None:
+        recovered: dict[str, object] = {}
+
+        if primary_intent == 'purchasing.update_po':
+            po_ref = _extract_purchase_order_reference(user_message)
+            if po_ref:
+                recovered['poId'] = po_ref
+            date_value = _parse_iso_date_from_message(user_message)
+            if date_value:
+                recovered['expectedDate'] = date_value
+            if _message_implies_add_line(user_message):
+                lines = await parse_po_lines(
+                    self._backend_client,
+                    auth,
+                    user_message,
+                    po_id='',
+                    allow_missing_cost=True,
+                )
+                if lines:
+                    recovered['lineOps'] = [{'op': 'add', 'values': line} for line in lines]
+            quantity_ops = _extract_quantity_change_ops(user_message)
+            if quantity_ops:
+                recovered['lineOps'] = _merge_line_ops(recovered.get('lineOps'), quantity_ops)
+            if recovered.get('poId') and any(key in recovered for key in ('expectedDate', 'lineOps')):
+                return primary_intent, recovered
+            return None
+
+        if primary_intent == 'purchasing.cancel_po':
+            po_ref = _extract_purchase_order_reference(user_message)
+            if po_ref:
+                return primary_intent, {'poId': po_ref, 'confirm': True}
+            return None
+
+        if primary_intent == 'purchasing.close_po':
+            po_ref = _extract_purchase_order_reference(user_message)
+            if po_ref:
+                return primary_intent, {'poId': po_ref, 'confirm': True}
+            return None
+
+        if primary_intent == 'purchasing.receive_po':
+            po_ref = _extract_purchase_order_reference(user_message)
+            if po_ref:
+                recovered['poId'] = po_ref
+            location = await match_location(self._backend_client, auth, user_message)
+            if location:
+                recovered['locationId'] = location['id']
+            lines = await parse_po_lines(
+                self._backend_client,
+                auth,
+                user_message,
+                po_id='',
+                allow_missing_cost=True,
+            )
+            if lines:
+                recovered['lines'] = lines
+            if 'poId' in recovered and ('locationId' in recovered or 'lines' in recovered):
+                recovered['confirm'] = True
+                return primary_intent, recovered
+            return None
+
+        if primary_intent == 'sales.update_invoice':
+            invoice_ref = _extract_invoice_reference(user_message)
+            if invoice_ref:
+                recovered['invoiceId'] = invoice_ref
+            if _message_implies_add_line(user_message):
+                lines = await parse_sales_lines(
+                    self._backend_client,
+                    auth,
+                    user_message,
+                    invoice_id='',
+                )
+                if lines:
+                    recovered['lineOps'] = [{'op': 'add', 'values': line} for line in lines]
+            quantity_ops = _extract_quantity_change_ops(user_message)
+            if quantity_ops:
+                recovered['lineOps'] = _merge_line_ops(recovered.get('lineOps'), quantity_ops)
+            if recovered.get('invoiceId') and recovered.get('lineOps'):
+                return primary_intent, recovered
+            return None
+
+        if primary_intent == 'sales.cancel_invoice':
+            invoice_ref = _extract_invoice_reference(user_message)
+            if invoice_ref:
+                return primary_intent, {'invoiceId': invoice_ref, 'confirm': True}
+            return None
+
+        if primary_intent == 'sales.dispatch_invoice':
+            invoice_ref = _extract_invoice_reference(user_message)
+            if invoice_ref:
+                recovered['invoiceId'] = invoice_ref
+            location = await match_location(self._backend_client, auth, user_message)
+            if location:
+                recovered['locationId'] = location['id']
+            if 'invoiceId' in recovered and 'locationId' in recovered:
+                recovered['confirm'] = True
+                return primary_intent, recovered
+            return None
+
+        if primary_intent == 'purchasing.get_po':
+            po_ref = _extract_purchase_order_reference(user_message)
+            if po_ref:
+                return primary_intent, {'poId': po_ref}
+            return None
+
+        if primary_intent == 'sales.get_invoice':
+            invoice_ref = _extract_invoice_reference(user_message)
+            if invoice_ref:
+                return primary_intent, {'invoiceId': invoice_ref}
+            return None
+
+        del current_entities
+        return None
+
     async def _prepare_confirmation(
         self,
         *,
@@ -1647,6 +1839,13 @@ class AgentRuntimeService:
     def _tool_arguments_need_clarification(*, tool_name: str, tool_arguments: dict[str, object]) -> bool:
         if tool_name == 'master.create_location':
             return not tool_arguments
+        if tool_name == 'purchasing.receive_po':
+            return not (
+                isinstance(tool_arguments.get('poId'), str)
+                and bool(str(tool_arguments.get('poId') or '').strip())
+                and isinstance(tool_arguments.get('locationId'), str)
+                and bool(str(tool_arguments.get('locationId') or '').strip())
+            )
         required_fields = _WRITE_TOOL_REQUIRED_FIELDS.get(tool_name)
         if required_fields is None:
             return False
