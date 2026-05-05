@@ -322,6 +322,12 @@ class FakeBackendClient:
         del args, kwargs
         return {'items': [{'id': 'inv-1', 'number': 'SO-001', 'customerId': 'cust-1', 'customerName': 'Helen Barrows'}]}
 
+    async def search_skus(self, access_token: str, tenant_id: str | None, q: str | None = None):
+        del access_token, tenant_id
+        if q and q.upper() != 'FFS-001':
+            return []
+        return [{'id': 'sku-sand', 'product_id': 'prod-1', 'sku_code': 'FFS-001'}]
+
     async def search_products(self, access_token: str, tenant_id: str | None, q: str | None = None, **kwargs):
         del access_token, tenant_id, kwargs
         if not q:
@@ -337,6 +343,29 @@ class FakeBackendClient:
         del access_token, tenant_id
         assert product_id == 'prod-1'
         return self.product_detail
+
+    async def get_po(self, access_token: str, tenant_id: str | None, po_id: str):
+        del access_token, tenant_id
+        assert po_id == 'po-1'
+        return {
+            'id': 'po-1',
+            'lines': [
+                {
+                    'skuId': 'size-sand-m',
+                    'sku': 'FFS-001-M',
+                    'qtyOrdered': 20,
+                    'qtyReceived': 0,
+                    'unitCost': 42,
+                },
+                {
+                    'skuId': 'size-sand-l',
+                    'sku': 'FFS-001-L',
+                    'qtyOrdered': 10,
+                    'qtyReceived': 0,
+                    'unitCost': 42,
+                },
+            ],
+        }
 
     async def evaluate_approval(self, *args, **kwargs):
         del args, kwargs
@@ -2106,6 +2135,189 @@ async def test_runtime_service_applies_sales_update_clarification_reply_without_
                 'qty': 15,
             }
         ],
+    }
+
+
+async def test_runtime_service_applies_po_update_add_line_clarification_reply_without_replanning():
+    service = AgentRuntimeService(
+        backend_client=FakeBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeExecutor('inventory.stock_on_hand', {'sku': 'unused'}),
+        reviewer=FakeReviewer(),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        state_updater=FakeStateUpdater(
+            {
+                'add another line FFS-001/M x4 @20': {
+                    'useActiveWorkflow': True,
+                    'primaryRoute': 'mutation',
+                    'primaryIntent': 'purchasing.update_po',
+                    'confidence': 0.96,
+                    'rationale': 'The user is adding a new line to the active PO update draft.',
+                    'entityPatches': {},
+                    'navigationQuery': None,
+                    'postActionQuery': None,
+                }
+            }
+        ),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='add another line FFS-001/M x4 @20',
+        extracted_entities={
+            '_workflowEngine': 'runtime',
+            'toolName': 'purchasing.update_po',
+            'executionPayload': {'poId': 'po-1'},
+            'taskContext': {
+                'primaryRoute': 'mutation',
+                'primaryIntent': 'purchasing.update_po',
+                'entities': {'poId': 'po-1', 'poNumber': 'PO-001'},
+                'missingFields': ['patch'],
+                'postActions': [],
+                'clarificationCount': 1,
+                'status': 'drafting',
+            },
+        },
+        recent_messages=[],
+        workflow_status=WorkflowStatus.NEEDS_INPUT,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.AWAITING_CONFIRMATION
+    assert outcome.extracted_entities['executionPayload'] == {
+        'poId': 'po-1',
+        'lineOps': [
+            {
+                'op': 'add',
+                'values': {'sizeId': 'size-sand-m', 'qty': 4, 'unitCost': 20},
+            }
+        ],
+    }
+
+
+async def test_runtime_service_applies_receive_po_clarification_reply_without_replanning():
+    service = AgentRuntimeService(
+        backend_client=FakeBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeExecutor('inventory.stock_on_hand', {'sku': 'unused'}),
+        reviewer=FakeReviewer(),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        state_updater=FakeStateUpdater(
+            {
+                'receive at Warehouse A FFS-001/M x5': {
+                    'useActiveWorkflow': True,
+                    'primaryRoute': 'mutation',
+                    'primaryIntent': 'purchasing.receive_po',
+                    'confidence': 0.96,
+                    'rationale': 'The user supplied the missing receipt location and lines.',
+                    'entityPatches': {},
+                    'navigationQuery': None,
+                    'postActionQuery': None,
+                }
+            }
+        ),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='receive at Warehouse A FFS-001/M x5',
+        extracted_entities={
+            '_workflowEngine': 'runtime',
+            'toolName': 'purchasing.receive_po',
+            'executionPayload': {'poId': 'po-1'},
+            'taskContext': {
+                'primaryRoute': 'mutation',
+                'primaryIntent': 'purchasing.receive_po',
+                'entities': {'poId': 'po-1', 'poNumber': 'PO-001'},
+                'missingFields': ['location_id', 'lines'],
+                'postActions': [],
+                'clarificationCount': 1,
+                'status': 'drafting',
+            },
+        },
+        recent_messages=[],
+        workflow_status=WorkflowStatus.NEEDS_INPUT,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.AWAITING_CONFIRMATION
+    assert outcome.extracted_entities['executionPayload']['poId'] == 'po-1'
+    assert outcome.extracted_entities['executionPayload']['poNumber'] == 'PO-001'
+    assert outcome.extracted_entities['executionPayload']['locationId'] == LOCATION_A
+    assert outcome.extracted_entities['executionPayload']['lines'] == [
+        {'sizeId': 'size-sand-m', 'qty': 5, 'unitCost': 42}
+    ]
+    assert outcome.extracted_entities['executionPayload']['confirm'] is True
+
+
+async def test_runtime_service_applies_dispatch_clarification_reply_without_replanning():
+    service = AgentRuntimeService(
+        backend_client=FakeBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeExecutor('inventory.stock_on_hand', {'sku': 'unused'}),
+        reviewer=FakeReviewer(),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        state_updater=FakeStateUpdater(
+            {
+                'from Warehouse A': {
+                    'useActiveWorkflow': True,
+                    'primaryRoute': 'mutation',
+                    'primaryIntent': 'sales.dispatch_invoice',
+                    'confidence': 0.96,
+                    'rationale': 'The user supplied the missing dispatch location.',
+                    'entityPatches': {},
+                    'navigationQuery': None,
+                    'postActionQuery': None,
+                }
+            }
+        ),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='from Warehouse A',
+        extracted_entities={
+            '_workflowEngine': 'runtime',
+            'toolName': 'sales.dispatch_invoice',
+            'executionPayload': {'invoiceId': 'inv-1'},
+            'taskContext': {
+                'primaryRoute': 'mutation',
+                'primaryIntent': 'sales.dispatch_invoice',
+                'entities': {'invoiceId': 'inv-1', 'invoiceNumber': 'SO-001'},
+                'missingFields': ['location_id'],
+                'postActions': [],
+                'clarificationCount': 1,
+                'status': 'drafting',
+            },
+        },
+        recent_messages=[],
+        workflow_status=WorkflowStatus.NEEDS_INPUT,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.AWAITING_CONFIRMATION
+    assert outcome.extracted_entities['executionPayload'] == {
+        'invoiceId': 'inv-1',
+        'locationId': LOCATION_A,
+        'confirm': True,
     }
 
 

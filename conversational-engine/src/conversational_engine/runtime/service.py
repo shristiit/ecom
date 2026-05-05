@@ -37,7 +37,13 @@ from conversational_engine.runtime.state_update import (
     resolve_state_update,
     task_context_from_entities,
 )
-from conversational_engine.orchestrator.matching import match_customer, match_supplier, parse_po_lines, parse_sales_lines
+from conversational_engine.orchestrator.matching import (
+    match_customer,
+    match_location,
+    match_supplier,
+    parse_po_lines,
+    parse_sales_lines,
+)
 from conversational_engine.tools.catalog import SemanticToolCatalog
 from conversational_engine.tools.catalog.utils import ToolPreparationError
 from conversational_engine.tools.validation import ToolSchemaValidationError
@@ -155,6 +161,31 @@ def _extract_quantity_change_ops(message: str) -> list[dict[str, object]]:
         if ops:
             break
     return ops
+
+
+def _message_implies_add_line(message: str) -> bool:
+    return bool(re.search(r'\badd(?:\s+another)?\s+line\b|\badd\b', message, re.IGNORECASE))
+
+
+def _merge_line_ops(
+    existing_ops: object,
+    new_ops: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    merged_ops = [op for op in existing_ops if isinstance(op, dict)] if isinstance(existing_ops, list) else []
+    for new_op in new_ops:
+        new_name = str(new_op.get('op') or '')
+        new_ref = new_op.get('lineRef')
+        if new_name and isinstance(new_ref, dict):
+            merged_ops = [
+                existing_op
+                for existing_op in merged_ops
+                if not (
+                    str(existing_op.get('op') or '') == new_name
+                    and existing_op.get('lineRef') == new_ref
+                )
+            ]
+        merged_ops.append(new_op)
+    return merged_ops
 
 
 class AgentRuntimeService:
@@ -1188,15 +1219,62 @@ class AgentRuntimeService:
                 header_patch = dict(merged_payload.get('headerPatch') or {})
                 header_patch['expectedDate'] = date_value
                 merged_payload['headerPatch'] = header_patch
+            if _message_implies_add_line(user_message):
+                lines = await parse_po_lines(
+                    self._backend_client,
+                    auth,
+                    user_message,
+                    po_id='',
+                    allow_missing_cost=True,
+                )
+                if lines:
+                    merged_payload['lineOps'] = _merge_line_ops(
+                        merged_payload.get('lineOps'),
+                        [{'op': 'add', 'values': line} for line in lines],
+                    )
             quantity_ops = _extract_quantity_change_ops(user_message)
             if quantity_ops:
-                merged_payload['lineOps'] = quantity_ops
+                merged_payload['lineOps'] = _merge_line_ops(merged_payload.get('lineOps'), quantity_ops)
             return merged_payload
 
         if tool_name == 'sales.update_invoice':
+            if _message_implies_add_line(user_message):
+                lines = await parse_sales_lines(
+                    self._backend_client,
+                    auth,
+                    user_message,
+                    invoice_id='',
+                )
+                if lines:
+                    merged_payload['lineOps'] = _merge_line_ops(
+                        merged_payload.get('lineOps'),
+                        [{'op': 'add', 'values': line} for line in lines],
+                    )
             quantity_ops = _extract_quantity_change_ops(user_message)
             if quantity_ops:
-                merged_payload['lineOps'] = quantity_ops
+                merged_payload['lineOps'] = _merge_line_ops(merged_payload.get('lineOps'), quantity_ops)
+            return merged_payload
+
+        if tool_name == 'purchasing.receive_po':
+            location = await match_location(self._backend_client, auth, user_message)
+            if location:
+                merged_payload['locationId'] = location['id']
+            po_id = str(merged_payload.get('poId') or '')
+            lines = await parse_po_lines(
+                self._backend_client,
+                auth,
+                user_message,
+                po_id=po_id,
+                allow_missing_cost=True,
+            )
+            if lines:
+                merged_payload['lines'] = lines
+            return merged_payload
+
+        if tool_name == 'sales.dispatch_invoice':
+            location = await match_location(self._backend_client, auth, user_message)
+            if location:
+                merged_payload['locationId'] = location['id']
             return merged_payload
 
         return merged_payload
