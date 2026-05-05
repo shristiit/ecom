@@ -147,15 +147,20 @@ class NarratorAgent:
         normalized_message = ' '.join(message.split()).strip().lower()
         if not normalized_message:
             return True
+        normalized_directive = ' '.join(directive.split()).strip().lower()
         # Reject messages that are literally meta-instructions leaked from the prompt.
         # NOTE: Do NOT reject messages that happen to match the directive — a clarification
         # question directive IS the message we want to send to the user.
         if normalized_message.startswith('reply naturally to the user'):
+            return True
+        if normalized_message.startswith('reply to the user in'):
             return True
         if normalized_message.startswith('directive for what to communicate'):
             return True
         if normalized_message.startswith('write a natural'):
             return True
         if normalized_message.startswith('communicate that'):
+            return True
+        if normalized_message == normalized_directive and normalized_message.startswith('reply to the user'):
             return True
         return False

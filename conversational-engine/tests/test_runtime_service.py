@@ -197,7 +197,7 @@ class FakeBackendClient:
         self.customer_payloads: list[dict[str, object]] = []
         self.customer_updates: list[tuple[str, dict[str, object]]] = []
         self.receipt_payloads: list[dict[str, object]] = []
-        self.products = [{'id': 'prod-1', 'name': 'Field Fresh Short'}]
+        self.products = [{'id': 'prod-1', 'name': 'Field Fresh Short', 'styleCode': 'FFS-001'}]
         self.product_detail = {
             'product': {'id': 'prod-1', 'base_price': 42},
             'skus': [{'id': 'sku-sand', 'color_name': 'Sand', 'price_override': None}],
@@ -245,11 +245,11 @@ class FakeBackendClient:
 
     async def create_po(self, *args, **kwargs):
         del args, kwargs
-        return {'ok': True}
+        return {'ok': True, 'id': 'po-1', 'poNumber': 'PO-001'}
 
     async def create_invoice(self, *args, **kwargs):
         del args, kwargs
-        return {'ok': True}
+        return {'ok': True, 'id': 'inv-1', 'invoiceNumber': 'SO-001'}
 
     async def create_product(self, *args, **kwargs):
         del args, kwargs
@@ -257,12 +257,12 @@ class FakeBackendClient:
 
     async def create_location(self, *args, **kwargs):
         del args, kwargs
-        return {'ok': True}
+        return {'ok': True, 'id': 'loc-created', 'name': 'Warehouse North'}
 
     async def create_customer(self, access_token: str, tenant_id: str | None, payload: dict[str, object]):
         del access_token, tenant_id
         self.customer_payloads.append(payload)
-        return {'ok': True, 'payload': payload}
+        return {'ok': True, 'id': 'cust-created', 'payload': payload}
 
     async def update_customer(
         self, access_token: str, tenant_id: str | None, customer_id: str, payload: dict[str, object]
@@ -302,7 +302,12 @@ class FakeBackendClient:
         del access_token, tenant_id, kwargs
         if not q:
             return self.products
-        return [product for product in self.products if q.lower() in str(product['name']).lower()]
+        lowered = q.lower()
+        return [
+            product
+            for product in self.products
+            if lowered in str(product['name']).lower() or lowered in str(product.get('styleCode') or '').lower()
+        ]
 
     async def get_product(self, access_token: str, tenant_id: str | None, product_id: str):
         del access_token, tenant_id
@@ -1304,6 +1309,205 @@ async def test_runtime_service_applies_location_clarification_reply_without_repl
     assert any(block.type == BlockType.CONFIRMATION_REQUIRED for block in outcome.blocks)
 
 
+async def test_runtime_service_applies_po_clarification_reply_with_product_price_lookup():
+    service = AgentRuntimeService(
+        backend_client=FakeBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeExecutor('inventory.stock_on_hand', {'sku': 'TSHIRT-BLACK'}),
+        reviewer=FakeReviewer(),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        state_updater=FakeStateUpdater(),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='get it from the products',
+        extracted_entities={
+            '_workflowEngine': 'runtime',
+            'toolName': 'purchasing.create_po',
+            'executionPayload': {
+                'supplierId': 'Acme Supply',
+                'lines': [
+                    {
+                        'productName': 'Field Fresh Short',
+                        'colorName': 'Sand',
+                        'sizeLabel': 'L',
+                        'quantity': 5,
+                    }
+                ],
+            },
+            'taskContext': {
+                'primaryRoute': 'mutation',
+                'primaryIntent': 'purchasing.create_po',
+                'entities': {
+                    'supplierId': 'Acme Supply',
+                    'lines': [
+                        {
+                            'productName': 'Field Fresh Short',
+                            'colorName': 'Sand',
+                            'sizeLabel': 'L',
+                            'quantity': 5,
+                        }
+                    ],
+                },
+                'missingFields': [],
+                'postActions': [],
+                'clarificationCount': 1,
+                'status': 'drafting',
+            },
+        },
+        recent_messages=[],
+        workflow_status=WorkflowStatus.NEEDS_INPUT,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.AWAITING_CONFIRMATION
+    assert outcome.extracted_entities['executionPayload']['supplierId'] == 'sup-1'
+    assert outcome.extracted_entities['executionPayload']['lines'] == [
+        {'sizeId': 'size-sand-l', 'qty': 5, 'unitCost': 42}
+    ]
+    assert any(block.type == BlockType.CONFIRMATION_REQUIRED for block in outcome.blocks)
+
+
+async def test_runtime_service_edits_pending_po_in_awaiting_approval_and_requests_variant_selection():
+    service = AgentRuntimeService(
+        backend_client=FakeBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeExecutor('inventory.stock_on_hand', {'sku': 'TSHIRT-BLACK'}),
+        reviewer=FakeReviewer(),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        state_updater=FakeStateUpdater(),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='FFS-001\n20 items',
+        extracted_entities={
+            '_workflowEngine': 'runtime',
+            'toolName': 'purchasing.create_po',
+            'executionPayload': {
+                'supplierId': 'Acme Supply',
+                'lines': [
+                    {
+                        'productName': 'Field Fresh Short',
+                        'colorName': 'Sand',
+                        'sizeLabel': 'L',
+                        'quantity': 10,
+                    }
+                ],
+            },
+            'activeApprovalId': str(uuid4()),
+            'activeApprovalStatus': 'pending',
+            'taskContext': {
+                'primaryRoute': 'mutation',
+                'primaryIntent': 'purchasing.create_po',
+                'entities': {
+                    'supplierId': 'Acme Supply',
+                    'lines': [
+                        {
+                            'productName': 'Field Fresh Short',
+                            'colorName': 'Sand',
+                            'sizeLabel': 'L',
+                            'quantity': 10,
+                        }
+                    ],
+                },
+                'missingFields': [],
+                'postActions': [],
+                'clarificationCount': 0,
+                'status': 'awaiting_approval',
+            },
+        },
+        recent_messages=[],
+        workflow_status=WorkflowStatus.AWAITING_APPROVAL,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.NEEDS_INPUT
+    assert any(block.type == BlockType.CLARIFICATION for block in outcome.blocks)
+    assert 'Which variant should I use?' in outcome.blocks[0].prompt
+    assert 'Sand / L' in outcome.blocks[0].prompt
+    assert outcome.extracted_entities['toolName'] == 'purchasing.create_po'
+
+
+async def test_runtime_service_clarification_reply_preserves_latest_po_lines_over_stale_task_context():
+    service = AgentRuntimeService(
+        backend_client=FakeBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeExecutor('inventory.stock_on_hand', {'sku': 'TSHIRT-BLACK'}),
+        reviewer=FakeReviewer(),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        state_updater=FakeStateUpdater(),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='use the same supplier',
+        extracted_entities={
+            '_workflowEngine': 'runtime',
+            'toolName': 'purchasing.create_po',
+            'executionPayload': {
+                'lines': [
+                    {
+                        'productName': 'Field Fresh Short',
+                        'colorName': 'Sand',
+                        'sizeLabel': 'M',
+                        'quantity': 20,
+                    }
+                ],
+            },
+                'taskContext': {
+                    'primaryRoute': 'mutation',
+                    'primaryIntent': 'purchasing.create_po',
+                    'entities': {
+                        'supplierId': 'Acme Supply',
+                    'lines': [
+                        {
+                            'productName': 'Field Fresh Short',
+                            'colorName': 'Sand',
+                            'sizeLabel': 'L',
+                            'quantity': 10,
+                        }
+                    ],
+                },
+                'missingFields': ['supplier_id'],
+                'postActions': [],
+                'clarificationCount': 1,
+                'status': 'drafting',
+            },
+            'missingFields': ['supplier_id'],
+        },
+        recent_messages=[],
+        workflow_status=WorkflowStatus.NEEDS_INPUT,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.AWAITING_CONFIRMATION
+    assert outcome.extracted_entities['executionPayload']['supplierId'] == 'sup-1'
+    assert outcome.extracted_entities['executionPayload']['lines'] == [
+        {'sizeId': 'size-sand-m', 'qty': 20, 'unitCost': 42}
+    ]
+    assert any(block.type == BlockType.CONFIRMATION_REQUIRED for block in outcome.blocks)
+
+
 async def test_runtime_service_reuses_completed_read_context_for_this_follow_up():
     service = AgentRuntimeService(
         backend_client=FakeBackendClient(),  # type: ignore[arg-type]
@@ -1445,6 +1649,94 @@ async def test_runtime_service_invalid_executor_proposal_requests_clarification(
     assert any(block.type == BlockType.CLARIFICATION for block in outcome.blocks)
     assert outcome.extracted_entities['pendingTask']['intent'] == 'sales.create_invoice'
     assert outcome.extracted_entities['pendingTask']['missingFields'] == ['customer_id', 'lines']
+
+
+async def test_runtime_service_missing_resolved_write_reference_requests_clarification():
+    service = AgentRuntimeService(
+        backend_client=FakeBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeExecutor('sales.cancel_invoice', {}),
+        reviewer=FakeReviewer(),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        state_updater=FakeStateUpdater(
+            {
+                'cancel it': {
+                    'useActiveWorkflow': False,
+                    'primaryRoute': 'mutation',
+                    'primaryIntent': 'sales.cancel_invoice',
+                    'confidence': 0.95,
+                    'rationale': 'Detected a sales order cancellation request.',
+                    'entityPatches': {},
+                    'navigationQuery': None,
+                    'postActionQuery': None,
+                }
+            }
+        ),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='cancel it',
+        extracted_entities={},
+        recent_messages=[],
+        workflow_status=WorkflowStatus.IDLE,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.NEEDS_INPUT
+    assert outcome.missing_fields == ['sales_order_id']
+    assert any(block.type == BlockType.CLARIFICATION for block in outcome.blocks)
+    assert outcome.extracted_entities['pendingTask']['intent'] == 'sales.cancel_invoice'
+
+
+def test_runtime_service_sanitizes_write_arguments_from_task_context_entities():
+    tool_arguments = AgentRuntimeService._sanitize_tool_arguments(
+        tool_name='sales.dispatch_invoice',
+        tool_arguments={'invoiceId': 'it', 'locationId': 'there'},
+        current_entities={
+            'taskContext': {
+                'entities': {
+                    'invoiceId': 'inv-1',
+                    'locationId': LOCATION_A,
+                }
+            }
+        },
+    )
+
+    assert tool_arguments == {
+        'invoiceId': 'inv-1',
+        'locationId': LOCATION_A,
+    }
+
+
+def test_runtime_service_merges_created_invoice_identity_into_context():
+    merged = AgentRuntimeService._merge_context_from_tool_interaction(
+        current_entities={
+            'taskContext': {
+                'primaryRoute': 'mutation',
+                'primaryIntent': 'sales.create_invoice',
+                'entities': {
+                    'customerId': 'cust-1',
+                    'customerName': 'Northwind Stores',
+                },
+            }
+        },
+        tool_name='sales.create_invoice',
+        tool_arguments={'customerId': 'cust-1', 'lines': [{'sizeId': SIZE_1, 'qty': 2, 'unitPrice': 18}]},
+        tool_result={'result': {'id': 'inv-1', 'invoiceNumber': 'SO-001'}},
+    )
+
+    task_entities = merged['taskContext']['entities']
+    assert task_entities['invoiceId'] == 'inv-1'
+    assert task_entities['invoiceNumber'] == 'SO-001'
+    assert merged['invoiceId'] == 'inv-1'
+    assert merged['invoiceNumber'] == 'SO-001'
 
 
 async def test_runtime_service_uses_pending_task_for_short_alias_follow_up():

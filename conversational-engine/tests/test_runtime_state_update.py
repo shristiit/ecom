@@ -69,6 +69,30 @@ async def test_state_update_reuses_pending_location_creation_for_field_reply():
     assert state.extracted_entities['type'] == 'warehouse'
 
 
+async def test_state_update_continues_draft_mutation_without_missing_field_aliases():
+    state = await resolve_state_update(
+        user_message='get it from the products',
+        extracted_entities={
+            'taskContext': {
+                'primaryRoute': 'mutation',
+                'primaryIntent': 'purchasing.create_po',
+                'entities': {'supplierId': 'sup-1', 'lines': [{'productName': 'SHR-034', 'qty': 10}]},
+                'missingFields': [],
+                'postActions': [],
+                'clarificationCount': 1,
+                'status': 'drafting',
+            }
+        },
+        recent_messages=[],
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+        state_updater=None,
+    )
+
+    assert state.is_workflow_edit is True
+    assert state.primary_route == 'mutation'
+    assert state.primary_intent == 'purchasing.create_po'
+
+
 def test_state_update_formats_preview_entities_into_recent_message_context():
     formatted = _format_recent_messages(
         [

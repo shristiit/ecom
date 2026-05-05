@@ -37,6 +37,7 @@ from conversational_engine.runtime.state_update import (
     resolve_state_update,
     task_context_from_entities,
 )
+from conversational_engine.orchestrator.matching import match_customer, match_supplier, parse_po_lines, parse_sales_lines
 from conversational_engine.tools.catalog import SemanticToolCatalog
 from conversational_engine.tools.catalog.utils import ToolPreparationError
 from conversational_engine.tools.validation import ToolSchemaValidationError
@@ -45,9 +46,44 @@ from conversational_engine.training.service import TrainingDataService
 EventSink = Callable[[str, dict[str, object]], None]
 logger = logging.getLogger(__name__)
 
+_WRITE_TOOL_ENTITY_FIELDS: dict[str, tuple[str, ...]] = {
+    'master.create_location': ('name', 'code', 'type', 'address', 'status'),
+    'purchasing.cancel_po': ('poId',),
+    'purchasing.close_po': ('poId',),
+    'purchasing.create_po': ('supplierId', 'expectedDate', 'lines'),
+    'purchasing.receive_po': ('poId', 'locationId', 'lines'),
+    'purchasing.update_po': ('poId', 'headerPatch', 'lines', 'lineOps'),
+    'sales.cancel_invoice': ('invoiceId',),
+    'sales.create_invoice': ('customerId', 'lines'),
+    'sales.dispatch_invoice': ('invoiceId', 'locationId'),
+    'sales.update_invoice': ('invoiceId', 'headerPatch', 'lines', 'lineOps'),
+}
+_WRITE_TOOL_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
+    'master.create_location': ('name', 'code', 'type'),
+    'purchasing.cancel_po': ('poId',),
+    'purchasing.close_po': ('poId',),
+    'purchasing.create_po': ('supplierId', 'lines'),
+    'purchasing.receive_po': ('poId', 'locationId', 'lines'),
+    'purchasing.update_po': ('poId',),
+    'sales.cancel_invoice': ('invoiceId',),
+    'sales.create_invoice': ('customerId', 'lines'),
+    'sales.dispatch_invoice': ('invoiceId', 'locationId'),
+    'sales.update_invoice': ('invoiceId',),
+}
+
 
 def _estimate_tokens(text: str) -> int:
     return max(1, (len(text.strip()) + 3) // 4)
+
+
+def _has_meaningful_value(value: object) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, (list, dict, tuple, set)):
+        return bool(value)
+    return True
 
 
 class AgentRuntimeService:
@@ -170,6 +206,7 @@ class AgentRuntimeService:
 
             direct_confirmation_outcome = await self._handle_confirmation_edit(
                 auth=auth,
+                user_message=user_message,
                 workflow_status=workflow_status,
                 workflow_id=workflow_id,
                 conversation_id=conversation_id,
@@ -181,6 +218,7 @@ class AgentRuntimeService:
                 return direct_confirmation_outcome
             direct_clarification_outcome = await self._handle_clarification_reply(
                 auth=auth,
+                user_message=user_message,
                 workflow_status=workflow_status,
                 workflow_id=workflow_id,
                 conversation_id=conversation_id,
@@ -479,7 +517,11 @@ class AgentRuntimeService:
                         tool_arguments=tool_arguments,
                         current_entities=current_entities,
                     )
-                if not tool_name or not isinstance(tool_arguments, dict):
+                if (
+                    not tool_name
+                    or not isinstance(tool_arguments, dict)
+                    or self._tool_arguments_need_clarification(tool_name=tool_name, tool_arguments=tool_arguments)
+                ):
                     logger.error('Invalid executor proposal: %s', proposal)
                     prompt, required = self._fallback_clarification_for_intent(state_update.primary_intent)
                     return RuntimeOutcome(
@@ -852,6 +894,7 @@ class AgentRuntimeService:
         self,
         *,
         auth: AuthContext,
+        user_message: str,
         workflow_status: WorkflowStatus | None,
         workflow_id: UUID,
         conversation_id: UUID,
@@ -859,7 +902,7 @@ class AgentRuntimeService:
         state_update: RuntimeStateUpdate,
         emit: EventSink,
     ) -> RuntimeOutcome | None:
-        if workflow_status != WorkflowStatus.AWAITING_CONFIRMATION:
+        if workflow_status not in {WorkflowStatus.AWAITING_CONFIRMATION, WorkflowStatus.AWAITING_APPROVAL}:
             return None
         tool_name = str(current_entities.get('toolName') or '')
         execution_payload = current_entities.get('executionPayload')
@@ -905,6 +948,12 @@ class AgentRuntimeService:
                 updated_payload=updated_payload,
                 task_entities=task_entities,
             )
+        updated_payload = await self._merge_direct_follow_up_payload(
+            auth=auth,
+            user_message=user_message,
+            tool_name=tool_name,
+            updated_payload=updated_payload,
+        )
 
         planner_text = state_update.planner_message.lower()
         if tool_name == 'inventory.receive_stock':
@@ -950,6 +999,7 @@ class AgentRuntimeService:
         self,
         *,
         auth: AuthContext,
+        user_message: str,
         workflow_status: WorkflowStatus | None,
         workflow_id: UUID,
         conversation_id: UUID,
@@ -969,14 +1019,22 @@ class AgentRuntimeService:
         updated_payload = dict(execution_payload)
         task_entities = state_update.task_context.get('entities')
         if isinstance(task_entities, dict):
-            for key, value in task_entities.items():
-                if value is not None:
-                    updated_payload[key] = value
+            updated_payload = self._merge_clarification_task_entities_into_payload(
+                tool_name=tool_name,
+                updated_payload=updated_payload,
+                task_entities=task_entities,
+            )
             updated_payload = self._merge_follow_up_entities_into_payload(
                 tool_name=tool_name,
                 updated_payload=updated_payload,
                 task_entities=task_entities,
             )
+        updated_payload = await self._merge_direct_follow_up_payload(
+            auth=auth,
+            user_message=user_message,
+            tool_name=tool_name,
+            updated_payload=updated_payload,
+        )
 
         summary_suffix = ''
         if state_update.new_post_actions:
@@ -1006,6 +1064,47 @@ class AgentRuntimeService:
             message_hint=f'Updated the draft with your latest details.{summary_suffix}'.strip(),
             emit=emit,
         )
+
+    async def _merge_direct_follow_up_payload(
+        self,
+        *,
+        auth: AuthContext,
+        user_message: str,
+        tool_name: str,
+        updated_payload: dict[str, object],
+    ) -> dict[str, object]:
+        merged_payload = dict(updated_payload)
+
+        if tool_name == 'purchasing.create_po':
+            supplier = await match_supplier(self._backend_client, auth, user_message)
+            if supplier:
+                merged_payload['supplierId'] = supplier['id']
+            lines = await parse_po_lines(
+                self._backend_client,
+                auth,
+                user_message,
+                po_id='',
+                allow_missing_cost=True,
+            )
+            if lines:
+                merged_payload['lines'] = lines
+            return merged_payload
+
+        if tool_name == 'sales.create_invoice':
+            customer = await match_customer(self._backend_client, auth, user_message)
+            if customer:
+                merged_payload['customerId'] = customer['id']
+            lines = await parse_sales_lines(
+                self._backend_client,
+                auth,
+                user_message,
+                invoice_id='',
+            )
+            if lines:
+                merged_payload['lines'] = lines
+            return merged_payload
+
+        return merged_payload
 
     async def _prepare_confirmation(
         self,
@@ -1168,6 +1267,15 @@ class AgentRuntimeService:
     def _clarification_entities(current_entities: dict[str, object], required: list[str]) -> dict[str, object]:
         task_context = increment_clarification_count(task_context_from_entities(current_entities))
         task_context['missingFields'] = list(required)
+        entities = dict(task_context.get('entities') or {})
+        tool_name = str(current_entities.get('toolName') or '')
+        execution_payload = current_entities.get('executionPayload')
+        if isinstance(execution_payload, dict):
+            for field in _WRITE_TOOL_ENTITY_FIELDS.get(tool_name, ()):
+                value = execution_payload.get(field)
+                if _has_meaningful_value(value):
+                    entities[field] = value
+        task_context['entities'] = entities
         return mark_task_status(apply_task_context(current_entities, task_context), 'drafting')
 
     @staticmethod
@@ -1190,6 +1298,23 @@ class AgentRuntimeService:
             product['basePrice'] = task_entities['basePrice']
         if product:
             merged_payload['product'] = product
+        return merged_payload
+
+    @staticmethod
+    def _merge_clarification_task_entities_into_payload(
+        *,
+        tool_name: str,
+        updated_payload: dict[str, object],
+        task_entities: dict[str, object],
+    ) -> dict[str, object]:
+        merged_payload = dict(updated_payload)
+        writable_fields = set(_WRITE_TOOL_ENTITY_FIELDS.get(tool_name, ()))
+        for key, value in task_entities.items():
+            if value is None:
+                continue
+            if key in writable_fields and _has_meaningful_value(merged_payload.get(key)):
+                continue
+            merged_payload[key] = value
         return merged_payload
 
     async def _run_phase(
@@ -1277,7 +1402,8 @@ class AgentRuntimeService:
         tool_arguments: dict[str, object],
         current_entities: dict[str, object],
     ) -> dict[str, object]:
-        if tool_name != 'master.create_location':
+        entity_fields = _WRITE_TOOL_ENTITY_FIELDS.get(tool_name)
+        if entity_fields is None:
             return tool_arguments
 
         task_context = task_context_from_entities(current_entities)
@@ -1285,12 +1411,46 @@ class AgentRuntimeService:
         if not isinstance(entities, dict):
             return {}
 
-        sanitized = {
-            key: entities[key]
-            for key in ('name', 'code', 'type', 'address', 'status')
-            if entities.get(key) is not None
-        }
+        if tool_name == 'master.create_location':
+            sanitized = {key: entities[key] for key in entity_fields if entities.get(key) is not None}
+            raw_type = tool_arguments.get('type')
+            if 'type' not in sanitized and isinstance(raw_type, str) and raw_type.strip():
+                sanitized['type'] = raw_type.strip()
+            return sanitized
+        else:
+            sanitized = dict(tool_arguments)
+            for key in entity_fields:
+                value = entities.get(key)
+                if value is not None:
+                    sanitized[key] = value
+
+        required_fields = _WRITE_TOOL_REQUIRED_FIELDS.get(tool_name, ())
+        for key in required_fields:
+            value = sanitized.get(key)
+            if value is None:
+                return {}
+            if isinstance(value, str) and not value.strip():
+                return {}
+            if isinstance(value, list) and not value:
+                return {}
         return sanitized
+
+    @staticmethod
+    def _tool_arguments_need_clarification(*, tool_name: str, tool_arguments: dict[str, object]) -> bool:
+        if tool_name == 'master.create_location':
+            return not tool_arguments
+        required_fields = _WRITE_TOOL_REQUIRED_FIELDS.get(tool_name)
+        if required_fields is None:
+            return False
+        for key in required_fields:
+            value = tool_arguments.get(key)
+            if value is None:
+                return True
+            if isinstance(value, str) and not value.strip():
+                return True
+            if isinstance(value, list) and not value:
+                return True
+        return False
 
     @staticmethod
     def _should_bypass_tool_planning_for_ambiguous_message(
@@ -1458,11 +1618,12 @@ class AgentRuntimeService:
         resolved_entities: object = None,
     ) -> dict[str, object]:
         entities: dict[str, object] = {}
+        result_payload = AgentRuntimeService._tool_result_payload(tool_result)
 
         if tool_name == 'inventory.stock_on_hand':
             if isinstance(tool_arguments.get('productName'), str) and tool_arguments.get('productName'):
                 entities['productName'] = str(tool_arguments['productName'])
-            rows = tool_result.get('rows') if isinstance(tool_result, dict) else None
+            rows = result_payload.get('rows')
             if isinstance(rows, list):
                 product_names = sorted(
                     {
@@ -1493,6 +1654,48 @@ class AgentRuntimeService:
                 if size_labels:
                     entities['sizeLabels'] = size_labels
                     entities['sizeLabel'] = size_labels[0]
+
+        if tool_name == 'master.create_customer':
+            customer_name = str(tool_arguments.get('name') or result_payload.get('name') or '').strip()
+            customer_id = str(result_payload.get('id') or result_payload.get('customerId') or '').strip()
+            if customer_name:
+                entities['customerName'] = customer_name
+            if customer_id:
+                entities['customerId'] = customer_id
+
+        if tool_name == 'master.create_supplier':
+            supplier_name = str(tool_arguments.get('name') or result_payload.get('name') or '').strip()
+            supplier_id = str(result_payload.get('id') or result_payload.get('supplierId') or '').strip()
+            if supplier_name:
+                entities['supplierName'] = supplier_name
+            if supplier_id:
+                entities['supplierId'] = supplier_id
+
+        if tool_name == 'master.create_location':
+            location_name = str(tool_arguments.get('name') or result_payload.get('name') or '').strip()
+            location_id = str(result_payload.get('id') or result_payload.get('locationId') or '').strip()
+            if location_name:
+                entities['locationName'] = location_name
+            if location_id:
+                entities['locationId'] = location_id
+
+        if tool_name == 'purchasing.create_po':
+            po_id = str(result_payload.get('id') or result_payload.get('poId') or '').strip()
+            po_number = str(result_payload.get('poNumber') or result_payload.get('number') or '').strip()
+            if po_id:
+                entities['poId'] = po_id
+            if po_number:
+                entities['poNumber'] = po_number
+
+        if tool_name == 'sales.create_invoice':
+            invoice_id = str(result_payload.get('id') or result_payload.get('invoiceId') or '').strip()
+            invoice_number = str(
+                result_payload.get('invoiceNumber') or result_payload.get('salesOrderNumber') or result_payload.get('number') or ''
+            ).strip()
+            if invoice_id:
+                entities['invoiceId'] = invoice_id
+            if invoice_number:
+                entities['invoiceNumber'] = invoice_number
 
         if tool_name == 'products.create_product':
             product_payload = tool_arguments.get('product')
@@ -1544,6 +1747,15 @@ class AgentRuntimeService:
                     entities[key] = value
 
         return entities
+
+    @staticmethod
+    def _tool_result_payload(tool_result: dict[str, object] | None) -> dict[str, object]:
+        if not isinstance(tool_result, dict):
+            return {}
+        nested_result = tool_result.get('result')
+        if isinstance(nested_result, dict):
+            return nested_result
+        return tool_result
 
     @staticmethod
     def _merge_context_from_tool_interaction(

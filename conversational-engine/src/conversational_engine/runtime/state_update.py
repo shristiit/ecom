@@ -689,11 +689,22 @@ def _should_continue_pending_task(
     active_route = str(task_context.get('primaryRoute') or '')
     active_intent = str(task_context.get('primaryIntent') or '')
     missing_fields = [str(item) for item in task_context.get('missingFields') or []]
-    if active_route not in {ROUTE_MUTATION, ROUTE_READ} or not active_intent or not missing_fields:
+    status = str(task_context.get('status') or '')
+    if active_route not in {ROUTE_MUTATION, ROUTE_READ} or not active_intent:
         return False
     # A new mutation for a *different* intent starts a fresh workflow.
     if route_fallback == ROUTE_MUTATION and intent_fallback and intent_fallback != active_intent:
         return False
+    if not missing_fields:
+        normalized = _normalize(text)
+        return (
+            active_route == ROUTE_MUTATION
+            and status in {'drafting', 'awaiting_confirmation', 'awaiting_approval'}
+            and route_fallback != ROUTE_MUTATION
+            and bool(normalized)
+            and not normalized.endswith('?')
+            and _looks_like_mutation_follow_up(normalized)
+        )
     # Always continue when an entity extracted from this turn satisfies a missing field.
     if any(_entity_has_value(merged_entities, field) for field in missing_fields):
         return True
@@ -742,6 +753,29 @@ def _entity_field_aliases(field: str) -> tuple[str, ...]:
         'to_location_id': ('toLocationId',),
     }
     return (field, to_camel(field), *aliases.get(field, ()))
+
+
+def _looks_like_mutation_follow_up(normalized: str) -> bool:
+    if any(char.isdigit() for char in normalized):
+        return True
+    return any(
+        keyword in normalized
+        for keyword in (
+            'item',
+            'items',
+            'qty',
+            'quantity',
+            'supplier',
+            'customer',
+            'product',
+            'sku',
+            'style',
+            'color',
+            'size',
+            'same supplier',
+            'same customer',
+        )
+    )
 
 
 def _looks_like_location_code(value: str) -> bool:
