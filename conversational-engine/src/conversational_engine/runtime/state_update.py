@@ -334,7 +334,7 @@ async def resolve_state_update(
         rationale = 'Applied this turn as missing-field input for the active workflow.'
         confidence = max(confidence, 0.91)
         used_memory = True
-    elif _should_reset_mutation_context(
+    elif not is_workflow_edit and _should_reset_mutation_context(
         task_context=task_context,
         primary_route=primary_route,
         primary_intent=primary_intent,

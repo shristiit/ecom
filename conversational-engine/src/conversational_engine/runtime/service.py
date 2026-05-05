@@ -1680,6 +1680,12 @@ class AgentRuntimeService:
                 entities['locationId'] = location_id
 
         if tool_name == 'purchasing.create_po':
+            supplier_id = str(tool_arguments.get('supplierId') or result_payload.get('supplierId') or '').strip()
+            supplier_name = str(tool_arguments.get('supplierName') or result_payload.get('supplierName') or '').strip()
+            if supplier_id:
+                entities['supplierId'] = supplier_id
+            if supplier_name:
+                entities['supplierName'] = supplier_name
             po_id = str(result_payload.get('id') or result_payload.get('poId') or '').strip()
             po_number = str(result_payload.get('poNumber') or result_payload.get('number') or '').strip()
             if po_id:
@@ -1688,6 +1694,12 @@ class AgentRuntimeService:
                 entities['poNumber'] = po_number
 
         if tool_name == 'sales.create_invoice':
+            customer_id = str(tool_arguments.get('customerId') or result_payload.get('customerId') or '').strip()
+            customer_name = str(tool_arguments.get('customerName') or result_payload.get('customerName') or '').strip()
+            if customer_id:
+                entities['customerId'] = customer_id
+            if customer_name:
+                entities['customerName'] = customer_name
             invoice_id = str(result_payload.get('id') or result_payload.get('invoiceId') or '').strip()
             invoice_number = str(
                 result_payload.get('invoiceNumber') or result_payload.get('salesOrderNumber') or result_payload.get('number') or ''
@@ -1696,6 +1708,72 @@ class AgentRuntimeService:
                 entities['invoiceId'] = invoice_id
             if invoice_number:
                 entities['invoiceNumber'] = invoice_number
+
+        if tool_name == 'purchasing.get_po':
+            supplier_id = str(result_payload.get('supplierId') or '').strip()
+            supplier_name = str(result_payload.get('supplierName') or '').strip()
+            po_id = str(result_payload.get('id') or '').strip()
+            po_number = str(result_payload.get('poNumber') or result_payload.get('number') or '').strip()
+            if supplier_id:
+                entities['supplierId'] = supplier_id
+            if supplier_name:
+                entities['supplierName'] = supplier_name
+            if po_id:
+                entities['poId'] = po_id
+            if po_number:
+                entities['poNumber'] = po_number
+
+        if tool_name == 'sales.get_invoice':
+            customer_id = str(result_payload.get('customerId') or '').strip()
+            customer_name = str(result_payload.get('customerName') or '').strip()
+            invoice_id = str(result_payload.get('id') or '').strip()
+            invoice_number = str(
+                result_payload.get('invoiceNumber') or result_payload.get('salesOrderNumber') or result_payload.get('number') or ''
+            ).strip()
+            if customer_id:
+                entities['customerId'] = customer_id
+            if customer_name:
+                entities['customerName'] = customer_name
+            if invoice_id:
+                entities['invoiceId'] = invoice_id
+            if invoice_number:
+                entities['invoiceNumber'] = invoice_number
+
+        if tool_name == 'purchasing.list_pos':
+            rows = result_payload.get('items')
+            if isinstance(rows, list) and len(rows) == 1 and isinstance(rows[0], dict):
+                row = rows[0]
+                supplier_id = str(row.get('supplierId') or '').strip()
+                supplier_name = str(row.get('supplierName') or row.get('supplier_name') or '').strip()
+                po_id = str(row.get('id') or '').strip()
+                po_number = str(row.get('poNumber') or row.get('number') or '').strip()
+                if supplier_id:
+                    entities['supplierId'] = supplier_id
+                if supplier_name:
+                    entities['supplierName'] = supplier_name
+                if po_id:
+                    entities['poId'] = po_id
+                if po_number:
+                    entities['poNumber'] = po_number
+
+        if tool_name == 'sales.list_invoices':
+            rows = result_payload.get('items')
+            if isinstance(rows, list) and len(rows) == 1 and isinstance(rows[0], dict):
+                row = rows[0]
+                customer_id = str(row.get('customerId') or '').strip()
+                customer_name = str(row.get('customerName') or row.get('customer_name') or '').strip()
+                invoice_id = str(row.get('id') or '').strip()
+                invoice_number = str(
+                    row.get('invoiceNumber') or row.get('salesOrderNumber') or row.get('number') or ''
+                ).strip()
+                if customer_id:
+                    entities['customerId'] = customer_id
+                if customer_name:
+                    entities['customerName'] = customer_name
+                if invoice_id:
+                    entities['invoiceId'] = invoice_id
+                if invoice_number:
+                    entities['invoiceNumber'] = invoice_number
 
         if tool_name == 'products.create_product':
             product_payload = tool_arguments.get('product')

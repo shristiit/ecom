@@ -298,6 +298,14 @@ class FakeBackendClient:
         del args, kwargs
         return []
 
+    async def list_pos(self, *args, **kwargs):
+        del args, kwargs
+        return {'items': [{'id': 'po-1', 'number': 'PO-001', 'supplierId': 'sup-1', 'supplierName': 'Acme Supply'}]}
+
+    async def list_invoices(self, *args, **kwargs):
+        del args, kwargs
+        return {'items': [{'id': 'inv-1', 'number': 'SO-001', 'customerId': 'cust-1', 'customerName': 'Helen Barrows'}]}
+
     async def search_products(self, access_token: str, tenant_id: str | None, q: str | None = None, **kwargs):
         del access_token, tenant_id, kwargs
         if not q:
@@ -1737,6 +1745,163 @@ def test_runtime_service_merges_created_invoice_identity_into_context():
     assert task_entities['invoiceNumber'] == 'SO-001'
     assert merged['invoiceId'] == 'inv-1'
     assert merged['invoiceNumber'] == 'SO-001'
+
+
+def test_runtime_service_merges_created_po_supplier_identity_into_context():
+    merged = AgentRuntimeService._merge_context_from_tool_interaction(
+        current_entities={
+            'taskContext': {
+                'primaryRoute': 'mutation',
+                'primaryIntent': 'purchasing.create_po',
+                'entities': {},
+            }
+        },
+        tool_name='purchasing.create_po',
+        tool_arguments={'supplierId': 'sup-1', 'lines': [{'sizeId': SIZE_1, 'qty': 2, 'unitCost': 18}]},
+        tool_result={'result': {'id': 'po-1', 'poNumber': 'PO-001'}},
+    )
+
+    task_entities = merged['taskContext']['entities']
+    assert task_entities['supplierId'] == 'sup-1'
+    assert task_entities['poId'] == 'po-1'
+    assert task_entities['poNumber'] == 'PO-001'
+    assert merged['supplierId'] == 'sup-1'
+    assert merged['poId'] == 'po-1'
+    assert merged['poNumber'] == 'PO-001'
+
+
+async def test_runtime_service_reuses_completed_po_supplier_for_new_po_follow_up():
+    service = AgentRuntimeService(
+        backend_client=FakeBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeExecutor(
+            'purchasing.create_po',
+            {
+                'lines': [
+                    {
+                        'productName': 'Field Fresh Short',
+                        'colorName': 'Sand',
+                        'sizeLabel': 'M',
+                        'quantity': 7,
+                        'unitCost': 18,
+                    }
+                ]
+            },
+        ),
+        reviewer=FakeReviewer(),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        state_updater=FakeStateUpdater(
+            {
+                'create another purchase order with Sand M x7 @18': {
+                    'useActiveWorkflow': True,
+                    'primaryRoute': 'mutation',
+                    'primaryIntent': 'purchasing.create_po',
+                    'confidence': 0.95,
+                    'rationale': 'Reuse the active supplier for a new purchase order.',
+                    'entityPatches': {},
+                    'navigationQuery': None,
+                    'postActionQuery': None,
+                }
+            }
+        ),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='create another purchase order with Sand M x7 @18',
+        extracted_entities={
+            'taskContext': {
+                'primaryRoute': 'mutation',
+                'primaryIntent': 'purchasing.create_po',
+                'entities': {
+                    'supplierId': 'sup-1',
+                    'poId': 'po-1',
+                    'poNumber': 'PO-001',
+                },
+                'missingFields': [],
+                'postActions': [],
+                'clarificationCount': 0,
+                'status': 'completed',
+            }
+        },
+        recent_messages=[],
+        workflow_status=WorkflowStatus.COMPLETED,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.AWAITING_CONFIRMATION
+    assert outcome.extracted_entities['executionPayload']['supplierId'] == 'sup-1'
+    assert outcome.extracted_entities['executionPayload']['lines'] == [
+        {'sizeId': 'size-sand-m', 'qty': 7, 'unitCost': 18}
+    ]
+
+
+async def test_runtime_service_reuses_completed_sales_order_for_dispatch_follow_up():
+    service = AgentRuntimeService(
+        backend_client=FakeBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeExecutor(
+            'sales.dispatch_invoice',
+            {
+                'locationId': 'Warehouse A',
+            },
+        ),
+        reviewer=FakeReviewer(),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        state_updater=FakeStateUpdater(
+            {
+                'dispatch that sales order from Warehouse A': {
+                    'useActiveWorkflow': True,
+                    'primaryRoute': 'mutation',
+                    'primaryIntent': 'sales.dispatch_invoice',
+                    'confidence': 0.95,
+                    'rationale': 'Dispatch the active sales order from the requested location.',
+                    'entityPatches': {},
+                    'navigationQuery': None,
+                    'postActionQuery': None,
+                }
+            }
+        ),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='dispatch that sales order from Warehouse A',
+        extracted_entities={
+            'taskContext': {
+                'primaryRoute': 'mutation',
+                'primaryIntent': 'sales.create_invoice',
+                'entities': {
+                    'invoiceId': 'inv-1',
+                    'invoiceNumber': 'SO-001',
+                    'customerId': 'cust-1',
+                },
+                'missingFields': [],
+                'postActions': [],
+                'clarificationCount': 0,
+                'status': 'completed',
+            }
+        },
+        recent_messages=[],
+        workflow_status=WorkflowStatus.COMPLETED,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.AWAITING_CONFIRMATION
+    assert outcome.extracted_entities['executionPayload']['invoiceId'] == 'inv-1'
+    assert outcome.extracted_entities['executionPayload']['locationId'] == LOCATION_A
 
 
 async def test_runtime_service_uses_pending_task_for_short_alias_follow_up():

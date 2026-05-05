@@ -53,7 +53,7 @@ class EntityResolver:
             self._resolve_named_entity(
                 items,
                 name_or_id,
-                match_fields=('name', 'code'),
+                match_fields=('id', 'name', 'code'),
                 label_fields=('name', 'code'),
                 singular='location',
                 plural='locations',
@@ -68,7 +68,7 @@ class EntityResolver:
             self._resolve_named_entity(
                 items,
                 name_or_id,
-                match_fields=('name', 'code'),
+                match_fields=('id', 'name', 'code'),
                 label_fields=('name', 'code'),
                 singular='supplier',
                 plural='suppliers',
@@ -83,7 +83,7 @@ class EntityResolver:
             self._resolve_named_entity(
                 items,
                 name_or_id,
-                match_fields=('name', 'email', 'code'),
+                match_fields=('id', 'name', 'email', 'code'),
                 label_fields=('name', 'email', 'code'),
                 singular='customer',
                 plural='customers',
@@ -98,7 +98,7 @@ class EntityResolver:
             self._resolve_named_entity(
                 items,
                 name_or_id,
-                match_fields=('name',),
+                match_fields=('id', 'name'),
                 label_fields=('name',),
                 singular='category',
                 plural='categories',
