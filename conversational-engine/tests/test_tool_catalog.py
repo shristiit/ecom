@@ -273,6 +273,27 @@ class PaginatedProductBackendClient(FakeBackendClient):
         return {'items': items, 'pagination': {'page': 1, 'pageSize': 50, 'total': len(items)}}
 
 
+class AmbiguousReferenceBackendClient(FakeBackendClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self.suppliers = [
+            {'id': 'sup-1', 'name': 'Acme Supply', 'code': 'ACME'},
+            {'id': 'sup-3', 'name': 'Acme Source', 'code': 'ACMESRC'},
+        ]
+        self.customers = [
+            {'id': 'cust-2', 'name': 'Bob Smith', 'email': 'bob@example.com', 'code': 'BOB'},
+            {'id': 'cust-3', 'name': 'Bob Stone', 'email': 'bob.stone@example.com', 'code': 'BOBSTONE'},
+        ]
+        self.purchase_orders = [
+            {'id': 'po-1', 'number': 'PO-0001', 'supplierName': 'Acme Supply'},
+            {'id': 'po-2', 'number': 'PO-0002', 'supplierName': 'Acme Supply'},
+        ]
+        self.invoices = [
+            {'id': 'inv-1', 'number': 'SO-0001', 'customerName': 'Bob Smith'},
+            {'id': 'inv-2', 'number': 'SO-0002', 'customerName': 'Bob Smith'},
+        ]
+
+
 def make_auth() -> AuthContext:
     return AuthContext(
         id='user-1',
@@ -528,6 +549,32 @@ async def test_purchase_order_create_requests_variant_when_multiple_variants_exi
     assert 'Clay / M' in excinfo.value.prompt
 
 
+async def test_purchase_order_create_requests_supplier_disambiguation_when_name_is_ambiguous():
+    backend = AmbiguousReferenceBackendClient()
+    catalog = SemanticToolCatalog(backend=backend, auth=make_auth())  # type: ignore[arg-type]
+
+    with pytest.raises(ToolPreparationError) as excinfo:
+        await catalog.prepare(
+            'purchasing.create_po',
+            {
+                'supplierId': 'Acme S',
+                'lines': [
+                    {
+                        'productName': 'Field Fresh Short',
+                        'colorName': 'Sand',
+                        'sizeLabel': 'L',
+                        'quantity': 5,
+                        'unitCost': 21,
+                    }
+                ],
+            },
+        )
+
+    assert 'multiple suppliers' in excinfo.value.prompt.lower()
+    assert 'Acme Supply' in excinfo.value.prompt
+    assert 'Acme Source' in excinfo.value.prompt
+
+
 async def test_purchase_order_get_resolves_order_number():
     backend = FakeBackendClient()
     catalog = SemanticToolCatalog(backend=backend, auth=make_auth())  # type: ignore[arg-type]
@@ -545,6 +592,15 @@ async def test_purchase_order_list_resolves_supplier_filter():
 
     assert result['result']['items'] == backend.purchase_orders
     assert backend.po_list_params == [{'status': 'draft', 'supplierId': 'sup-1'}]
+
+
+async def test_purchase_order_get_prefers_exact_number_when_other_rows_share_supplier_name():
+    backend = AmbiguousReferenceBackendClient()
+    catalog = SemanticToolCatalog(backend=backend, auth=make_auth())  # type: ignore[arg-type]
+
+    result = await catalog.invoke('purchasing.get_po', {'poId': 'PO-0001'})
+
+    assert result['result']['id'] == 'po-1'
 
 
 async def test_purchase_order_update_normalizes_header_patch_and_line_ops():
@@ -662,6 +718,18 @@ async def test_sales_get_invoice_resolves_order_number():
     result = await catalog.invoke('sales.get_invoice', {'invoiceId': 'SO-0001'})
 
     assert result['result']['id'] == 'inv-1'
+
+
+async def test_sales_cancel_invoice_requests_order_disambiguation_when_customer_matches_multiple_orders():
+    backend = AmbiguousReferenceBackendClient()
+    catalog = SemanticToolCatalog(backend=backend, auth=make_auth())  # type: ignore[arg-type]
+
+    with pytest.raises(ToolPreparationError) as excinfo:
+        await catalog.prepare('sales.cancel_invoice', {'invoiceId': 'Bob Smith'})
+
+    assert 'multiple sales orders' in excinfo.value.prompt.lower()
+    assert 'SO-0001' in excinfo.value.prompt
+    assert 'SO-0002' in excinfo.value.prompt
 
 
 async def test_sales_list_invoices_resolves_customer_filter():

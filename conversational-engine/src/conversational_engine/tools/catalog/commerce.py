@@ -8,7 +8,7 @@ from conversational_engine.contracts.auth import AuthContext
 from conversational_engine.retrieval.navigation_targets import NAVIGATION_TARGETS
 from conversational_engine.tools.definitions import SemanticTool
 
-from .resolvers import EntityResolver
+from .resolvers import EntityResolver, ResolutionError
 from .utils import ToolPreparationError, best_match, object_schema, search_rows
 
 PARTY_FIELDS = ('name', 'email', 'phone', 'address', 'status')
@@ -238,6 +238,14 @@ def build_commerce_tools(
             raise ToolPreparationError(f'Product "{reference}" could not be loaded.', ['product'])
         return detail
 
+    async def resolve_reference(call, missing_fields: list[str]):
+        try:
+            return await call
+        except ResolutionError as exc:
+            raise ToolPreparationError(exc.result.message, missing_fields) from exc
+        except ValueError as exc:
+            raise ToolPreparationError(str(exc), missing_fields) from exc
+
     async def resolve_line_ref(raw_line_ref: dict[str, Any]) -> dict[str, Any]:
         line_id = str(raw_line_ref.get('lineId') or '').strip()
         if line_id:
@@ -390,7 +398,7 @@ def build_commerce_tools(
         )
         if not patch:
             raise ToolPreparationError('What location details should I change?', ['patch'])
-        return {'locationId': await resolver.location(location), 'patch': patch}
+        return {'locationId': await resolve_reference(resolver.location(location), ['location_id']), 'patch': patch}
 
     async def update_location(payload: dict[str, Any]) -> dict[str, Any]:
         return {
@@ -406,7 +414,7 @@ def build_commerce_tools(
         location = first_reference(payload, 'locationId', 'location', 'locationName', 'reference', 'id', 'code')
         if not location:
             raise ToolPreparationError('Which location should I delete?', ['location_id'])
-        return {'locationId': await resolver.location(location)}
+        return {'locationId': await resolve_reference(resolver.location(location), ['location_id'])}
 
     async def delete_location(payload: dict[str, Any]) -> dict[str, Any]:
         return {'result': await backend.delete_location(token, tenant, str(payload['locationId']))}
@@ -440,7 +448,7 @@ def build_commerce_tools(
         patch = extract_patch(payload, identifier_keys=('supplierId', 'supplier', 'supplierName', 'reference', 'id'))
         if not patch:
             raise ToolPreparationError('What supplier details should I change?', ['patch'])
-        return {'supplierId': await resolver.supplier(supplier), 'patch': patch}
+        return {'supplierId': await resolve_reference(resolver.supplier(supplier), ['supplier_id']), 'patch': patch}
 
     async def update_supplier(payload: dict[str, Any]) -> dict[str, Any]:
         return {
@@ -456,7 +464,7 @@ def build_commerce_tools(
         supplier = first_reference(payload, 'supplierId', 'supplier', 'supplierName', 'reference', 'id')
         if not supplier:
             raise ToolPreparationError('Which supplier should I delete?', ['supplier_id'])
-        return {'supplierId': await resolver.supplier(supplier)}
+        return {'supplierId': await resolve_reference(resolver.supplier(supplier), ['supplier_id'])}
 
     async def delete_supplier(payload: dict[str, Any]) -> dict[str, Any]:
         return {'result': await backend.delete_supplier(token, tenant, str(payload['supplierId']))}
@@ -491,7 +499,7 @@ def build_commerce_tools(
         )
         if not patch:
             raise ToolPreparationError('What customer details should I change?', ['patch'])
-        return {'customerId': await resolver.customer(customer), 'patch': patch}
+        return {'customerId': await resolve_reference(resolver.customer(customer), ['customer_id']), 'patch': patch}
 
     async def update_customer(payload: dict[str, Any]) -> dict[str, Any]:
         return {
@@ -515,7 +523,7 @@ def build_commerce_tools(
         )
         if not customer:
             raise ToolPreparationError('Which customer should I delete?', ['customer_id'])
-        return {'customerId': await resolver.customer(customer)}
+        return {'customerId': await resolve_reference(resolver.customer(customer), ['customer_id'])}
 
     async def delete_customer(payload: dict[str, Any]) -> dict[str, Any]:
         return {'result': await backend.delete_customer(token, tenant, str(payload['customerId']))}
@@ -540,7 +548,7 @@ def build_commerce_tools(
         supplier = str(payload.get('supplierId') or '').strip()
         if not supplier:
             raise ToolPreparationError('Which supplier should this purchase order use?', ['supplier_id'])
-        resolved['supplierId'] = await resolver.supplier(supplier)
+        resolved['supplierId'] = await resolve_reference(resolver.supplier(supplier), ['supplier_id'])
 
         raw_lines = payload.get('lines')
         if not isinstance(raw_lines, list) or not raw_lines:
@@ -575,7 +583,7 @@ def build_commerce_tools(
         po_ref = first_reference(payload, 'poId', 'purchaseOrderId', 'purchaseOrder', 'reference', 'id')
         if not po_ref:
             raise ToolPreparationError('Which purchase order should I inspect?', ['po_id'])
-        return {'poId': await resolver.purchase_order(po_ref)}
+        return {'poId': await resolve_reference(resolver.purchase_order(po_ref), ['po_id'])}
 
     async def get_po(payload: dict[str, Any]) -> dict[str, Any]:
         return {'result': await backend.get_po(token, tenant, str(payload['poId']))}
@@ -587,7 +595,7 @@ def build_commerce_tools(
             params['status'] = status.strip()
         supplier = str(payload.get('supplierId') or payload.get('supplier') or payload.get('supplierName') or '').strip()
         if supplier:
-            params['supplierId'] = await resolver.supplier(supplier)
+            params['supplierId'] = await resolve_reference(resolver.supplier(supplier), ['supplier_id'])
         return params
 
     async def list_pos(payload: dict[str, Any]) -> dict[str, Any]:
@@ -598,18 +606,18 @@ def build_commerce_tools(
         if not po_ref:
             raise ToolPreparationError('Which purchase order should I update?', ['po_id'])
 
-        resolved: dict[str, Any] = {'poId': await resolver.purchase_order(po_ref)}
+        resolved: dict[str, Any] = {'poId': await resolve_reference(resolver.purchase_order(po_ref), ['po_id'])}
         header_patch: dict[str, Any] = {}
         raw_header_patch = payload.get('headerPatch')
         if isinstance(raw_header_patch, dict):
             supplier = str(raw_header_patch.get('supplierId') or '').strip()
             if supplier:
-                header_patch['supplierId'] = await resolver.supplier(supplier)
+                header_patch['supplierId'] = await resolve_reference(resolver.supplier(supplier), ['supplier_id'])
             if 'expectedDate' in raw_header_patch:
                 header_patch['expectedDate'] = raw_header_patch.get('expectedDate')
         supplier = str(payload.get('supplierId') or '').strip()
         if supplier:
-            header_patch['supplierId'] = await resolver.supplier(supplier)
+            header_patch['supplierId'] = await resolve_reference(resolver.supplier(supplier), ['supplier_id'])
         if 'expectedDate' in payload:
             header_patch['expectedDate'] = payload.get('expectedDate')
         if header_patch:
@@ -660,13 +668,13 @@ def build_commerce_tools(
             raise ToolPreparationError('Which purchase order should I receive?', ['po_id'])
 
         resolved = dict(payload)
-        po_id = await resolver.purchase_order(po_ref)
+        po_id = await resolve_reference(resolver.purchase_order(po_ref), ['po_id'])
         resolved['poId'] = po_id
 
         location = first_reference(payload, 'locationId', 'location', 'locationCode')
         if not location:
             raise ToolPreparationError('Which location should receive this purchase order?', ['location_id'])
-        resolved['locationId'] = await resolver.location(location)
+        resolved['locationId'] = await resolve_reference(resolver.location(location), ['location_id'])
 
         po_detail = await backend.get_po(token, tenant, po_id)
         detail_lines = po_detail.get('lines') if isinstance(po_detail, dict) else None
@@ -755,7 +763,7 @@ def build_commerce_tools(
         po_ref = first_reference(payload, 'poId', 'purchaseOrderId', 'purchaseOrder', 'reference', 'id')
         if not po_ref:
             raise ToolPreparationError('Which purchase order should I close?', ['po_id'])
-        return {'poId': await resolver.purchase_order(po_ref), 'confirm': True}
+        return {'poId': await resolve_reference(resolver.purchase_order(po_ref), ['po_id']), 'confirm': True}
 
     async def close_po(payload: dict[str, Any]) -> dict[str, Any]:
         return {'result': await backend.close_po(token, tenant, str(payload['poId']))}
@@ -764,7 +772,7 @@ def build_commerce_tools(
         po_ref = first_reference(payload, 'poId', 'purchaseOrderId', 'purchaseOrder', 'reference', 'id')
         if not po_ref:
             raise ToolPreparationError('Which purchase order should I cancel?', ['po_id'])
-        return {'poId': await resolver.purchase_order(po_ref), 'confirm': True}
+        return {'poId': await resolve_reference(resolver.purchase_order(po_ref), ['po_id']), 'confirm': True}
 
     async def cancel_po(payload: dict[str, Any]) -> dict[str, Any]:
         return {'result': await backend.cancel_po(token, tenant, str(payload['poId']))}
@@ -774,7 +782,7 @@ def build_commerce_tools(
         customer = str(payload.get('customerId') or '').strip()
         if not customer:
             raise ToolPreparationError('Which customer should this sales order use?', ['customer_id'])
-        resolved['customerId'] = await resolver.customer(customer)
+        resolved['customerId'] = await resolve_reference(resolver.customer(customer), ['customer_id'])
 
         raw_lines = payload.get('lines')
         if not isinstance(raw_lines, list) or not raw_lines:
@@ -809,7 +817,7 @@ def build_commerce_tools(
         invoice_ref = first_reference(payload, 'invoiceId', 'salesOrderId', 'salesOrder', 'reference', 'id')
         if not invoice_ref:
             raise ToolPreparationError('Which sales order should I inspect?', ['sales_order_id'])
-        return {'invoiceId': await resolver.invoice(invoice_ref)}
+        return {'invoiceId': await resolve_reference(resolver.invoice(invoice_ref), ['sales_order_id'])}
 
     async def get_invoice(payload: dict[str, Any]) -> dict[str, Any]:
         return {'result': await backend.get_invoice(token, tenant, str(payload['invoiceId']))}
@@ -821,7 +829,7 @@ def build_commerce_tools(
             params['status'] = status.strip()
         customer = str(payload.get('customerId') or payload.get('customer') or payload.get('customerName') or '').strip()
         if customer:
-            params['customerId'] = await resolver.customer(customer)
+            params['customerId'] = await resolve_reference(resolver.customer(customer), ['customer_id'])
         return params
 
     async def list_invoices(payload: dict[str, Any]) -> dict[str, Any]:
@@ -832,16 +840,16 @@ def build_commerce_tools(
         if not invoice_ref:
             raise ToolPreparationError('Which sales order should I update?', ['sales_order_id'])
 
-        resolved: dict[str, Any] = {'invoiceId': await resolver.invoice(invoice_ref)}
+        resolved: dict[str, Any] = {'invoiceId': await resolve_reference(resolver.invoice(invoice_ref), ['sales_order_id'])}
         header_patch: dict[str, Any] = {}
         raw_header_patch = payload.get('headerPatch')
         if isinstance(raw_header_patch, dict):
             customer = str(raw_header_patch.get('customerId') or '').strip()
             if customer:
-                header_patch['customerId'] = await resolver.customer(customer)
+                header_patch['customerId'] = await resolve_reference(resolver.customer(customer), ['customer_id'])
         customer = str(payload.get('customerId') or '').strip()
         if customer:
-            header_patch['customerId'] = await resolver.customer(customer)
+            header_patch['customerId'] = await resolve_reference(resolver.customer(customer), ['customer_id'])
         if header_patch:
             resolved['headerPatch'] = header_patch
 
@@ -892,8 +900,8 @@ def build_commerce_tools(
         if not location:
             raise ToolPreparationError('Which location should dispatch this sales order?', ['location_id'])
         return {
-            'invoiceId': await resolver.invoice(invoice_ref),
-            'locationId': await resolver.location(location),
+            'invoiceId': await resolve_reference(resolver.invoice(invoice_ref), ['sales_order_id']),
+            'locationId': await resolve_reference(resolver.location(location), ['location_id']),
             'confirm': True,
         }
 
@@ -909,7 +917,7 @@ def build_commerce_tools(
         invoice_ref = first_reference(payload, 'invoiceId', 'salesOrderId', 'salesOrder', 'reference', 'id')
         if not invoice_ref:
             raise ToolPreparationError('Which sales order should I cancel?', ['sales_order_id'])
-        return {'invoiceId': await resolver.invoice(invoice_ref), 'confirm': True}
+        return {'invoiceId': await resolve_reference(resolver.invoice(invoice_ref), ['sales_order_id']), 'confirm': True}
 
     async def cancel_invoice(payload: dict[str, Any]) -> dict[str, Any]:
         return {'result': await backend.cancel_invoice(token, tenant, str(payload['invoiceId']))}
