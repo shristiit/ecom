@@ -20,6 +20,13 @@ from conversational_engine.contracts.common import PendingActionType, TextBlock,
 from conversational_engine.memory.layered import LayeredMemoryService
 from conversational_engine.retrieval.service import RetrievalService
 from conversational_engine.runtime.contracts import RuntimeOutcome
+from conversational_engine.runtime.commerce_matching import (
+    match_customer,
+    match_location,
+    match_supplier,
+    parse_po_lines,
+    parse_sales_lines,
+)
 from conversational_engine.runtime.renderer import (
     render_clarification,
     render_confirmation_required,
@@ -36,13 +43,6 @@ from conversational_engine.runtime.state_update import (
     mark_task_status,
     resolve_state_update,
     task_context_from_entities,
-)
-from conversational_engine.orchestrator.matching import (
-    match_customer,
-    match_location,
-    match_supplier,
-    parse_po_lines,
-    parse_sales_lines,
 )
 from conversational_engine.tools.catalog import SemanticToolCatalog
 from conversational_engine.tools.catalog.resolvers import EntityResolver
