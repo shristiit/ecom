@@ -79,6 +79,22 @@ class FakeExecutor:
         }
 
 
+class RoutedFakeExecutor:
+    def __init__(self, proposals: dict[str, tuple[str, dict[str, object]]]) -> None:
+        self._proposals = proposals
+
+    async def propose(self, **kwargs):
+        expected_tool_name = str(kwargs.get('expected_tool_name') or '')
+        tool_name, tool_arguments = self._proposals[expected_tool_name]
+        return {
+            'action': 'tool',
+            'assistantMessage': f'Running {tool_name}',
+            'toolName': tool_name,
+            'toolArguments': tool_arguments,
+            'requiredInputs': [],
+        }
+
+
 class FakeInvalidExecutor:
     async def propose(self, **kwargs):
         del kwargs
@@ -1839,6 +1855,66 @@ async def test_runtime_service_reuses_completed_po_supplier_for_new_po_follow_up
     assert outcome.extracted_entities['executionPayload']['supplierId'] == 'sup-1'
     assert outcome.extracted_entities['executionPayload']['lines'] == [
         {'sizeId': 'size-sand-m', 'qty': 7, 'unitCost': 18}
+    ]
+
+
+async def test_runtime_service_splits_compound_commerce_message_into_confirmation_queue():
+    service = AgentRuntimeService(
+        backend_client=FakeBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=RoutedFakeExecutor(
+            {
+                'master.create_supplier': (
+                    'master.create_supplier',
+                    {
+                        'name': 'Fashion Hub',
+                        'phone': '020-123-4567',
+                        'address': '10 Avenue',
+                    },
+                ),
+            }
+        ),  # type: ignore[arg-type]
+        reviewer=FakeReviewer(),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        state_updater=FakeStateUpdater(
+            {
+                'create supplier Fashion Hub phone 020-123-4567 address 10 Avenue': {
+                    'useActiveWorkflow': False,
+                    'primaryRoute': 'mutation',
+                    'primaryIntent': 'master.create_supplier',
+                    'confidence': 0.98,
+                    'rationale': 'The first clause creates a supplier.',
+                    'entityPatches': {},
+                    'navigationQuery': None,
+                    'postActionQuery': None,
+                }
+            }
+        ),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message=(
+            'create supplier Fashion Hub phone 020-123-4567 address 10 Avenue, '
+            'then create PO for Classic Shirt Red S x20 @18, and update my last PO expected date to 2026-05-30'
+        ),
+        extracted_entities={},
+        recent_messages=[],
+        workflow_status=WorkflowStatus.IDLE,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.AWAITING_CONFIRMATION
+    assert outcome.extracted_entities['toolName'] == 'master.create_supplier'
+    assert outcome.extracted_entities['compoundQueue'] == [
+        'create PO for Classic Shirt Red S x20 @18',
+        'update my last PO expected date to 2026-05-30',
     ]
 
 

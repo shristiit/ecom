@@ -57,7 +57,11 @@ class ConversationService:
             audit_service=audit_service,
         )
         self._approval_executor = RuntimeApprovalExecutor(backend_client, audit_service=audit_service)
-        self._runtime_decision_handler = RuntimeDecisionHandler(backend_client, audit_service=audit_service)
+        self._runtime_decision_handler = RuntimeDecisionHandler(
+            backend_client,
+            audit_service=audit_service,
+            runtime_service=runtime_service,
+        )
 
     async def list_conversations(self, auth: AuthContext) -> ConversationListResponse:
         return ConversationListResponse(items=await self._repository.list_conversations(auth.tenant_id))

@@ -70,6 +70,39 @@ _WRITE_TOOL_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
     'sales.dispatch_invoice': ('invoiceId', 'locationId'),
     'sales.update_invoice': ('invoiceId',),
 }
+_COMPOUND_SEQUENCE_VERBS = (
+    'create',
+    'add',
+    'new',
+    'onboard',
+    'register',
+    'update',
+    'edit',
+    'change',
+    'rename',
+    'delete',
+    'remove',
+    'dispatch',
+    'ship',
+    'cancel',
+    'receive',
+    'book in',
+    'close',
+    'show',
+    'find',
+    'search',
+    'list',
+)
+_COMPOUND_SEQUENCE_SPLIT_PATTERN = re.compile(
+    r'\s*(?:,\s*)?(?:then|and then)\s+|\s*,?\s+and\s+(?=(?:'
+    + '|'.join(re.escape(verb) for verb in _COMPOUND_SEQUENCE_VERBS)
+    + r')\b)',
+    re.IGNORECASE,
+)
+_COMPOUND_SEQUENCE_ACTION_PATTERN = re.compile(
+    r'^(?:' + '|'.join(re.escape(verb) for verb in _COMPOUND_SEQUENCE_VERBS) + r')\b',
+    re.IGNORECASE,
+)
 
 
 def _estimate_tokens(text: str) -> int:
@@ -126,6 +159,13 @@ class AgentRuntimeService:
         run_id: UUID,
         image_data_urls: tuple[str, ...] = (),
     ) -> RuntimeOutcome:
+        queued_message, queued_entities = self._start_compound_sequence(
+            user_message=user_message,
+            extracted_entities=extracted_entities,
+            workflow_status=workflow_status,
+        )
+        user_message = queued_message
+        extracted_entities = queued_entities
         tool_history: list[dict[str, object]] = []
         catalog = SemanticToolCatalog(backend=self._backend_client, auth=auth)
         usage_entries: list[dict[str, object]] = []
@@ -1493,6 +1533,49 @@ class AgentRuntimeService:
             'Reply to the user in one short sentence that matches their tone, '
             'acknowledges their message, and invites them to continue.'
         )
+
+    @classmethod
+    def _start_compound_sequence(
+        cls,
+        *,
+        user_message: str,
+        extracted_entities: dict[str, object],
+        workflow_status: WorkflowStatus | None,
+    ) -> tuple[str, dict[str, object]]:
+        if workflow_status in {
+            WorkflowStatus.NEEDS_INPUT,
+            WorkflowStatus.AWAITING_CONFIRMATION,
+            WorkflowStatus.AWAITING_APPROVAL,
+        }:
+            return user_message, extracted_entities
+        existing_queue = extracted_entities.get('compoundQueue')
+        if isinstance(existing_queue, list) and existing_queue:
+            return user_message, extracted_entities
+
+        clauses = cls._split_compound_message(user_message)
+        if len(clauses) < 2:
+            return user_message, extracted_entities
+
+        queued_entities = dict(extracted_entities)
+        queued_entities['compoundQueue'] = clauses[1:]
+        return clauses[0], queued_entities
+
+    @classmethod
+    def _split_compound_message(cls, user_message: str) -> list[str]:
+        normalized = ' '.join(user_message.strip().split())
+        if not normalized:
+            return []
+
+        clauses = [
+            part.strip(' ,;')
+            for part in _COMPOUND_SEQUENCE_SPLIT_PATTERN.split(normalized)
+            if isinstance(part, str) and part.strip(' ,;')
+        ]
+        if len(clauses) < 2:
+            return [normalized]
+        if not all(_COMPOUND_SEQUENCE_ACTION_PATTERN.search(part) for part in clauses):
+            return [normalized]
+        return clauses
 
     @staticmethod
     def _tool_result_has_no_matches(tool_result: dict[str, object]) -> bool:

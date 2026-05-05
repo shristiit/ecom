@@ -5,8 +5,9 @@ from uuid import UUID, uuid4
 import pytest
 
 from conversational_engine.contracts.auth import AuthContext
-from conversational_engine.contracts.common import BlockType, WorkflowState, WorkflowStatus
+from conversational_engine.contracts.common import BlockType, TextBlock, WorkflowState, WorkflowStatus
 from conversational_engine.conversations.runtime_decisions import RuntimeDecisionHandler
+from conversational_engine.runtime.contracts import RuntimeOutcome
 
 pytestmark = pytest.mark.anyio
 
@@ -39,6 +40,45 @@ class FakeBackendClient:
     async def create_product(self, *args, **kwargs):
         del args, kwargs
         return {'ok': True}
+
+    async def create_supplier(self, *args, **kwargs):
+        del args, kwargs
+        return {'ok': True, 'id': 'sup-created', 'name': 'Fashion Hub'}
+
+
+class FakeRuntimeService:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    async def execute(self, **kwargs):
+        self.calls.append(kwargs)
+        extracted_entities = dict(kwargs['extracted_entities'])
+        assert extracted_entities['supplierId'] == 'sup-created'
+        assert 'compoundQueue' not in extracted_entities
+        return RuntimeOutcome(
+            blocks=[TextBlock(content='Prepared the next purchase order draft.')],
+            status=WorkflowStatus.AWAITING_CONFIRMATION,
+            current_task='awaiting_confirmation',
+            extracted_entities={
+                '_workflowEngine': 'runtime',
+                'toolName': 'purchasing.create_po',
+                'executionPayload': {
+                    'supplierId': 'sup-created',
+                    'lines': [{'sizeId': 'size-red-s', 'qty': 20, 'unitCost': 18}],
+                },
+                'taskContext': {
+                    'primaryRoute': 'mutation',
+                    'primaryIntent': 'purchasing.create_po',
+                    'entities': {
+                        'supplierId': 'sup-created',
+                    },
+                    'missingFields': [],
+                    'postActions': [],
+                    'clarificationCount': 0,
+                    'status': 'awaiting_confirmation',
+                },
+            },
+        )
 
 
 class FakeAuditService:
@@ -207,3 +247,54 @@ async def test_runtime_decision_cancel_keeps_original_pending_approval():
     assert outcome.status == WorkflowStatus.AWAITING_APPROVAL
     assert outcome.active_approval_id == approval_id
     assert any(block.type == BlockType.APPROVAL_PENDING for block in outcome.blocks)
+
+
+async def test_runtime_decision_confirm_advances_compound_queue_after_execution():
+    runtime_service = FakeRuntimeService()
+    handler = RuntimeDecisionHandler(
+        FakeBackendClient(),
+        runtime_service=runtime_service,  # type: ignore[arg-type]
+    )
+    workflow = WorkflowState(
+        id=uuid4(),
+        status=WorkflowStatus.AWAITING_CONFIRMATION,
+        current_task='awaiting_confirmation',
+        extracted_entities={
+            '_workflowEngine': 'runtime',
+            '_pendingActions': ['confirm', 'cancel', 'edit'],
+            '_pendingPrompt': 'Review and confirm.',
+            'toolName': 'master.create_supplier',
+            'executionPayload': {
+                'name': 'Fashion Hub',
+                'phone': '020-123-4567',
+                'address': '10 Avenue',
+            },
+            'taskContext': {
+                'primaryRoute': 'mutation',
+                'primaryIntent': 'master.create_supplier',
+                'entities': {},
+                'missingFields': [],
+                'postActions': [],
+                'clarificationCount': 0,
+                'status': 'awaiting_confirmation',
+            },
+            'compoundQueue': ['create PO for Classic Shirt Red S x20 @18'],
+        },
+    )
+
+    outcome = await handler.apply(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=workflow.id,
+        workflow=workflow,
+        decision='confirm',
+    )
+
+    assert len(runtime_service.calls) == 1
+    assert runtime_service.calls[0]['user_message'] == 'create PO for Classic Shirt Red S x20 @18'
+    assert outcome.status == WorkflowStatus.AWAITING_CONFIRMATION
+    assert outcome.extracted_entities['toolName'] == 'purchasing.create_po'
+    assert any(
+        block.type == BlockType.TEXT and 'Prepared the next purchase order draft.' in block.content
+        for block in outcome.blocks
+    )
