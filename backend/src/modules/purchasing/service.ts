@@ -14,6 +14,76 @@ const poSchema = z.object({
   lines: z.array(lineSchema).min(1),
 });
 
+const lineRefSchema = z
+  .object({
+    lineId: z.string().uuid().optional(),
+    sizeId: z.string().uuid().optional(),
+    skuCode: z.string().trim().min(1).optional(),
+    sizeLabel: z.string().trim().min(1).optional(),
+  })
+  .refine(
+    (value) => Boolean(value.lineId || value.sizeId || (value.skuCode && value.sizeLabel)),
+    'lineRef must include lineId, sizeId, or skuCode + sizeLabel',
+  );
+
+const poLineValuesSchema = z.object({
+  sizeId: z.string().uuid(),
+  qty: z.number().int().positive(),
+  unitCost: z.number().int().nonnegative(),
+});
+
+const poLineOpSchema = z
+  .object({
+    op: z.enum(['add', 'replace', 'change_qty', 'change_cost', 'remove']),
+    lineRef: lineRefSchema.optional(),
+    values: poLineValuesSchema.optional(),
+    qty: z.number().int().positive().optional(),
+    unitCost: z.number().int().nonnegative().optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.op === 'add') {
+      if (!value.values) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'add requires values' });
+      }
+      return;
+    }
+    if (!value.lineRef) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: `${value.op} requires lineRef` });
+    }
+    if (value.op === 'replace' && !value.values) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'replace requires values' });
+    }
+    if (value.op === 'change_qty' && value.qty == null) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'change_qty requires qty' });
+    }
+    if (value.op === 'change_cost' && value.unitCost == null) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'change_cost requires unitCost' });
+    }
+  });
+
+const poHeaderPatchSchema = z.object({
+  supplierId: z.string().uuid().optional(),
+  expectedDate: z.string().datetime().nullable().optional(),
+});
+
+const poUpdateSchema = z
+  .object({
+    supplierId: z.string().uuid().optional(),
+    expectedDate: z.string().datetime().nullable().optional(),
+    lines: z.array(lineSchema).min(1).optional(),
+    headerPatch: poHeaderPatchSchema.optional(),
+    lineOps: z.array(poLineOpSchema).min(1).optional(),
+  })
+  .refine(
+    (value) =>
+      value.supplierId !== undefined ||
+      value.expectedDate !== undefined ||
+      value.lines !== undefined ||
+      value.headerPatch !== undefined ||
+      value.lineOps !== undefined,
+    'At least one purchase order change is required',
+  );
+
 const receiveSchema = z.object({
   locationId: z.string().uuid(),
   lines: z.array(lineSchema).min(1),
@@ -47,6 +117,13 @@ type POLineDetailRow = {
   size_label: string;
   qty_received: number | string;
 };
+
+type POLineRef = z.infer<typeof lineRefSchema>;
+type POLineOp = z.infer<typeof poLineOpSchema>;
+
+function hasOwn(payload: object, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(payload, key);
+}
 
 function parsePagination(input: Request['query']) {
   const page = Math.max(1, Number(input.page ?? 1) || 1);
@@ -118,6 +195,103 @@ async function getPOById(client: Queryable, tenantId: string, poId: string) {
     updatedAt: base.updated_at,
     totalCost: lines.reduce((sum: number, line) => sum + line.qtyOrdered * line.unitCost, 0),
   };
+}
+
+async function resolvePOLine(client: Queryable, tenantId: string, poId: string, lineRef: POLineRef) {
+  if (lineRef.lineId) {
+    const lineRes = await client.query<{ id: string }>(
+      `SELECT id
+       FROM purchase_order_lines
+       WHERE id = $1 AND po_id = $2 AND tenant_id = $3`,
+      [lineRef.lineId, poId, tenantId],
+    );
+    if (lineRes.rowCount === 1) {
+      return lineRes.rows[0];
+    }
+    throw new Error('Purchase order line not found');
+  }
+
+  if (lineRef.sizeId) {
+    const lineRes = await client.query<{ id: string }>(
+      `SELECT id
+       FROM purchase_order_lines
+       WHERE po_id = $1 AND tenant_id = $2 AND size_id = $3`,
+      [poId, tenantId, lineRef.sizeId],
+    );
+    if (lineRes.rowCount === 1) {
+      return lineRes.rows[0];
+    }
+    throw new Error('Purchase order line not found');
+  }
+
+  const skuCode = String(lineRef.skuCode || '').trim().toUpperCase();
+  const sizeLabel = String(lineRef.sizeLabel || '').trim().toUpperCase();
+  const lineRes = await client.query<{ id: string }>(
+    `SELECT pol.id
+     FROM purchase_order_lines pol
+     JOIN sku_sizes sz ON sz.id = pol.size_id
+     JOIN skus s ON s.id = sz.sku_id
+     WHERE pol.po_id = $1
+       AND pol.tenant_id = $2
+       AND UPPER(s.sku_code) = $3
+       AND UPPER(sz.size_label) = $4`,
+    [poId, tenantId, skuCode, sizeLabel],
+  );
+  if (lineRes.rowCount === 1) {
+    return lineRes.rows[0];
+  }
+  throw new Error('Purchase order line not found');
+}
+
+async function applyPOLineOps(client: Queryable, tenantId: string, poId: string, lineOps: POLineOp[]) {
+  for (const lineOp of lineOps) {
+    if (lineOp.op === 'add') {
+      const values = lineOp.values!;
+      await client.query(
+        `INSERT INTO purchase_order_lines (tenant_id, po_id, size_id, qty, unit_cost)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [tenantId, poId, values.sizeId, values.qty, values.unitCost],
+      );
+      continue;
+    }
+
+    const resolvedLine = await resolvePOLine(client, tenantId, poId, lineOp.lineRef!);
+    if (lineOp.op === 'replace') {
+      const values = lineOp.values!;
+      await client.query(
+        `UPDATE purchase_order_lines
+         SET size_id = $1, qty = $2, unit_cost = $3
+         WHERE id = $4 AND tenant_id = $5`,
+        [values.sizeId, values.qty, values.unitCost, resolvedLine.id, tenantId],
+      );
+      continue;
+    }
+    if (lineOp.op === 'change_qty') {
+      await client.query(
+        `UPDATE purchase_order_lines
+         SET qty = $1
+         WHERE id = $2 AND tenant_id = $3`,
+        [lineOp.qty, resolvedLine.id, tenantId],
+      );
+      continue;
+    }
+    if (lineOp.op === 'change_cost') {
+      await client.query(
+        `UPDATE purchase_order_lines
+         SET unit_cost = $1
+         WHERE id = $2 AND tenant_id = $3`,
+        [lineOp.unitCost, resolvedLine.id, tenantId],
+      );
+      continue;
+    }
+    if (lineOp.op === 'remove') {
+      await client.query(
+        `DELETE FROM purchase_order_lines
+         WHERE id = $1 AND tenant_id = $2`,
+        [resolvedLine.id, tenantId],
+      );
+    }
+  }
 }
 
 export async function listPOs(req: Request, res: Response) {
@@ -227,6 +401,15 @@ export async function closePO(req: Request, res: Response) {
   }
 }
 
+export async function cancelPO(req: Request, res: Response) {
+  try {
+    const result = await executeCancelPO(req.user!.id, req.user!.tenantId, req.params.id, req.body);
+    res.json(result);
+  } catch (err: any) {
+    res.status(400).json({ message: err.message ?? 'Failed' });
+  }
+}
+
 export async function executeCreatePO(actorId: string, tenantId: string, payload: any) {
   const parsed = poSchema.safeParse(payload);
   if (!parsed.success) throw new Error('Invalid payload');
@@ -260,16 +443,34 @@ export async function executeCreatePO(actorId: string, tenantId: string, payload
 }
 
 export async function executeUpdatePO(actorId: string, tenantId: string, poId: string, payload: any) {
-  const parsed = poSchema.partial().safeParse(payload);
+  const parsed = poUpdateSchema.safeParse(payload);
   if (!parsed.success) throw new Error('Invalid payload');
   const body = parsed.data;
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    const headerPatch = {
+      ...(body.headerPatch ?? {}),
+      ...(hasOwn(body, 'supplierId') ? { supplierId: body.supplierId } : {}),
+      ...(hasOwn(body, 'expectedDate') ? { expectedDate: body.expectedDate ?? null } : {}),
+    };
+    const setClauses: string[] = ['updated_at = NOW()'];
+    const values: Array<string | null> = [];
+    if (hasOwn(headerPatch, 'supplierId')) {
+      values.push(headerPatch.supplierId ?? null);
+      setClauses.push(`supplier_id = $${values.length}`);
+    }
+    if (hasOwn(headerPatch, 'expectedDate')) {
+      values.push(headerPatch.expectedDate ?? null);
+      setClauses.push(`expected_date = $${values.length}`);
+    }
+    values.push(poId, tenantId);
     const poRes = await client.query(
-      `UPDATE purchase_orders SET supplier_id = COALESCE($1,supplier_id), expected_date = COALESCE($2,expected_date), updated_at = NOW()
-       WHERE id = $3 AND tenant_id = $4 AND status = 'draft' RETURNING id`,
-      [body.supplierId ?? null, body.expectedDate ?? null, poId, tenantId]
+      `UPDATE purchase_orders
+       SET ${setClauses.join(', ')}
+       WHERE id = $${values.length - 1} AND tenant_id = $${values.length} AND status = 'draft'
+       RETURNING id`,
+      values,
     );
     if (poRes.rowCount === 0) throw new Error('PO not found or not editable');
     if (body.lines) {
@@ -282,8 +483,13 @@ export async function executeUpdatePO(actorId: string, tenantId: string, poId: s
         );
       }
     }
+    if (body.lineOps) {
+      await applyPOLineOps(client, tenantId, poId, body.lineOps);
+    }
     await client.query('COMMIT');
-    return { id: poId };
+    const updated = await getPOById(client, tenantId, poId);
+    if (!updated) throw new Error('Failed to load updated purchase order');
+    return updated;
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;
@@ -353,4 +559,17 @@ export async function executeClosePO(actorId: string, tenantId: string, poId: st
     [poId, tenantId],
   );
   return { id: poId, status: 'closed' };
+}
+
+export async function executeCancelPO(actorId: string, tenantId: string, poId: string, payload: any) {
+  const parsed = confirmSchema.safeParse(payload);
+  if (!parsed.success) throw new Error('Confirmation required');
+
+  await pool.query(
+    `UPDATE purchase_orders
+     SET status = 'cancelled', updated_at = NOW()
+     WHERE id = $1 AND tenant_id = $2 AND status NOT IN ('cancelled', 'closed')`,
+    [poId, tenantId],
+  );
+  return { id: poId, status: 'cancelled' };
 }

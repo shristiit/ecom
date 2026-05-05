@@ -313,7 +313,8 @@ class BackendClient:
         return await self._request('GET', '/master/categories', access_token, tenant_id)
 
     async def list_products(self, access_token: str, tenant_id: str) -> list[dict[str, object]]:
-        return await self._request('GET', '/products', access_token, tenant_id)
+        payload = await self._request('GET', '/products', access_token, tenant_id)
+        return self._product_items(payload)
 
     async def search_products(
         self,
@@ -325,11 +326,22 @@ class BackendClient:
         brand: str | None = None,
     ) -> list[dict[str, object]]:
         params = {k: v for k, v in {'q': q, 'color': color, 'category': category, 'brand': brand}.items() if v}
-        return await self._request('GET', '/products', access_token, tenant_id, params=params or None)
+        payload = await self._request('GET', '/products', access_token, tenant_id, params=params or None)
+        return self._product_items(payload)
 
     async def get_product(self, access_token: str, tenant_id: str, product_id: str) -> dict[str, object]:
         payload = await self._request('GET', f'/products/{product_id}', access_token, tenant_id)
         return payload
+
+    @staticmethod
+    def _product_items(payload: object) -> list[dict[str, object]]:
+        if isinstance(payload, list):
+            return [item for item in payload if isinstance(item, dict)]
+        if isinstance(payload, dict):
+            items = payload.get('items')
+            if isinstance(items, list):
+                return [item for item in items if isinstance(item, dict)]
+        return []
 
     async def create_product(self, access_token: str, tenant_id: str, payload: dict[str, object]) -> dict[str, object]:
         return await self._request('POST', '/products/compose', access_token, tenant_id, json=payload)
@@ -427,7 +439,22 @@ class BackendClient:
         return await self._request('POST', f'/purchasing/po/{po_id}/receive', access_token, tenant_id, json=payload)
 
     async def close_po(self, access_token: str, tenant_id: str, po_id: str) -> dict[str, object]:
-        return await self._request('POST', f'/purchasing/po/{po_id}/close', access_token, tenant_id, json={})
+        return await self._request(
+            'POST',
+            f'/purchasing/po/{po_id}/close',
+            access_token,
+            tenant_id,
+            json={'confirm': True},
+        )
+
+    async def cancel_po(self, access_token: str, tenant_id: str, po_id: str) -> dict[str, object]:
+        return await self._request(
+            'POST',
+            f'/purchasing/po/{po_id}/cancel',
+            access_token,
+            tenant_id,
+            json={'confirm': True},
+        )
 
     async def list_invoices(
         self,
@@ -462,7 +489,13 @@ class BackendClient:
         )
 
     async def cancel_invoice(self, access_token: str, tenant_id: str, invoice_id: str) -> dict[str, object]:
-        return await self._request('POST', f'/sales/invoice/{invoice_id}/cancel', access_token, tenant_id, json={})
+        return await self._request(
+            'POST',
+            f'/sales/invoice/{invoice_id}/cancel',
+            access_token,
+            tenant_id,
+            json={'confirm': True},
+        )
 
     async def reporting_stock_summary(
         self, access_token: str, tenant_id: str, params: dict[str, object]

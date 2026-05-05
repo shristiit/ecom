@@ -20,5 +20,6 @@ r.post('/po', requirePermission('purchasing.write'), requireTenantWriteAccess({ 
 r.patch('/po/:id', requirePermission('purchasing.write'), requireTenantWriteAccess({ feature: 'purchasing' }), idem, ctrl.updatePO);
 r.post('/po/:id/receive', requirePermission('purchasing.write'), requireTenantWriteAccess({ feature: 'purchasing' }), idem, ctrl.receivePO);
 r.post('/po/:id/close', requirePermission('purchasing.write'), requireTenantWriteAccess({ feature: 'purchasing' }), idem, ctrl.closePO);
+r.post('/po/:id/cancel', requirePermission('purchasing.write'), requireTenantWriteAccess({ feature: 'purchasing' }), idem, ctrl.cancelPO);
 
 export default r;

@@ -22,11 +22,16 @@ class FakeBackendClient:
         self.deleted_locations: list[str] = []
         self.payloads: list[dict[str, object]] = []
         self.invoice_payloads: list[dict[str, object]] = []
+        self.invoice_updates: list[tuple[str, dict[str, object]]] = []
         self.invoice_dispatch_payloads: list[tuple[str, dict[str, object]]] = []
         self.invoice_cancel_ids: list[str] = []
         self.po_payloads: list[dict[str, object]] = []
+        self.po_updates: list[tuple[str, dict[str, object]]] = []
         self.po_receive_payloads: list[tuple[str, dict[str, object]]] = []
         self.po_close_ids: list[str] = []
+        self.po_cancel_ids: list[str] = []
+        self.po_list_params: list[dict[str, object] | None] = []
+        self.invoice_list_params: list[dict[str, object] | None] = []
         self.receipt_payloads: list[dict[str, object]] = []
         self.write_off_payloads: list[dict[str, object]] = []
         self.supplier_payloads: list[dict[str, object]] = []
@@ -79,6 +84,14 @@ class FakeBackendClient:
         self.invoices = [
             {'id': 'inv-1', 'number': 'SO-0001', 'customerName': 'Bob Smith'},
         ]
+        self.invoice_detail = {
+            'id': 'inv-1',
+            'number': 'SO-0001',
+            'lines': [
+                {'id': 'inv-line-1', 'skuId': 'size-sand-l', 'qty': 5, 'unitPrice': 55},
+                {'id': 'inv-line-2', 'skuId': 'size-sand-m', 'qty': 3, 'unitPrice': 50},
+            ],
+        }
 
     async def create_product(self, access_token: str, tenant_id: str | None, payload: dict[str, object]):
         del access_token, tenant_id
@@ -114,6 +127,13 @@ class FakeBackendClient:
         self.invoice_dispatch_payloads.append((invoice_id, payload))
         return {'ok': True, 'invoiceId': invoice_id, 'payload': payload}
 
+    async def update_invoice(
+        self, access_token: str, tenant_id: str | None, invoice_id: str, payload: dict[str, object]
+    ):
+        del access_token, tenant_id
+        self.invoice_updates.append((invoice_id, payload))
+        return {'ok': True, 'invoiceId': invoice_id, 'payload': payload}
+
     async def cancel_invoice(self, access_token: str, tenant_id: str | None, invoice_id: str):
         del access_token, tenant_id
         self.invoice_cancel_ids.append(invoice_id)
@@ -123,6 +143,13 @@ class FakeBackendClient:
         del access_token, tenant_id
         self.po_payloads.append(payload)
         return {'ok': True, 'payload': payload}
+
+    async def update_po(
+        self, access_token: str, tenant_id: str | None, po_id: str, payload: dict[str, object]
+    ):
+        del access_token, tenant_id
+        self.po_updates.append((po_id, payload))
+        return {'ok': True, 'poId': po_id, 'payload': payload}
 
     async def receive_po(
         self, access_token: str, tenant_id: str | None, po_id: str, payload: dict[str, object]
@@ -134,6 +161,11 @@ class FakeBackendClient:
     async def close_po(self, access_token: str, tenant_id: str | None, po_id: str):
         del access_token, tenant_id
         self.po_close_ids.append(po_id)
+        return {'ok': True, 'poId': po_id}
+
+    async def cancel_po(self, access_token: str, tenant_id: str | None, po_id: str):
+        del access_token, tenant_id
+        self.po_cancel_ids.append(po_id)
         return {'ok': True, 'poId': po_id}
 
     async def receive_stock(self, access_token: str, tenant_id: str | None, payload: dict[str, object]):
@@ -212,7 +244,8 @@ class FakeBackendClient:
         return self.product_detail
 
     async def list_pos(self, access_token: str, tenant_id: str | None, params: dict[str, object] | None = None):
-        del access_token, tenant_id, params
+        del access_token, tenant_id
+        self.po_list_params.append(params)
         return {'items': self.purchase_orders}
 
     async def get_po(self, access_token: str, tenant_id: str | None, po_id: str):
@@ -221,8 +254,23 @@ class FakeBackendClient:
         return self.purchase_order_detail
 
     async def list_invoices(self, access_token: str, tenant_id: str | None, params: dict[str, object] | None = None):
-        del access_token, tenant_id, params
+        del access_token, tenant_id
+        self.invoice_list_params.append(params)
         return {'items': self.invoices}
+
+    async def get_invoice(self, access_token: str, tenant_id: str | None, invoice_id: str):
+        del access_token, tenant_id
+        assert invoice_id == 'inv-1'
+        return self.invoice_detail
+
+
+class PaginatedProductBackendClient(FakeBackendClient):
+    async def search_products(self, access_token: str, tenant_id: str | None, q: str | None = None, **kwargs):
+        del access_token, tenant_id, kwargs
+        if not q:
+            return {'items': self.products, 'pagination': {'page': 1, 'pageSize': 50, 'total': len(self.products)}}
+        items = [product for product in self.products if q.lower() in str(product['name']).lower()]
+        return {'items': items, 'pagination': {'page': 1, 'pageSize': 50, 'total': len(items)}}
 
 
 def make_auth() -> AuthContext:
@@ -400,6 +448,166 @@ async def test_purchase_order_create_normalizes_name_based_lines_for_backend():
     ]
 
 
+async def test_purchase_order_create_accepts_paginated_product_search_results():
+    backend = PaginatedProductBackendClient()
+    catalog = SemanticToolCatalog(backend=backend, auth=make_auth())  # type: ignore[arg-type]
+
+    result = await catalog.invoke(
+        'purchasing.create_po',
+        {
+            'supplierId': 'Acme Supply',
+            'lines': [
+                {
+                    'productName': 'Field Fresh Short',
+                    'colorName': 'Sand',
+                    'sizeLabel': 'L',
+                    'quantity': 5,
+                    'unitCost': 21,
+                }
+            ],
+        },
+    )
+
+    assert result['result']['ok'] is True
+    assert backend.po_payloads == [
+        {
+            'supplierId': 'sup-1',
+            'lines': [{'sizeId': 'size-sand-l', 'qty': 5, 'unitCost': 21}],
+        }
+    ]
+
+
+async def test_purchase_order_create_defaults_missing_unit_cost_from_product_base_price():
+    backend = FakeBackendClient()
+    catalog = SemanticToolCatalog(backend=backend, auth=make_auth())  # type: ignore[arg-type]
+
+    result = await catalog.invoke(
+        'purchasing.create_po',
+        {
+            'supplierId': 'Acme Supply',
+            'lines': [
+                {
+                    'productName': 'Field Fresh Short',
+                    'colorName': 'Sand',
+                    'sizeLabel': 'L',
+                    'quantity': 5,
+                }
+            ],
+        },
+    )
+
+    assert result['result']['ok'] is True
+    assert backend.po_payloads == [
+        {
+            'supplierId': 'sup-1',
+            'lines': [{'sizeId': 'size-sand-l', 'qty': 5, 'unitCost': 42}],
+        }
+    ]
+
+
+async def test_purchase_order_create_requests_variant_when_multiple_variants_exist():
+    backend = FakeBackendClient()
+    catalog = SemanticToolCatalog(backend=backend, auth=make_auth())  # type: ignore[arg-type]
+
+    with pytest.raises(ToolPreparationError) as excinfo:
+        await catalog.prepare(
+            'purchasing.create_po',
+            {
+                'supplierId': 'Acme Supply',
+                'lines': [
+                    {
+                        'productName': 'Field Fresh Short',
+                        'quantity': 5,
+                    }
+                ],
+            },
+        )
+
+    assert 'Which variant should I use?' in excinfo.value.prompt
+    assert 'Sand / L' in excinfo.value.prompt
+    assert 'Clay / M' in excinfo.value.prompt
+
+
+async def test_purchase_order_get_resolves_order_number():
+    backend = FakeBackendClient()
+    catalog = SemanticToolCatalog(backend=backend, auth=make_auth())  # type: ignore[arg-type]
+
+    result = await catalog.invoke('purchasing.get_po', {'poId': 'PO-0001'})
+
+    assert result['result']['id'] == 'po-1'
+
+
+async def test_purchase_order_list_resolves_supplier_filter():
+    backend = FakeBackendClient()
+    catalog = SemanticToolCatalog(backend=backend, auth=make_auth())  # type: ignore[arg-type]
+
+    result = await catalog.invoke('purchasing.list_pos', {'status': 'draft', 'supplierId': 'Acme Supply'})
+
+    assert result['result']['items'] == backend.purchase_orders
+    assert backend.po_list_params == [{'status': 'draft', 'supplierId': 'sup-1'}]
+
+
+async def test_purchase_order_update_normalizes_header_patch_and_line_ops():
+    backend = FakeBackendClient()
+    catalog = SemanticToolCatalog(backend=backend, auth=make_auth())  # type: ignore[arg-type]
+
+    result = await catalog.invoke(
+        'purchasing.update_po',
+        {
+            'poId': 'PO-0001',
+            'expectedDate': '2026-06-10T00:00:00Z',
+            'lineOps': [
+                {
+                    'op': 'change_qty',
+                    'lineRef': {'skuCode': 'sku-sand', 'sizeLabel': 'L'},
+                    'qty': 12,
+                },
+                {
+                    'op': 'add',
+                    'values': {
+                        'productName': 'Field Fresh Short',
+                        'colorName': 'Clay',
+                        'sizeLabel': 'M',
+                        'quantity': 4,
+                        'unitCost': 18,
+                    },
+                },
+            ],
+        },
+    )
+
+    assert result['result']['ok'] is True
+    assert backend.po_updates == [
+        (
+            'po-1',
+            {
+                'headerPatch': {'expectedDate': '2026-06-10T00:00:00Z'},
+                'lineOps': [
+                    {
+                        'op': 'change_qty',
+                        'lineRef': {'skuCode': 'sku-sand', 'sizeLabel': 'L'},
+                        'qty': 12,
+                    },
+                    {
+                        'op': 'add',
+                        'values': {'sizeId': 'size-clay-m', 'qty': 4, 'unitCost': 18},
+                    },
+                ],
+            },
+        )
+    ]
+
+
+async def test_purchase_order_cancel_resolves_order_number():
+    backend = FakeBackendClient()
+    catalog = SemanticToolCatalog(backend=backend, auth=make_auth())  # type: ignore[arg-type]
+
+    result = await catalog.invoke('purchasing.cancel_po', {'poId': 'PO-0001'})
+
+    assert result['result']['poId'] == 'po-1'
+    assert backend.po_cancel_ids == ['po-1']
+
+
 async def test_sales_create_invoice_normalizes_name_based_lines_for_backend():
     backend = FakeBackendClient()
     catalog = SemanticToolCatalog(backend=backend, auth=make_auth())  # type: ignore[arg-type]
@@ -435,7 +643,7 @@ async def test_sales_create_invoice_requires_color_and_size_when_product_is_ambi
     backend = FakeBackendClient()
     catalog = SemanticToolCatalog(backend=backend, auth=make_auth())  # type: ignore[arg-type]
 
-    with pytest.raises(ToolPreparationError, match='Color is required'):
+    with pytest.raises(ToolPreparationError, match='Which variant should I use'):
         await catalog.invoke(
             'sales.create_invoice',
             {
@@ -445,6 +653,84 @@ async def test_sales_create_invoice_requires_color_and_size_when_product_is_ambi
                 ],
             },
         )
+
+
+async def test_sales_get_invoice_resolves_order_number():
+    backend = FakeBackendClient()
+    catalog = SemanticToolCatalog(backend=backend, auth=make_auth())  # type: ignore[arg-type]
+
+    result = await catalog.invoke('sales.get_invoice', {'invoiceId': 'SO-0001'})
+
+    assert result['result']['id'] == 'inv-1'
+
+
+async def test_sales_list_invoices_resolves_customer_filter():
+    backend = FakeBackendClient()
+    catalog = SemanticToolCatalog(backend=backend, auth=make_auth())  # type: ignore[arg-type]
+
+    result = await catalog.invoke('sales.list_invoices', {'status': 'draft', 'customerId': 'bob@example.com'})
+
+    assert result['result']['items'] == backend.invoices
+    assert backend.invoice_list_params == [{'status': 'draft', 'customerId': 'cust-2'}]
+
+
+async def test_sales_update_invoice_normalizes_line_ops():
+    backend = FakeBackendClient()
+    catalog = SemanticToolCatalog(backend=backend, auth=make_auth())  # type: ignore[arg-type]
+
+    result = await catalog.invoke(
+        'sales.update_invoice',
+        {
+            'invoiceId': 'SO-0001',
+            'lineOps': [
+                {
+                    'op': 'change_qty',
+                    'lineRef': {'skuCode': 'sku-sand', 'sizeLabel': 'M'},
+                    'qty': 15,
+                },
+                {
+                    'op': 'change_price',
+                    'lineRef': {'skuCode': 'sku-sand', 'sizeLabel': 'L'},
+                    'unitPrice': 60,
+                },
+            ],
+        },
+    )
+
+    assert result['result']['ok'] is True
+    assert backend.invoice_updates == [
+        (
+            'inv-1',
+            {
+                'lineOps': [
+                    {
+                        'op': 'change_qty',
+                        'lineRef': {'skuCode': 'sku-sand', 'sizeLabel': 'M'},
+                        'qty': 15,
+                    },
+                    {
+                        'op': 'change_price',
+                        'lineRef': {'skuCode': 'sku-sand', 'sizeLabel': 'L'},
+                        'unitPrice': 60,
+                    },
+                ]
+            },
+        )
+    ]
+
+
+async def test_products_get_product_variants_lists_color_size_rows():
+    backend = FakeBackendClient()
+    catalog = SemanticToolCatalog(backend=backend, auth=make_auth())  # type: ignore[arg-type]
+
+    result = await catalog.invoke('products.get_product_variants', {'product': 'Field Fresh Short'})
+
+    assert result['rows'] == [
+        {'sizeId': 'size-sand-l', 'skuId': 'sku-sand', 'colorName': 'Sand', 'sizeLabel': 'L'},
+        {'sizeId': 'size-sand-m', 'skuId': 'sku-sand', 'colorName': 'Sand', 'sizeLabel': 'M'},
+        {'sizeId': 'size-clay-l', 'skuId': 'sku-clay', 'colorName': 'Clay', 'sizeLabel': 'L'},
+        {'sizeId': 'size-clay-m', 'skuId': 'sku-clay', 'colorName': 'Clay', 'sizeLabel': 'M'},
+    ]
 
 
 async def test_entity_resolver_caches_repeated_customer_and_location_lookups():

@@ -13,6 +13,73 @@ const invoiceSchema = z.object({
   lines: z.array(lineSchema).min(1),
 });
 
+const lineRefSchema = z
+  .object({
+    lineId: z.string().uuid().optional(),
+    sizeId: z.string().uuid().optional(),
+    skuCode: z.string().trim().min(1).optional(),
+    sizeLabel: z.string().trim().min(1).optional(),
+  })
+  .refine(
+    (value) => Boolean(value.lineId || value.sizeId || (value.skuCode && value.sizeLabel)),
+    'lineRef must include lineId, sizeId, or skuCode + sizeLabel',
+  );
+
+const invoiceLineValuesSchema = z.object({
+  sizeId: z.string().uuid(),
+  qty: z.number().int().positive(),
+  unitPrice: z.number().int().nonnegative(),
+});
+
+const invoiceLineOpSchema = z
+  .object({
+    op: z.enum(['add', 'replace', 'change_qty', 'change_price', 'remove']),
+    lineRef: lineRefSchema.optional(),
+    values: invoiceLineValuesSchema.optional(),
+    qty: z.number().int().positive().optional(),
+    unitPrice: z.number().int().nonnegative().optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.op === 'add') {
+      if (!value.values) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'add requires values' });
+      }
+      return;
+    }
+    if (!value.lineRef) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: `${value.op} requires lineRef` });
+    }
+    if (value.op === 'replace' && !value.values) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'replace requires values' });
+    }
+    if (value.op === 'change_qty' && value.qty == null) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'change_qty requires qty' });
+    }
+    if (value.op === 'change_price' && value.unitPrice == null) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'change_price requires unitPrice' });
+    }
+  });
+
+const invoiceHeaderPatchSchema = z.object({
+  customerId: z.string().uuid().optional(),
+});
+
+const invoiceUpdateSchema = z
+  .object({
+    customerId: z.string().uuid().optional(),
+    lines: z.array(lineSchema).min(1).optional(),
+    headerPatch: invoiceHeaderPatchSchema.optional(),
+    lineOps: z.array(invoiceLineOpSchema).min(1).optional(),
+  })
+  .refine(
+    (value) =>
+      value.customerId !== undefined ||
+      value.lines !== undefined ||
+      value.headerPatch !== undefined ||
+      value.lineOps !== undefined,
+    'At least one sales order change is required',
+  );
+
 const dispatchSchema = z.object({
   locationId: z.string().uuid(),
   confirm: z.boolean().default(false),
@@ -44,6 +111,13 @@ type InvoiceLineDetailRow = {
   sku_code: string;
   size_label: string;
 };
+
+type InvoiceLineRef = z.infer<typeof lineRefSchema>;
+type InvoiceLineOp = z.infer<typeof invoiceLineOpSchema>;
+
+function hasOwn(payload: object, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(payload, key);
+}
 
 function parsePagination(input: Request['query']) {
   const page = Math.max(1, Number(input.page ?? 1) || 1);
@@ -112,6 +186,117 @@ async function getInvoiceById(client: Queryable, tenantId: string, invoiceId: st
     createdAt: base.created_at,
     updatedAt: base.updated_at,
   };
+}
+
+async function recalculateInvoiceTotal(client: Queryable, tenantId: string, invoiceId: string) {
+  await client.query(
+    `UPDATE invoices
+     SET total = COALESCE((
+       SELECT SUM(qty * unit_price)
+       FROM invoice_lines
+       WHERE invoice_id = $1 AND tenant_id = $2
+     ), 0),
+         updated_at = NOW()
+     WHERE id = $1 AND tenant_id = $2`,
+    [invoiceId, tenantId],
+  );
+}
+
+async function resolveInvoiceLine(client: Queryable, tenantId: string, invoiceId: string, lineRef: InvoiceLineRef) {
+  if (lineRef.lineId) {
+    const lineRes = await client.query<{ id: string }>(
+      `SELECT id
+       FROM invoice_lines
+       WHERE id = $1 AND invoice_id = $2 AND tenant_id = $3`,
+      [lineRef.lineId, invoiceId, tenantId],
+    );
+    if (lineRes.rowCount === 1) {
+      return lineRes.rows[0];
+    }
+    throw new Error('Sales order line not found');
+  }
+
+  if (lineRef.sizeId) {
+    const lineRes = await client.query<{ id: string }>(
+      `SELECT id
+       FROM invoice_lines
+       WHERE invoice_id = $1 AND tenant_id = $2 AND size_id = $3`,
+      [invoiceId, tenantId, lineRef.sizeId],
+    );
+    if (lineRes.rowCount === 1) {
+      return lineRes.rows[0];
+    }
+    throw new Error('Sales order line not found');
+  }
+
+  const skuCode = String(lineRef.skuCode || '').trim().toUpperCase();
+  const sizeLabel = String(lineRef.sizeLabel || '').trim().toUpperCase();
+  const lineRes = await client.query<{ id: string }>(
+    `SELECT il.id
+     FROM invoice_lines il
+     JOIN sku_sizes sz ON sz.id = il.size_id
+     JOIN skus s ON s.id = sz.sku_id
+     WHERE il.invoice_id = $1
+       AND il.tenant_id = $2
+       AND UPPER(s.sku_code) = $3
+       AND UPPER(sz.size_label) = $4`,
+    [invoiceId, tenantId, skuCode, sizeLabel],
+  );
+  if (lineRes.rowCount === 1) {
+    return lineRes.rows[0];
+  }
+  throw new Error('Sales order line not found');
+}
+
+async function applyInvoiceLineOps(client: Queryable, tenantId: string, invoiceId: string, lineOps: InvoiceLineOp[]) {
+  for (const lineOp of lineOps) {
+    if (lineOp.op === 'add') {
+      const values = lineOp.values!;
+      await client.query(
+        `INSERT INTO invoice_lines (tenant_id, invoice_id, size_id, qty, unit_price)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [tenantId, invoiceId, values.sizeId, values.qty, values.unitPrice],
+      );
+      continue;
+    }
+
+    const resolvedLine = await resolveInvoiceLine(client, tenantId, invoiceId, lineOp.lineRef!);
+    if (lineOp.op === 'replace') {
+      const values = lineOp.values!;
+      await client.query(
+        `UPDATE invoice_lines
+         SET size_id = $1, qty = $2, unit_price = $3
+         WHERE id = $4 AND tenant_id = $5`,
+        [values.sizeId, values.qty, values.unitPrice, resolvedLine.id, tenantId],
+      );
+      continue;
+    }
+    if (lineOp.op === 'change_qty') {
+      await client.query(
+        `UPDATE invoice_lines
+         SET qty = $1
+         WHERE id = $2 AND tenant_id = $3`,
+        [lineOp.qty, resolvedLine.id, tenantId],
+      );
+      continue;
+    }
+    if (lineOp.op === 'change_price') {
+      await client.query(
+        `UPDATE invoice_lines
+         SET unit_price = $1
+         WHERE id = $2 AND tenant_id = $3`,
+        [lineOp.unitPrice, resolvedLine.id, tenantId],
+      );
+      continue;
+    }
+    if (lineOp.op === 'remove') {
+      await client.query(
+        `DELETE FROM invoice_lines
+         WHERE id = $1 AND tenant_id = $2`,
+        [resolvedLine.id, tenantId],
+      );
+    }
+  }
 }
 
 export async function listInvoices(req: Request, res: Response) {
@@ -255,16 +440,29 @@ export async function executeCreateInvoice(actorId: string, tenantId: string, pa
 }
 
 export async function executeUpdateInvoice(actorId: string, tenantId: string, invoiceId: string, payload: any) {
-  const parsed = invoiceSchema.partial().safeParse(payload);
+  const parsed = invoiceUpdateSchema.safeParse(payload);
   if (!parsed.success) throw new Error('Invalid payload');
   const body = parsed.data;
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    const headerPatch = {
+      ...(body.headerPatch ?? {}),
+      ...(hasOwn(body, 'customerId') ? { customerId: body.customerId } : {}),
+    };
+    const setClauses: string[] = ['updated_at = NOW()'];
+    const values: string[] = [];
+    if (hasOwn(headerPatch, 'customerId') && headerPatch.customerId) {
+      values.push(headerPatch.customerId);
+      setClauses.push(`customer_id = $${values.length}`);
+    }
+    values.push(invoiceId, tenantId);
     const invRes = await client.query(
-      `UPDATE invoices SET customer_id = COALESCE($1, customer_id), updated_at = NOW()
-       WHERE id = $2 AND tenant_id = $3 AND status = 'draft' RETURNING id`,
-      [body.customerId ?? null, invoiceId, tenantId]
+      `UPDATE invoices
+       SET ${setClauses.join(', ')}
+       WHERE id = $${values.length - 1} AND tenant_id = $${values.length} AND status = 'draft'
+       RETURNING id`,
+      values,
     );
     if (invRes.rowCount === 0) throw new Error('Invoice not found or not editable');
     if (body.lines) {
@@ -277,8 +475,16 @@ export async function executeUpdateInvoice(actorId: string, tenantId: string, in
         );
       }
     }
+    if (body.lineOps) {
+      await applyInvoiceLineOps(client, tenantId, invoiceId, body.lineOps);
+    }
+    if (body.lines || body.lineOps) {
+      await recalculateInvoiceTotal(client, tenantId, invoiceId);
+    }
     await client.query('COMMIT');
-    return { id: invoiceId };
+    const updated = await getInvoiceById(client, tenantId, invoiceId);
+    if (!updated) throw new Error('Failed to load updated invoice');
+    return updated;
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;
