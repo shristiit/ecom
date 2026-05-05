@@ -260,6 +260,23 @@ class FakeBackendClient:
                 {'id': 'size-sand-m', 'sku_id': 'sku-sand', 'size_label': 'M', 'price_override': None},
             ],
         }
+        self.invoice_detail = {
+            'id': 'inv-1',
+            'lines': [
+                {
+                    'id': 'inv-line-1',
+                    'skuId': 'size-sand-m',
+                    'qty': 20,
+                    'unitPrice': 42,
+                },
+                {
+                    'id': 'inv-line-2',
+                    'skuId': 'size-sand-l',
+                    'qty': 10,
+                    'unitPrice': 42,
+                },
+            ],
+        }
 
     async def check_ai_usage_quota(self, *args, **kwargs):
         del args, kwargs
@@ -405,6 +422,11 @@ class FakeBackendClient:
             ],
         }
 
+    async def get_invoice(self, access_token: str, tenant_id: str | None, invoice_id: str):
+        del access_token, tenant_id
+        assert invoice_id == 'inv-1'
+        return self.invoice_detail
+
     async def evaluate_approval(self, *args, **kwargs):
         del args, kwargs
         return GovernanceEvaluationResponse(requires_approval=False, reason=None)
@@ -467,6 +489,28 @@ class ScopedLatestBackendClient(FakeBackendClient):
             {'id': 'inv-7', 'number': 'SO-0007', 'customerName': 'Bob Smith'},
             {'id': 'inv-1', 'number': 'SO-0001', 'customerName': 'Bob Smith'},
         ]
+        self.invoice_detail = {
+            'id': 'inv-7',
+            'lines': [
+                {
+                    'id': 'inv-line-1',
+                    'skuId': 'size-sand-m',
+                    'qty': 20,
+                    'unitPrice': 42,
+                },
+                {
+                    'id': 'inv-line-2',
+                    'skuId': 'size-sand-l',
+                    'qty': 10,
+                    'unitPrice': 42,
+                },
+            ],
+        }
+
+    async def get_invoice(self, access_token: str, tenant_id: str | None, invoice_id: str):
+        del access_token, tenant_id
+        assert invoice_id == 'inv-7'
+        return self.invoice_detail
 
     async def list_invoices(self, *args, **kwargs):
         del args, kwargs
@@ -1978,6 +2022,109 @@ async def test_runtime_service_recovers_update_last_po_from_sparse_executor_prop
     }
 
 
+async def test_runtime_service_recovers_update_last_po_remove_second_line_from_sparse_executor_proposal():
+    service = AgentRuntimeService(
+        backend_client=FakeBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeInvalidExecutor(),  # type: ignore[arg-type]
+        reviewer=FakeReviewer(),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        state_updater=FakeStateUpdater(
+            {
+                'update my last PO by removing the second line': {
+                    'useActiveWorkflow': False,
+                    'primaryRoute': 'mutation',
+                    'primaryIntent': 'purchasing.update_po',
+                    'confidence': 0.96,
+                    'rationale': 'Update request detected.',
+                    'entityPatches': {},
+                    'navigationQuery': None,
+                    'postActionQuery': None,
+                }
+            }
+        ),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='update my last PO by removing the second line',
+        extracted_entities={},
+        recent_messages=[],
+        workflow_status=WorkflowStatus.IDLE,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.AWAITING_CONFIRMATION
+    assert outcome.extracted_entities['toolName'] == 'purchasing.update_po'
+    assert outcome.extracted_entities['executionPayload'] == {
+        'poId': 'po-1',
+        'lineOps': [
+            {
+                'op': 'remove',
+                'lineRef': {'sizeId': 'size-sand-l'},
+            }
+        ],
+    }
+
+
+async def test_runtime_service_recovers_update_last_sales_order_medium_line_quantity_from_sparse_executor_proposal():
+    service = AgentRuntimeService(
+        backend_client=ScopedLatestBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeInvalidExecutor(),  # type: ignore[arg-type]
+        reviewer=FakeReviewer(),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        state_updater=FakeStateUpdater(
+            {
+                'update the last sales order for Bob Smith by changing the medium line quantity to 11': {
+                    'useActiveWorkflow': False,
+                    'primaryRoute': 'mutation',
+                    'primaryIntent': 'sales.update_invoice',
+                    'confidence': 0.96,
+                    'rationale': 'Sales update request detected.',
+                    'entityPatches': {},
+                    'navigationQuery': None,
+                    'postActionQuery': None,
+                }
+            }
+        ),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='update the last sales order for Bob Smith by changing the medium line quantity to 11',
+        extracted_entities={},
+        recent_messages=[],
+        workflow_status=WorkflowStatus.IDLE,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.AWAITING_CONFIRMATION
+    assert outcome.extracted_entities['toolName'] == 'sales.update_invoice'
+    assert outcome.extracted_entities['executionPayload'] == {
+        'invoiceId': 'inv-7',
+        'lineOps': [
+            {
+                'op': 'change_qty',
+                'lineRef': {'lineId': 'inv-line-1'},
+                'qty': 11,
+            }
+        ],
+    }
+
+
 async def test_runtime_service_recovers_cancel_last_sales_order_for_customer_from_sparse_executor_proposal():
     service = AgentRuntimeService(
         backend_client=ScopedLatestBackendClient(),  # type: ignore[arg-type]
@@ -2549,6 +2696,323 @@ async def test_runtime_service_applies_sales_update_clarification_reply_without_
                 'op': 'change_qty',
                 'lineRef': {'skuCode': 'HOOD-ECO', 'sizeLabel': 'MD'},
                 'qty': 15,
+            }
+        ],
+    }
+
+
+async def test_runtime_service_applies_po_update_ordinal_quantity_change_without_replanning():
+    service = AgentRuntimeService(
+        backend_client=FakeBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeExecutor('inventory.stock_on_hand', {'sku': 'unused'}),
+        reviewer=FakeReviewer(),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        state_updater=FakeStateUpdater(
+            {
+                'change the second line quantity to 12': {
+                    'useActiveWorkflow': True,
+                    'primaryRoute': 'mutation',
+                    'primaryIntent': 'purchasing.update_po',
+                    'confidence': 0.96,
+                    'rationale': 'The user is clarifying a specific PO line update.',
+                    'entityPatches': {},
+                    'navigationQuery': None,
+                    'postActionQuery': None,
+                }
+            }
+        ),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='change the second line quantity to 12',
+        extracted_entities={
+            '_workflowEngine': 'runtime',
+            'toolName': 'purchasing.update_po',
+            'executionPayload': {'poId': 'po-1'},
+            'taskContext': {
+                'primaryRoute': 'mutation',
+                'primaryIntent': 'purchasing.update_po',
+                'entities': {'poId': 'po-1', 'poNumber': 'PO-001'},
+                'missingFields': ['patch'],
+                'postActions': [],
+                'clarificationCount': 1,
+                'status': 'drafting',
+            },
+        },
+        recent_messages=[],
+        workflow_status=WorkflowStatus.NEEDS_INPUT,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.AWAITING_CONFIRMATION
+    assert outcome.extracted_entities['executionPayload'] == {
+        'poId': 'po-1',
+        'lineOps': [
+            {
+                'op': 'change_qty',
+                'lineRef': {'sizeId': 'size-sand-l'},
+                'qty': 12,
+            }
+        ],
+    }
+
+
+async def test_runtime_service_applies_po_update_remove_line_without_replanning():
+    service = AgentRuntimeService(
+        backend_client=FakeBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeExecutor('inventory.stock_on_hand', {'sku': 'unused'}),
+        reviewer=FakeReviewer(),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        state_updater=FakeStateUpdater(
+            {
+                'remove the second line': {
+                    'useActiveWorkflow': True,
+                    'primaryRoute': 'mutation',
+                    'primaryIntent': 'purchasing.update_po',
+                    'confidence': 0.96,
+                    'rationale': 'The user is removing a specific PO line.',
+                    'entityPatches': {},
+                    'navigationQuery': None,
+                    'postActionQuery': None,
+                }
+            }
+        ),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='remove the second line',
+        extracted_entities={
+            '_workflowEngine': 'runtime',
+            'toolName': 'purchasing.update_po',
+            'executionPayload': {'poId': 'po-1'},
+            'taskContext': {
+                'primaryRoute': 'mutation',
+                'primaryIntent': 'purchasing.update_po',
+                'entities': {'poId': 'po-1', 'poNumber': 'PO-001'},
+                'missingFields': ['patch'],
+                'postActions': [],
+                'clarificationCount': 1,
+                'status': 'drafting',
+            },
+        },
+        recent_messages=[],
+        workflow_status=WorkflowStatus.NEEDS_INPUT,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.AWAITING_CONFIRMATION
+    assert outcome.extracted_entities['executionPayload'] == {
+        'poId': 'po-1',
+        'lineOps': [
+            {
+                'op': 'remove',
+                'lineRef': {'sizeId': 'size-sand-l'},
+            }
+        ],
+    }
+
+
+async def test_runtime_service_applies_po_update_remove_medium_line_without_replanning():
+    service = AgentRuntimeService(
+        backend_client=FakeBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeExecutor('inventory.stock_on_hand', {'sku': 'unused'}),
+        reviewer=FakeReviewer(),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        state_updater=FakeStateUpdater(
+            {
+                'remove the medium line': {
+                    'useActiveWorkflow': True,
+                    'primaryRoute': 'mutation',
+                    'primaryIntent': 'purchasing.update_po',
+                    'confidence': 0.96,
+                    'rationale': 'The user is removing a PO line by size label.',
+                    'entityPatches': {},
+                    'navigationQuery': None,
+                    'postActionQuery': None,
+                }
+            }
+        ),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='remove the medium line',
+        extracted_entities={
+            '_workflowEngine': 'runtime',
+            'toolName': 'purchasing.update_po',
+            'executionPayload': {'poId': 'po-1'},
+            'taskContext': {
+                'primaryRoute': 'mutation',
+                'primaryIntent': 'purchasing.update_po',
+                'entities': {'poId': 'po-1', 'poNumber': 'PO-001'},
+                'missingFields': ['patch'],
+                'postActions': [],
+                'clarificationCount': 1,
+                'status': 'drafting',
+            },
+        },
+        recent_messages=[],
+        workflow_status=WorkflowStatus.NEEDS_INPUT,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.AWAITING_CONFIRMATION
+    assert outcome.extracted_entities['executionPayload'] == {
+        'poId': 'po-1',
+        'lineOps': [
+            {
+                'op': 'remove',
+                'lineRef': {'sizeId': 'size-sand-m'},
+            }
+        ],
+    }
+
+
+async def test_runtime_service_applies_sales_update_remove_line_without_replanning():
+    service = AgentRuntimeService(
+        backend_client=FakeBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeExecutor('inventory.stock_on_hand', {'sku': 'unused'}),
+        reviewer=FakeReviewer(),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        state_updater=FakeStateUpdater(
+            {
+                'remove the second line': {
+                    'useActiveWorkflow': True,
+                    'primaryRoute': 'mutation',
+                    'primaryIntent': 'sales.update_invoice',
+                    'confidence': 0.96,
+                    'rationale': 'The user is removing a specific sales-order line.',
+                    'entityPatches': {},
+                    'navigationQuery': None,
+                    'postActionQuery': None,
+                }
+            }
+        ),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='remove the second line',
+        extracted_entities={
+            '_workflowEngine': 'runtime',
+            'toolName': 'sales.update_invoice',
+            'executionPayload': {'invoiceId': 'inv-1'},
+            'taskContext': {
+                'primaryRoute': 'mutation',
+                'primaryIntent': 'sales.update_invoice',
+                'entities': {'invoiceId': 'inv-1', 'invoiceNumber': 'SO-001'},
+                'missingFields': ['patch'],
+                'postActions': [],
+                'clarificationCount': 1,
+                'status': 'drafting',
+            },
+        },
+        recent_messages=[],
+        workflow_status=WorkflowStatus.NEEDS_INPUT,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.AWAITING_CONFIRMATION
+    assert outcome.extracted_entities['executionPayload'] == {
+        'invoiceId': 'inv-1',
+        'lineOps': [
+            {
+                'op': 'remove',
+                'lineRef': {'lineId': 'inv-line-2'},
+            }
+        ],
+    }
+
+
+async def test_runtime_service_applies_sales_update_change_medium_line_quantity_without_replanning():
+    service = AgentRuntimeService(
+        backend_client=FakeBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeExecutor('inventory.stock_on_hand', {'sku': 'unused'}),
+        reviewer=FakeReviewer(),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        state_updater=FakeStateUpdater(
+            {
+                'change the medium line quantity to 11': {
+                    'useActiveWorkflow': True,
+                    'primaryRoute': 'mutation',
+                    'primaryIntent': 'sales.update_invoice',
+                    'confidence': 0.96,
+                    'rationale': 'The user is changing a sales-order line by size label.',
+                    'entityPatches': {},
+                    'navigationQuery': None,
+                    'postActionQuery': None,
+                }
+            }
+        ),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='change the medium line quantity to 11',
+        extracted_entities={
+            '_workflowEngine': 'runtime',
+            'toolName': 'sales.update_invoice',
+            'executionPayload': {'invoiceId': 'inv-1'},
+            'taskContext': {
+                'primaryRoute': 'mutation',
+                'primaryIntent': 'sales.update_invoice',
+                'entities': {'invoiceId': 'inv-1', 'invoiceNumber': 'SO-001'},
+                'missingFields': ['patch'],
+                'postActions': [],
+                'clarificationCount': 1,
+                'status': 'drafting',
+            },
+        },
+        recent_messages=[],
+        workflow_status=WorkflowStatus.NEEDS_INPUT,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.AWAITING_CONFIRMATION
+    assert outcome.extracted_entities['executionPayload'] == {
+        'invoiceId': 'inv-1',
+        'lineOps': [
+            {
+                'op': 'change_qty',
+                'lineRef': {'lineId': 'inv-line-1'},
+                'qty': 11,
             }
         ],
     }

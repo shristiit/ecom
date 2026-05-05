@@ -45,6 +45,7 @@ from conversational_engine.orchestrator.matching import (
     parse_sales_lines,
 )
 from conversational_engine.tools.catalog import SemanticToolCatalog
+from conversational_engine.tools.catalog.resolvers import EntityResolver
 from conversational_engine.tools.catalog.utils import ToolPreparationError
 from conversational_engine.tools.validation import ToolSchemaValidationError
 from conversational_engine.training.service import TrainingDataService
@@ -174,6 +175,26 @@ def _extract_quantity_change_ops(message: str) -> list[dict[str, object]]:
     return ops
 
 
+def _extract_remove_line_ops(message: str) -> list[dict[str, object]]:
+    ops: list[dict[str, object]] = []
+    pattern = re.compile(
+        r'(?:remove|removing|delete|deleting|drop|dropping)\s+(?:the\s+)?(?:line\s+)?'
+        r'(?P<sku>[A-Za-z0-9-]+)\s*/\s*(?P<size>[A-Za-z0-9]+)\b',
+        re.IGNORECASE,
+    )
+    for match in pattern.finditer(message):
+        ops.append(
+            {
+                'op': 'remove',
+                'lineRef': {
+                    'skuCode': match.group('sku').upper(),
+                    'sizeLabel': match.group('size').upper(),
+                },
+            }
+        )
+    return ops
+
+
 def _message_implies_add_line(message: str) -> bool:
     return bool(re.search(r'\badd(?:\s+another)?\s+line\b|\badd\b', message, re.IGNORECASE))
 
@@ -209,7 +230,7 @@ def _extract_purchase_order_reference(message: str) -> str | None:
         re.compile(r'\b(?:this|that)\s+(?:purchase order|po)\b', re.IGNORECASE),
         re.compile(r'\bpo[-\s]?\d+\b', re.IGNORECASE),
         re.compile(
-            r'\b(?:purchase order|po)\s+for\s+([^,.;]+?)(?=\s+(?:expected|status|with|from|to|at|change|update|cancel|close|receive)\b|$)',
+            r'\b(?:purchase order|po)\s+for\s+([^,.;]+?)(?=\s+(?:expected|status|with|from|to|at|by|change|changing|update|updating|cancel|close|receive)\b|$)',
             re.IGNORECASE,
         ),
     )
@@ -226,14 +247,14 @@ def _extract_purchase_order_reference(message: str) -> str | None:
 def _extract_invoice_reference(message: str) -> str | None:
     patterns = (
         re.compile(
-            r'\b(?:my\s+last|last|latest)\s+(?:sales order|invoice|so)\s+for\s+[^,.;]+?(?=\s+(?:from|to|at|status|with|change|update|cancel|dispatch|receive)\b|$)',
+            r'\b(?:my\s+last|last|latest)\s+(?:sales order|invoice|so)\s+for\s+[^,.;]+?(?=\s+(?:from|to|at|status|with|by|change|changing|update|updating|cancel|dispatch|receive)\b|$)',
             re.IGNORECASE,
         ),
         re.compile(r'\b(?:my\s+last|last|latest)\s+(?:sales order|invoice|so)\b', re.IGNORECASE),
         re.compile(r'\b(?:this|that)\s+(?:sales order|invoice|so)\b', re.IGNORECASE),
         re.compile(r'\bso[-\s]?\d+\b', re.IGNORECASE),
         re.compile(
-            r'\b(?:sales order|invoice|so)\s+for\s+([^,.;]+?)(?=\s+(?:from|to|at|status|with|change|update|cancel|dispatch)\b|$)',
+            r'\b(?:sales order|invoice|so)\s+for\s+([^,.;]+?)(?=\s+(?:from|to|at|status|with|by|change|changing|update|updating|cancel|dispatch)\b|$)',
             re.IGNORECASE,
         ),
     )
@@ -245,6 +266,105 @@ def _extract_invoice_reference(message: str) -> str | None:
             return str(match.group(1)).strip()
         return match.group(0).strip()
     return None
+
+
+_ORDINAL_LINE_INDEX: dict[str, int] = {
+    '1st': 0,
+    'first': 0,
+    '2nd': 1,
+    'second': 1,
+    '3rd': 2,
+    'third': 2,
+    '4th': 3,
+    'fourth': 3,
+    '5th': 4,
+    'fifth': 4,
+    'last': -1,
+}
+
+_SIZE_LABEL_ALIASES: tuple[tuple[str, str], ...] = (
+    ('extra extra small', 'XXS'),
+    ('xxs', 'XXS'),
+    ('extra small', 'XS'),
+    ('xs', 'XS'),
+    ('small', 'S'),
+    ('sm', 'S'),
+    ('medium', 'M'),
+    ('med', 'M'),
+    ('md', 'M'),
+    ('large', 'L'),
+    ('lg', 'L'),
+    ('extra large', 'XL'),
+    ('xl', 'XL'),
+    ('extra extra large', 'XXL'),
+    ('xxl', 'XXL'),
+)
+
+
+def _extract_ordinal_line_quantity_change(message: str) -> tuple[int, int] | None:
+    patterns = (
+        re.compile(
+            r'(?:change|changing|update|updating|adjust|adjusting|set|setting)\s+(?:the\s+)?(?P<ordinal>1st|first|2nd|second|3rd|third|4th|fourth|5th|fifth|last)\s+line(?:\s+quantity)?\s+(?:to|=)\s*(?P<qty>\d+)',
+            re.IGNORECASE,
+        ),
+        re.compile(
+            r'(?:change|changing|update|updating|adjust|adjusting|set|setting)\s+quantity(?:\s+of)?\s+(?:the\s+)?(?P<ordinal>1st|first|2nd|second|3rd|third|4th|fourth|5th|fifth|last)\s+line\s+(?:to|=)\s*(?P<qty>\d+)',
+            re.IGNORECASE,
+        ),
+    )
+    for pattern in patterns:
+        match = pattern.search(message)
+        if not match:
+            continue
+        ordinal = match.group('ordinal').lower()
+        return _ORDINAL_LINE_INDEX[ordinal], int(match.group('qty'))
+    return None
+
+
+def _extract_ordinal_line_remove(message: str) -> int | None:
+    match = re.search(
+        r'(?:remove|removing|delete|deleting|drop|dropping)\s+(?:the\s+)?(?P<ordinal>1st|first|2nd|second|3rd|third|4th|fourth|5th|fifth|last)\s+line\b',
+        message,
+        re.IGNORECASE,
+    )
+    if not match:
+        return None
+    return _ORDINAL_LINE_INDEX[match.group('ordinal').lower()]
+
+
+def _extract_line_size_label_reference(message: str) -> str | None:
+    lowered = message.lower()
+    if 'line' not in lowered:
+        return None
+    for alias, label in _SIZE_LABEL_ALIASES:
+        if re.search(rf'\b{re.escape(alias)}\b', lowered, re.IGNORECASE):
+            return label
+    return None
+
+
+def _extract_line_quantity_value(message: str) -> int | None:
+    patterns = (
+        re.compile(
+            r'(?:change|changing|update|updating|adjust|adjusting|set|setting)\s+(?:the\s+)?(?:[a-z]+\s+)*line(?:\s+quantity)?\s+(?:to|=)\s*(?P<qty>\d+)',
+            re.IGNORECASE,
+        ),
+        re.compile(
+            r'(?:change|changing|update|updating|adjust|adjusting|set|setting)\s+quantity(?:\s+of)?\s+(?:the\s+)?(?:[a-z]+\s+)*line\s+(?:to|=)\s*(?P<qty>\d+)',
+            re.IGNORECASE,
+        ),
+    )
+    for pattern in patterns:
+        match = pattern.search(message)
+        if match:
+            return int(match.group('qty'))
+    return None
+
+
+def _message_implies_remove_line(message: str) -> bool:
+    return bool(
+        re.search(r'\b(?:remove|removing|delete|deleting|drop|dropping)\b', message, re.IGNORECASE)
+        and 'line' in message.lower()
+    )
 
 
 class AgentRuntimeService:
@@ -704,7 +824,7 @@ class AgentRuntimeService:
                 ):
                     recovered = await self._recover_sparse_mutation_payload(
                         auth=auth,
-                        user_message=state_update.planner_message,
+                        user_message=user_message,
                         primary_intent=state_update.primary_intent,
                         current_entities=current_entities,
                     )
@@ -1281,6 +1401,108 @@ class AgentRuntimeService:
             emit=emit,
         )
 
+    @staticmethod
+    def _line_ref_from_detail_line(line: object) -> dict[str, object] | None:
+        if not isinstance(line, dict):
+            return None
+        line_id = str(line.get('id') or '').strip()
+        if line_id:
+            return {'lineId': line_id}
+        size_id = str(line.get('skuId') or '').strip()
+        if size_id:
+            return {'sizeId': size_id}
+        return None
+
+    async def _resolve_existing_order_line_ref(
+        self,
+        *,
+        auth: AuthContext,
+        tool_name: str,
+        updated_payload: dict[str, object],
+        user_message: str,
+    ) -> dict[str, object] | None:
+        ordinal_quantity_change = _extract_ordinal_line_quantity_change(user_message)
+        ordinal_remove = _extract_ordinal_line_remove(user_message)
+        descriptive_size_label = _extract_line_size_label_reference(user_message)
+        if ordinal_quantity_change is None and ordinal_remove is None and descriptive_size_label is None:
+            return None
+
+        detail: object = None
+        if tool_name == 'purchasing.update_po':
+            po_id = str(updated_payload.get('poId') or '').strip()
+            if not po_id:
+                return None
+            detail = await self._backend_client.get_po(auth.access_token or '', auth.tenant_id, po_id)
+        elif tool_name == 'sales.update_invoice':
+            invoice_id = str(updated_payload.get('invoiceId') or '').strip()
+            if not invoice_id:
+                return None
+            get_invoice = getattr(self._backend_client, 'get_invoice', None)
+            if not callable(get_invoice):
+                return None
+            detail = await get_invoice(auth.access_token or '', auth.tenant_id, invoice_id)
+        else:
+            return None
+
+        detail_lines = detail.get('lines') if isinstance(detail, dict) else None
+        lines = [line for line in detail_lines if isinstance(line, dict)] if isinstance(detail_lines, list) else []
+        if not lines:
+            return None
+
+        line_index: int | None = None
+        if ordinal_remove is not None:
+            line_index = ordinal_remove
+        elif ordinal_quantity_change is not None:
+            line_index = ordinal_quantity_change[0]
+        if line_index is not None:
+            if line_index < 0:
+                line_index = len(lines) - 1
+            if 0 <= line_index < len(lines):
+                return self._line_ref_from_detail_line(lines[line_index])
+
+        if descriptive_size_label is None:
+            return None
+
+        try:
+            products = await self._backend_client.search_products(auth.access_token or '', auth.tenant_id, q=None)
+        except Exception:
+            return None
+        product_rows = [row for row in products if isinstance(row, dict)] if isinstance(products, list) else []
+        if not product_rows:
+            return None
+
+        size_labels_by_size_id: dict[str, str] = {}
+        for product in product_rows:
+            product_id = str(product.get('id') or '').strip()
+            if not product_id:
+                continue
+            try:
+                product_detail = await self._backend_client.get_product(auth.access_token or '', auth.tenant_id, product_id)
+            except Exception:
+                continue
+            sizes = product_detail.get('sizes') if isinstance(product_detail, dict) else None
+            if not isinstance(sizes, list):
+                continue
+            for size in sizes:
+                if not isinstance(size, dict):
+                    continue
+                size_id = str(size.get('id') or '').strip()
+                size_label = str(size.get('size_label') or '').strip().upper()
+                if size_id and size_label:
+                    size_labels_by_size_id[size_id] = size_label
+
+        matching_refs: list[dict[str, object]] = []
+        for line in lines:
+            size_id = str(line.get('skuId') or '').strip()
+            if size_labels_by_size_id.get(size_id) != descriptive_size_label:
+                continue
+            line_ref = self._line_ref_from_detail_line(line)
+            if line_ref is not None:
+                matching_refs.append(line_ref)
+        if len(matching_refs) == 1:
+            return matching_refs[0]
+        return None
+
     async def _merge_direct_follow_up_payload(
         self,
         *,
@@ -1342,6 +1564,38 @@ class AgentRuntimeService:
             quantity_ops = _extract_quantity_change_ops(user_message)
             if quantity_ops:
                 merged_payload['lineOps'] = _merge_line_ops(merged_payload.get('lineOps'), quantity_ops)
+            remove_ops = _extract_remove_line_ops(user_message)
+            if remove_ops:
+                merged_payload['lineOps'] = _merge_line_ops(merged_payload.get('lineOps'), remove_ops)
+            ordinal_line_ref = await self._resolve_existing_order_line_ref(
+                auth=auth,
+                tool_name=tool_name,
+                updated_payload=merged_payload,
+                user_message=user_message,
+            )
+            ordinal_quantity_change = _extract_ordinal_line_quantity_change(user_message)
+            if ordinal_line_ref and ordinal_quantity_change is not None:
+                merged_payload['lineOps'] = _merge_line_ops(
+                    merged_payload.get('lineOps'),
+                    [{'op': 'change_qty', 'lineRef': ordinal_line_ref, 'qty': ordinal_quantity_change[1]}],
+                )
+            descriptive_quantity = _extract_line_quantity_value(user_message)
+            if ordinal_line_ref and ordinal_quantity_change is None and descriptive_quantity is not None:
+                merged_payload['lineOps'] = _merge_line_ops(
+                    merged_payload.get('lineOps'),
+                    [{'op': 'change_qty', 'lineRef': ordinal_line_ref, 'qty': descriptive_quantity}],
+                )
+            ordinal_remove = _extract_ordinal_line_remove(user_message)
+            if ordinal_line_ref and ordinal_remove is not None:
+                merged_payload['lineOps'] = _merge_line_ops(
+                    merged_payload.get('lineOps'),
+                    [{'op': 'remove', 'lineRef': ordinal_line_ref}],
+                )
+            if ordinal_line_ref and ordinal_remove is None and not remove_ops and _message_implies_remove_line(user_message):
+                merged_payload['lineOps'] = _merge_line_ops(
+                    merged_payload.get('lineOps'),
+                    [{'op': 'remove', 'lineRef': ordinal_line_ref}],
+                )
             return merged_payload
 
         if tool_name == 'sales.update_invoice':
@@ -1360,6 +1614,38 @@ class AgentRuntimeService:
             quantity_ops = _extract_quantity_change_ops(user_message)
             if quantity_ops:
                 merged_payload['lineOps'] = _merge_line_ops(merged_payload.get('lineOps'), quantity_ops)
+            remove_ops = _extract_remove_line_ops(user_message)
+            if remove_ops:
+                merged_payload['lineOps'] = _merge_line_ops(merged_payload.get('lineOps'), remove_ops)
+            ordinal_line_ref = await self._resolve_existing_order_line_ref(
+                auth=auth,
+                tool_name=tool_name,
+                updated_payload=merged_payload,
+                user_message=user_message,
+            )
+            ordinal_quantity_change = _extract_ordinal_line_quantity_change(user_message)
+            if ordinal_line_ref and ordinal_quantity_change is not None:
+                merged_payload['lineOps'] = _merge_line_ops(
+                    merged_payload.get('lineOps'),
+                    [{'op': 'change_qty', 'lineRef': ordinal_line_ref, 'qty': ordinal_quantity_change[1]}],
+                )
+            descriptive_quantity = _extract_line_quantity_value(user_message)
+            if ordinal_line_ref and ordinal_quantity_change is None and descriptive_quantity is not None:
+                merged_payload['lineOps'] = _merge_line_ops(
+                    merged_payload.get('lineOps'),
+                    [{'op': 'change_qty', 'lineRef': ordinal_line_ref, 'qty': descriptive_quantity}],
+                )
+            ordinal_remove = _extract_ordinal_line_remove(user_message)
+            if ordinal_line_ref and ordinal_remove is not None:
+                merged_payload['lineOps'] = _merge_line_ops(
+                    merged_payload.get('lineOps'),
+                    [{'op': 'remove', 'lineRef': ordinal_line_ref}],
+                )
+            if ordinal_line_ref and ordinal_remove is None and not remove_ops and _message_implies_remove_line(user_message):
+                merged_payload['lineOps'] = _merge_line_ops(
+                    merged_payload.get('lineOps'),
+                    [{'op': 'remove', 'lineRef': ordinal_line_ref}],
+                )
             return merged_payload
 
         if tool_name == 'purchasing.receive_po':
@@ -1400,6 +1686,10 @@ class AgentRuntimeService:
             po_ref = _extract_purchase_order_reference(user_message)
             if po_ref:
                 recovered['poId'] = po_ref
+                try:
+                    recovered['poId'] = await EntityResolver(self._backend_client, auth).purchase_order(po_ref)
+                except ValueError:
+                    pass
             date_value = _parse_iso_date_from_message(user_message)
             if date_value:
                 recovered['expectedDate'] = date_value
@@ -1416,6 +1706,28 @@ class AgentRuntimeService:
             quantity_ops = _extract_quantity_change_ops(user_message)
             if quantity_ops:
                 recovered['lineOps'] = _merge_line_ops(recovered.get('lineOps'), quantity_ops)
+            remove_ops = _extract_remove_line_ops(user_message)
+            if remove_ops:
+                recovered['lineOps'] = _merge_line_ops(recovered.get('lineOps'), remove_ops)
+            recovered_po_id = str(recovered.get('poId') or '').strip()
+            if recovered_po_id:
+                line_ref = await self._resolve_existing_order_line_ref(
+                    auth=auth,
+                    tool_name=primary_intent,
+                    updated_payload={'poId': recovered_po_id},
+                    user_message=user_message,
+                )
+                descriptive_quantity = _extract_line_quantity_value(user_message)
+                if line_ref and descriptive_quantity is not None and not quantity_ops:
+                    recovered['lineOps'] = _merge_line_ops(
+                        recovered.get('lineOps'),
+                        [{'op': 'change_qty', 'lineRef': line_ref, 'qty': descriptive_quantity}],
+                    )
+                if line_ref and _message_implies_remove_line(user_message) and not remove_ops:
+                    recovered['lineOps'] = _merge_line_ops(
+                        recovered.get('lineOps'),
+                        [{'op': 'remove', 'lineRef': line_ref}],
+                    )
             if recovered.get('poId') and any(key in recovered for key in ('expectedDate', 'lineOps')):
                 return primary_intent, recovered
             return None
@@ -1457,6 +1769,10 @@ class AgentRuntimeService:
             invoice_ref = _extract_invoice_reference(user_message)
             if invoice_ref:
                 recovered['invoiceId'] = invoice_ref
+                try:
+                    recovered['invoiceId'] = await EntityResolver(self._backend_client, auth).invoice(invoice_ref)
+                except ValueError:
+                    pass
             if _message_implies_add_line(user_message):
                 lines = await parse_sales_lines(
                     self._backend_client,
@@ -1469,6 +1785,28 @@ class AgentRuntimeService:
             quantity_ops = _extract_quantity_change_ops(user_message)
             if quantity_ops:
                 recovered['lineOps'] = _merge_line_ops(recovered.get('lineOps'), quantity_ops)
+            remove_ops = _extract_remove_line_ops(user_message)
+            if remove_ops:
+                recovered['lineOps'] = _merge_line_ops(recovered.get('lineOps'), remove_ops)
+            recovered_invoice_id = str(recovered.get('invoiceId') or '').strip()
+            if recovered_invoice_id:
+                line_ref = await self._resolve_existing_order_line_ref(
+                    auth=auth,
+                    tool_name=primary_intent,
+                    updated_payload={'invoiceId': recovered_invoice_id},
+                    user_message=user_message,
+                )
+                descriptive_quantity = _extract_line_quantity_value(user_message)
+                if line_ref and descriptive_quantity is not None and not quantity_ops:
+                    recovered['lineOps'] = _merge_line_ops(
+                        recovered.get('lineOps'),
+                        [{'op': 'change_qty', 'lineRef': line_ref, 'qty': descriptive_quantity}],
+                    )
+                if line_ref and _message_implies_remove_line(user_message) and not remove_ops:
+                    recovered['lineOps'] = _merge_line_ops(
+                        recovered.get('lineOps'),
+                        [{'op': 'remove', 'lineRef': line_ref}],
+                    )
             if recovered.get('invoiceId') and recovered.get('lineOps'):
                 return primary_intent, recovered
             return None
