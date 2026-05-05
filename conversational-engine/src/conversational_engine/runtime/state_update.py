@@ -122,6 +122,22 @@ _MUTATION_PATTERNS: tuple[tuple[str, str], ...] = (
     ),
 )
 _READ_PATTERNS: tuple[tuple[str, str], ...] = (
+    (
+        'purchasing.list_pos',
+        r'\b(list|show|search|find)\b.*\b(open\s+)?(purchase orders|purchase order|pos|po)\b',
+    ),
+    (
+        'purchasing.get_po',
+        r'\b(status of|what(?:s| is) the status of|lines in|details of|inspect)\b.*\b(purchase order|po)\b',
+    ),
+    (
+        'sales.list_invoices',
+        r'\b(list|show|search|find)\b.*\b(open\s+)?(sales orders|sales order|invoices|invoice|sos|so)\b',
+    ),
+    (
+        'sales.get_invoice',
+        r'\b(status of|what(?:s| is) the status of|lines in|details of|inspect)\b.*\b(sales order|invoice|so)\b',
+    ),
     ('inventory.stock_on_hand', r'\b(stock|stock on hand|available)\b'),
     ('inventory.stock_on_hand', r'\b(size|sizes|variant|variants|color|colors)\b'),
     ('reporting.stock_summary', r'\b(summary|report)\b'),
