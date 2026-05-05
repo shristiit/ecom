@@ -107,6 +107,22 @@ class FakeInvalidExecutor:
         }
 
 
+class FakeClarifyExecutor:
+    def __init__(self, required_inputs: list[str] | None = None, assistant_message: str | None = None) -> None:
+        self._required_inputs = required_inputs or []
+        self._assistant_message = assistant_message
+
+    async def propose(self, **kwargs):
+        del kwargs
+        return {
+            'action': 'clarify',
+            'assistantMessage': self._assistant_message,
+            'toolName': None,
+            'toolArguments': None,
+            'requiredInputs': self._required_inputs,
+        }
+
+
 class FakeReviewer:
     def __init__(
         self,
@@ -132,6 +148,23 @@ class FakeReviewer:
         }
 
 
+class FakeClarifyReviewer:
+    def __init__(self, required_inputs: list[str] | None = None, assistant_message: str | None = None) -> None:
+        self._required_inputs = required_inputs or []
+        self._assistant_message = assistant_message
+
+    async def review(self, **kwargs):
+        del kwargs
+        return {
+            'action': 'clarify',
+            'assistantMessage': self._assistant_message,
+            'feedback': None,
+            'requiredInputs': self._required_inputs,
+            'includeTable': False,
+            'resolvedEntities': {},
+        }
+
+
 class FakeNarrator:
     async def write_message(self, **kwargs):
         fallback_message = kwargs.get('fallback_message')
@@ -140,6 +173,11 @@ class FakeNarrator:
         user_message = str(kwargs.get('user_message') or '').strip()
         if user_message:
             return f'Response to: {user_message}'
+        return str(kwargs.get('directive') or 'Done.')
+
+
+class FakeDirectiveNarrator:
+    async def write_message(self, **kwargs):
         return str(kwargs.get('directive') or 'Done.')
 
 
@@ -1702,6 +1740,138 @@ async def test_runtime_service_invalid_executor_proposal_requests_clarification(
     assert any(block.type == BlockType.CLARIFICATION for block in outcome.blocks)
     assert outcome.extracted_entities['pendingTask']['intent'] == 'sales.create_invoice'
     assert outcome.extracted_entities['pendingTask']['missingFields'] == ['customer_id', 'lines']
+
+
+async def test_runtime_service_planner_clarification_uses_intent_specific_prompt():
+    service = AgentRuntimeService(
+        backend_client=FakeBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(action='clarify'),
+        executor=FakeExecutor('inventory.stock_on_hand', {'sku': 'TSHIRT-BLACK'}),
+        reviewer=FakeReviewer(),
+        narrator=FakeDirectiveNarrator(),  # type: ignore[arg-type]
+        state_updater=FakeStateUpdater(
+            {
+                'dispatch sales order': {
+                    'useActiveWorkflow': False,
+                    'primaryRoute': 'mutation',
+                    'primaryIntent': 'sales.dispatch_invoice',
+                    'confidence': 0.95,
+                    'rationale': 'Dispatch request detected.',
+                    'entityPatches': {},
+                    'navigationQuery': None,
+                    'postActionQuery': None,
+                }
+            }
+        ),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='dispatch sales order',
+        extracted_entities={},
+        recent_messages=[],
+        workflow_status=WorkflowStatus.IDLE,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.NEEDS_INPUT
+    assert outcome.blocks[0].prompt == 'Which sales order should I dispatch, and from which location?'
+    assert outcome.missing_fields == ['sales_order_id', 'location_id']
+
+
+async def test_runtime_service_executor_clarification_uses_intent_specific_prompt():
+    service = AgentRuntimeService(
+        backend_client=FakeBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeClarifyExecutor(),  # type: ignore[arg-type]
+        reviewer=FakeReviewer(),
+        narrator=FakeDirectiveNarrator(),  # type: ignore[arg-type]
+        state_updater=FakeStateUpdater(
+            {
+                'receive purchase order': {
+                    'useActiveWorkflow': False,
+                    'primaryRoute': 'mutation',
+                    'primaryIntent': 'purchasing.receive_po',
+                    'confidence': 0.95,
+                    'rationale': 'Receipt request detected.',
+                    'entityPatches': {},
+                    'navigationQuery': None,
+                    'postActionQuery': None,
+                }
+            }
+        ),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='receive purchase order',
+        extracted_entities={},
+        recent_messages=[],
+        workflow_status=WorkflowStatus.IDLE,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.NEEDS_INPUT
+    assert outcome.blocks[0].prompt == 'Which purchase order should I receive, and which location should it go to?'
+    assert outcome.missing_fields == ['po_id', 'location_id']
+
+
+async def test_runtime_service_reviewer_clarification_uses_intent_specific_prompt():
+    service = AgentRuntimeService(
+        backend_client=FakeBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeExecutor('inventory.stock_on_hand', {'sku': 'TSHIRT-BLACK'}),
+        reviewer=FakeClarifyReviewer(assistant_message='Please clarify your request.'),  # type: ignore[arg-type]
+        narrator=FakeDirectiveNarrator(),  # type: ignore[arg-type]
+        state_updater=FakeStateUpdater(
+            {
+                'create purchase order': {
+                    'useActiveWorkflow': False,
+                    'primaryRoute': 'mutation',
+                    'primaryIntent': 'purchasing.create_po',
+                    'confidence': 0.95,
+                    'rationale': 'PO creation request detected.',
+                    'entityPatches': {},
+                    'navigationQuery': None,
+                    'postActionQuery': None,
+                }
+            }
+        ),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='create purchase order',
+        extracted_entities={},
+        recent_messages=[],
+        workflow_status=WorkflowStatus.IDLE,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.NEEDS_INPUT
+    assert (
+        outcome.blocks[0].prompt
+        == 'Reply with the supplier name and PO lines in the format `SKUCODE/SIZE xQTY @UNIT_COST`, separated by commas.'
+    )
+    assert outcome.missing_fields == ['supplier_id', 'lines']
 
 
 async def test_runtime_service_missing_resolved_write_reference_requests_clarification():

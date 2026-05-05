@@ -125,6 +125,17 @@ def _has_meaningful_value(value: object) -> bool:
     return True
 
 
+def _is_generic_clarification_prompt(prompt: str) -> bool:
+    normalized = ' '.join(prompt.strip().split()).lower()
+    return normalized in {
+        '',
+        'please clarify your request.',
+        'please clarify your request',
+        'could you clarify what you need?',
+        'could you clarify your request?',
+    }
+
+
 def _parse_iso_date_from_message(message: str) -> str | None:
     match = re.search(r'\b(20\d{2}-\d{2}-\d{2})\b', message)
     if not match:
@@ -461,6 +472,11 @@ class AgentRuntimeService:
                 )
 
                 if plan.get('action') == 'clarify':
+                    question_prompt, required = self._clarification_prompt_and_required(
+                        primary_intent=state_update.primary_intent,
+                        suggested_prompt=plan.get('clarificationQuestion'),
+                        suggested_required=plan.get('requiredInputs'),
+                    )
                     question = await self._run_phase(
                         emit=emit,
                         conversation_id=conversation_id,
@@ -470,15 +486,14 @@ class AgentRuntimeService:
                         intent=state_update.primary_intent,
                         action=lambda: self._narrator.write_message(
                             user_message=state_update.planner_message,
-                            directive=str(plan.get('clarificationQuestion') or 'Please clarify your request.'),
+                            directive=question_prompt,
                             supporting_context={
-                                'requiredInputs': plan.get('requiredInputs') or [],
+                                'requiredInputs': required,
                                 'goal': plan.get('goal'),
                             },
                             trace_callback=record_trace('narrator', iteration),
                         ),
                     )
-                    required = [str(item) for item in plan.get('requiredInputs') or []]
                     emit('assistant.message.delta', {'content': question})
                     emit(
                         'clarification.requested',
@@ -556,6 +571,11 @@ class AgentRuntimeService:
                 )
 
                 if proposal.get('action') == 'clarify':
+                    question_prompt, required = self._clarification_prompt_and_required(
+                        primary_intent=state_update.primary_intent,
+                        suggested_prompt=proposal.get('assistantMessage'),
+                        suggested_required=proposal.get('requiredInputs'),
+                    )
                     question = await self._run_phase(
                         emit=emit,
                         conversation_id=conversation_id,
@@ -565,15 +585,14 @@ class AgentRuntimeService:
                         intent=state_update.primary_intent,
                         action=lambda: self._narrator.write_message(
                             user_message=state_update.planner_message,
-                            directive=str(proposal.get('assistantMessage') or 'Please clarify your request.'),
+                            directive=question_prompt,
                             supporting_context={
-                                'requiredInputs': proposal.get('requiredInputs') or [],
+                                'requiredInputs': required,
                                 'plan': plan,
                             },
                             trace_callback=record_trace('narrator', iteration),
                         ),
                     )
-                    required = [str(item) for item in proposal.get('requiredInputs') or []]
                     emit('assistant.message.delta', {'content': question})
                     emit(
                         'clarification.requested',
@@ -793,6 +812,11 @@ class AgentRuntimeService:
                 tool_history.append({'plan': plan, 'proposal': proposal, 'toolResult': tool_result, 'review': review})
 
                 if review.get('action') == 'clarify':
+                    question_prompt, required = self._clarification_prompt_and_required(
+                        primary_intent=state_update.primary_intent,
+                        suggested_prompt=review.get('assistantMessage'),
+                        suggested_required=review.get('requiredInputs'),
+                    )
                     question = await self._run_phase(
                         emit=emit,
                         conversation_id=conversation_id,
@@ -802,12 +826,11 @@ class AgentRuntimeService:
                         intent=state_update.primary_intent,
                         action=lambda: self._narrator.write_message(
                             user_message=state_update.planner_message,
-                            directive=str(review.get('assistantMessage') or 'Please clarify your request.'),
-                            supporting_context={'requiredInputs': review.get('requiredInputs') or []},
+                            directive=question_prompt,
+                            supporting_context={'requiredInputs': required},
                             trace_callback=record_trace('narrator', iteration),
                         ),
                     )
-                    required = [str(item) for item in review.get('requiredInputs') or []]
                     emit('assistant.message.delta', {'content': question})
                     emit(
                         'clarification.requested',
@@ -1824,6 +1847,34 @@ class AgentRuntimeService:
             )
 
         return ('Could you clarify what you\'d like me to do? Please include the key details for your request.', [])
+
+    @classmethod
+    def _clarification_directive(
+        cls,
+        *,
+        primary_intent: str,
+        suggested_prompt: object,
+    ) -> str:
+        prompt = str(suggested_prompt or '').strip()
+        if prompt and not _is_generic_clarification_prompt(prompt):
+            return prompt
+        fallback_prompt, _missing = cls._fallback_clarification_for_intent(primary_intent)
+        return fallback_prompt
+
+    @classmethod
+    def _clarification_prompt_and_required(
+        cls,
+        *,
+        primary_intent: str,
+        suggested_prompt: object,
+        suggested_required: object,
+    ) -> tuple[str, list[str]]:
+        required = [str(item) for item in suggested_required or [] if str(item)]
+        prompt = str(suggested_prompt or '').strip()
+        if prompt and not _is_generic_clarification_prompt(prompt):
+            return prompt, required
+        fallback_prompt, fallback_required = cls._fallback_clarification_for_intent(primary_intent)
+        return fallback_prompt, (required or fallback_required)
 
     @staticmethod
     def _derived_context_entities(
