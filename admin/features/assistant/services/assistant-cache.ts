@@ -123,6 +123,17 @@ export function appendAssistantConversationMessage(
   };
 }
 
+export function removeAssistantConversationMessage(
+  conversation: AssistantConversation | null,
+  messageId: string,
+): AssistantConversation | null {
+  if (!conversation) return conversation;
+  return {
+    ...conversation,
+    messages: conversation.messages.filter((message) => message.id !== messageId),
+  };
+}
+
 export function emptyMessagePage(): AssistantMessagePage {
   return {
     nextCursorCreatedAt: null,

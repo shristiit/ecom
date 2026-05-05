@@ -18,10 +18,100 @@ const dispatchSchema = z.object({
   confirm: z.boolean().default(false),
 });
 
+const confirmSchema = z.object({
+  confirm: z.literal(true),
+});
+
+type Queryable = {
+  query: typeof pool.query;
+};
+
+type InvoiceDetailRow = {
+  id: string;
+  customer_id: string;
+  customer_name: string;
+  status: string;
+  total: number | string;
+  created_at: string;
+  updated_at: string;
+};
+
+type InvoiceLineDetailRow = {
+  id: string;
+  size_id: string;
+  qty: number | string;
+  unit_price: number | string;
+  sku_code: string;
+  size_label: string;
+};
+
 function parsePagination(input: Request['query']) {
   const page = Math.max(1, Number(input.page ?? 1) || 1);
   const pageSize = Math.min(100, Math.max(1, Number(input.pageSize ?? 20) || 20));
   return { page, pageSize };
+}
+
+async function getInvoiceById(client: Queryable, tenantId: string, invoiceId: string) {
+  const invoiceRes = await client.query<InvoiceDetailRow>(
+    `SELECT
+       i.id,
+       i.customer_id,
+       c.name AS customer_name,
+       i.status,
+       i.total,
+       i.created_at,
+       i.updated_at
+     FROM invoices i
+     JOIN customers c ON c.id = i.customer_id
+     WHERE i.id = $1 AND i.tenant_id = $2`,
+    [invoiceId, tenantId],
+  );
+  if (invoiceRes.rowCount === 0) {
+    return null;
+  }
+
+  const linesRes = await client.query<InvoiceLineDetailRow>(
+    `SELECT
+       il.id,
+       il.size_id,
+       il.qty,
+       il.unit_price,
+       s.sku_code,
+       sz.size_label
+     FROM invoice_lines il
+     JOIN sku_sizes sz ON sz.id = il.size_id
+     JOIN skus s ON s.id = sz.sku_id
+     WHERE il.invoice_id = $1 AND il.tenant_id = $2
+     ORDER BY il.id`,
+    [invoiceId, tenantId],
+  );
+
+  const lines = linesRes.rows.map((line: InvoiceLineDetailRow) => ({
+    id: line.id,
+    skuId: line.size_id,
+    sku: `${line.sku_code}-${line.size_label}`,
+    qty: Number(line.qty ?? 0),
+    unitPrice: Number(line.unit_price ?? 0),
+  }));
+
+  const base = invoiceRes.rows[0];
+  const subtotal = lines.reduce((sum: number, line) => sum + line.qty * line.unitPrice, 0);
+
+  return {
+    id: base.id,
+    number: `SO-${String(base.id).slice(0, 8).toUpperCase()}`,
+    customerId: base.customer_id,
+    customerName: base.customer_name,
+    status: base.status,
+    currency: 'USD',
+    lines,
+    lineCount: lines.length,
+    subtotal,
+    tax: 0,
+    total: Number(base.total ?? subtotal),
+    createdAt: base.created_at,
+    updatedAt: base.updated_at,
+  };
 }
 
 export async function listInvoices(req: Request, res: Response) {
@@ -87,64 +177,11 @@ export async function listInvoices(req: Request, res: Response) {
 }
 
 export async function getInvoice(req: Request, res: Response) {
-  const invoiceRes = await pool.query(
-    `SELECT
-       i.id,
-       i.customer_id,
-       c.name AS customer_name,
-       i.status,
-       i.total,
-       i.created_at,
-       i.updated_at
-     FROM invoices i
-     JOIN customers c ON c.id = i.customer_id
-     WHERE i.id = $1 AND i.tenant_id = $2`,
-    [req.params.id, req.user!.tenantId],
-  );
-  if (invoiceRes.rowCount === 0) {
+  const invoice = await getInvoiceById(pool, req.user!.tenantId, req.params.id);
+  if (!invoice) {
     return res.status(404).json({ message: 'Invoice not found' });
   }
-
-  const linesRes = await pool.query(
-    `SELECT
-       il.id,
-       il.size_id,
-       il.qty,
-       il.unit_price,
-       s.sku_code,
-       sz.size_label
-     FROM invoice_lines il
-     JOIN sku_sizes sz ON sz.id = il.size_id
-     JOIN skus s ON s.id = sz.sku_id
-     WHERE il.invoice_id = $1 AND il.tenant_id = $2
-     ORDER BY il.id`,
-    [req.params.id, req.user!.tenantId],
-  );
-
-  const lines = linesRes.rows.map((line) => ({
-    id: line.id,
-    skuId: line.size_id,
-    sku: `${line.sku_code}-${line.size_label}`,
-    qty: Number(line.qty ?? 0),
-    unitPrice: Number(line.unit_price ?? 0),
-  }));
-
-  const base = invoiceRes.rows[0];
-  const subtotal = lines.reduce((sum, line) => sum + line.qty * line.unitPrice, 0);
-  return res.json({
-    id: base.id,
-    number: `SO-${String(base.id).slice(0, 8).toUpperCase()}`,
-    customerId: base.customer_id,
-    customerName: base.customer_name,
-    status: base.status,
-    currency: 'USD',
-    lines,
-    subtotal,
-    tax: 0,
-    total: Number(base.total ?? subtotal),
-    createdAt: base.created_at,
-    updatedAt: base.updated_at,
-  });
+  return res.json(invoice);
 }
 
 export async function createInvoice(req: Request, res: Response) {
@@ -176,7 +213,7 @@ export async function dispatchInvoice(req: Request, res: Response) {
 
 export async function cancelInvoice(req: Request, res: Response) {
   try {
-    const result = await executeCancelInvoice(req.user!.id, req.user!.tenantId, req.params.id);
+    const result = await executeCancelInvoice(req.user!.id, req.user!.tenantId, req.params.id, req.body);
     res.json(result);
   } catch (err: any) {
     res.status(400).json({ message: err.message ?? 'Failed' });
@@ -195,18 +232,20 @@ export async function executeCreateInvoice(actorId: string, tenantId: string, pa
     const invRes = await client.query(
       `INSERT INTO invoices (tenant_id, customer_id, status, total, created_by)
        VALUES ($1,$2,'draft',$3,$4) RETURNING id`,
-      [tenantId, body.customerId, total, actorId]
+      [tenantId, body.customerId, total, actorId],
     );
     const id = invRes.rows[0].id;
     for (const line of body.lines) {
       await client.query(
         `INSERT INTO invoice_lines (tenant_id, invoice_id, size_id, qty, unit_price)
          VALUES ($1,$2,$3,$4,$5)`,
-        [tenantId, id, line.sizeId, line.qty, line.unitPrice]
+        [tenantId, id, line.sizeId, line.qty, line.unitPrice],
       );
     }
     await client.query('COMMIT');
-    return { id };
+    const created = await getInvoiceById(client, tenantId, id);
+    if (!created) throw new Error('Failed to load created invoice');
+    return created;
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;
@@ -279,11 +318,18 @@ export async function executeDispatchInvoice(actorId: string, tenantId: string, 
       await client.query(
         `UPDATE stock_balances SET on_hand = on_hand - $1, updated_at = NOW()
          WHERE tenant_id = $2 AND size_id = $3 AND location_id = $4`,
-        [line.qty, tenantId, line.size_id, body.locationId]
+        [line.qty, tenantId, line.size_id, body.locationId],
       );
     }
 
-    await client.query(`UPDATE invoices SET status = 'sent', updated_at = NOW() WHERE id = $1 AND tenant_id = $2`, [invoiceId, tenantId]);
+    await client.query(
+      `UPDATE invoices
+       SET status = 'sent',
+           dispatched_location_id = $3,
+           updated_at = NOW()
+       WHERE id = $1 AND tenant_id = $2`,
+      [invoiceId, tenantId, body.locationId],
+    );
     await client.query('COMMIT');
     return { id: invoiceId, status: 'sent' };
   } catch (err) {
@@ -294,10 +340,66 @@ export async function executeDispatchInvoice(actorId: string, tenantId: string, 
   }
 }
 
-export async function executeCancelInvoice(actorId: string, tenantId: string, invoiceId: string) {
-  await pool.query(
-    `UPDATE invoices SET status = 'cancelled', updated_at = NOW() WHERE id = $1 AND tenant_id = $2`,
-    [invoiceId, tenantId]
-  );
-  return { id: invoiceId, status: 'cancelled' };
+export async function executeCancelInvoice(actorId: string, tenantId: string, invoiceId: string, payload: any) {
+  const parsed = confirmSchema.safeParse(payload);
+  if (!parsed.success) throw new Error('Confirmation required');
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const invRes = await client.query(
+      `SELECT status, dispatched_location_id
+       FROM invoices
+       WHERE id = $1
+         AND tenant_id = $2
+         AND status NOT IN ('cancelled', 'closed')
+       FOR UPDATE`,
+      [invoiceId, tenantId],
+    );
+    if (invRes.rowCount === 0) {
+      throw new Error('Invoice not found or already cancelled/closed');
+    }
+
+    const { status, dispatched_location_id: dispatchedLocationId } = invRes.rows[0];
+
+    if (status === 'sent') {
+      if (!dispatchedLocationId) {
+        throw new Error('Invoice is missing dispatched location');
+      }
+
+      const linesRes = await client.query(
+        `SELECT size_id, qty
+         FROM invoice_lines
+         WHERE invoice_id = $1 AND tenant_id = $2`,
+        [invoiceId, tenantId],
+      );
+
+      for (const line of linesRes.rows) {
+        await client.query(
+          `INSERT INTO stock_balances (tenant_id, size_id, location_id, on_hand, reserved)
+           VALUES ($1, $2, $3, $4, 0)
+           ON CONFLICT (tenant_id, size_id, location_id)
+           DO UPDATE SET on_hand = stock_balances.on_hand + EXCLUDED.on_hand, updated_at = NOW()`,
+          [tenantId, line.size_id, dispatchedLocationId, line.qty],
+        );
+      }
+    }
+
+    await client.query(
+      `UPDATE invoices
+       SET status = 'cancelled',
+           updated_at = NOW()
+       WHERE id = $1 AND tenant_id = $2`,
+      [invoiceId, tenantId],
+    );
+
+    await client.query('COMMIT');
+    return { id: invoiceId, status: 'cancelled' };
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
 }

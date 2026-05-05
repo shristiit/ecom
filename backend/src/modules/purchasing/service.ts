@@ -20,10 +20,104 @@ const receiveSchema = z.object({
   confirm: z.boolean().default(false),
 });
 
+const confirmSchema = z.object({
+  confirm: z.literal(true),
+});
+
+type Queryable = {
+  query: typeof pool.query;
+};
+
+type PODetailRow = {
+  id: string;
+  supplier_id: string;
+  supplier_name: string;
+  status: string;
+  expected_date: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+type POLineDetailRow = {
+  id: string;
+  size_id: string;
+  qty: number | string;
+  unit_cost: number | string;
+  sku_code: string;
+  size_label: string;
+  qty_received: number | string;
+};
+
 function parsePagination(input: Request['query']) {
   const page = Math.max(1, Number(input.page ?? 1) || 1);
   const pageSize = Math.min(100, Math.max(1, Number(input.pageSize ?? 20) || 20));
   return { page, pageSize };
+}
+
+async function getPOById(client: Queryable, tenantId: string, poId: string) {
+  const poRes = await client.query<PODetailRow>(
+    `SELECT
+       po.id,
+       po.supplier_id,
+       s.name AS supplier_name,
+       po.status,
+       po.expected_date,
+       po.created_at,
+       po.updated_at
+     FROM purchase_orders po
+     JOIN suppliers s ON s.id = po.supplier_id
+     WHERE po.id = $1 AND po.tenant_id = $2`,
+    [poId, tenantId],
+  );
+  if (poRes.rowCount === 0) {
+    return null;
+  }
+
+  const linesRes = await client.query<POLineDetailRow>(
+    `SELECT
+       pol.id,
+       pol.size_id,
+       pol.qty,
+       pol.unit_cost,
+       s.sku_code,
+       sz.size_label,
+       COALESCE(SUM(rl.qty), 0)::int AS qty_received
+     FROM purchase_order_lines pol
+     JOIN sku_sizes sz ON sz.id = pol.size_id
+     JOIN skus s ON s.id = sz.sku_id
+     LEFT JOIN receipts r ON r.po_id = pol.po_id AND r.tenant_id = pol.tenant_id
+     LEFT JOIN receipt_lines rl ON rl.receipt_id = r.id AND rl.size_id = pol.size_id AND rl.tenant_id = pol.tenant_id
+     WHERE pol.po_id = $1 AND pol.tenant_id = $2
+     GROUP BY pol.id, pol.size_id, pol.qty, pol.unit_cost, s.sku_code, sz.size_label
+     ORDER BY pol.id`,
+    [poId, tenantId],
+  );
+
+  const lines = linesRes.rows.map((line: POLineDetailRow) => ({
+    id: line.id,
+    skuId: line.size_id,
+    sku: `${line.sku_code}-${line.size_label}`,
+    qtyOrdered: Number(line.qty ?? 0),
+    qtyReceived: Number(line.qty_received ?? 0),
+    unitCost: Number(line.unit_cost ?? 0),
+  }));
+
+  const base = poRes.rows[0];
+  return {
+    id: base.id,
+    number: `PO-${String(base.id).slice(0, 8).toUpperCase()}`,
+    supplierId: base.supplier_id,
+    supplierName: base.supplier_name,
+    status: base.status,
+    currency: 'USD',
+    lines,
+    lineCount: lines.length,
+    orderedAt: base.created_at,
+    expectedAt: base.expected_date,
+    createdAt: base.created_at,
+    updatedAt: base.updated_at,
+    totalCost: lines.reduce((sum: number, line) => sum + line.qtyOrdered * line.unitCost, 0),
+  };
 }
 
 export async function listPOs(req: Request, res: Response) {
@@ -90,67 +184,11 @@ export async function listPOs(req: Request, res: Response) {
 }
 
 export async function getPO(req: Request, res: Response) {
-  const poRes = await pool.query(
-    `SELECT
-       po.id,
-       po.supplier_id,
-       s.name AS supplier_name,
-       po.status,
-       po.expected_date,
-       po.created_at,
-       po.updated_at
-     FROM purchase_orders po
-     JOIN suppliers s ON s.id = po.supplier_id
-     WHERE po.id = $1 AND po.tenant_id = $2`,
-    [req.params.id, req.user!.tenantId],
-  );
-  if (poRes.rowCount === 0) {
+  const po = await getPOById(pool, req.user!.tenantId, req.params.id);
+  if (!po) {
     return res.status(404).json({ message: 'PO not found' });
   }
-
-  const linesRes = await pool.query(
-    `SELECT
-       pol.id,
-       pol.size_id,
-       pol.qty,
-       pol.unit_cost,
-       s.sku_code,
-       sz.size_label,
-       COALESCE(SUM(rl.qty), 0)::int AS qty_received
-     FROM purchase_order_lines pol
-     JOIN sku_sizes sz ON sz.id = pol.size_id
-     JOIN skus s ON s.id = sz.sku_id
-     LEFT JOIN receipts r ON r.po_id = pol.po_id AND r.tenant_id = pol.tenant_id
-     LEFT JOIN receipt_lines rl ON rl.receipt_id = r.id AND rl.size_id = pol.size_id AND rl.tenant_id = pol.tenant_id
-     WHERE pol.po_id = $1 AND pol.tenant_id = $2
-     GROUP BY pol.id, pol.size_id, pol.qty, pol.unit_cost, s.sku_code, sz.size_label
-     ORDER BY pol.id`,
-    [req.params.id, req.user!.tenantId],
-  );
-
-  const lines = linesRes.rows.map((line) => ({
-    id: line.id,
-    skuId: line.size_id,
-    sku: `${line.sku_code}-${line.size_label}`,
-    qtyOrdered: Number(line.qty ?? 0),
-    qtyReceived: Number(line.qty_received ?? 0),
-    unitCost: Number(line.unit_cost ?? 0),
-  }));
-
-  const base = poRes.rows[0];
-  return res.json({
-    id: base.id,
-    number: `PO-${String(base.id).slice(0, 8).toUpperCase()}`,
-    supplierId: base.supplier_id,
-    supplierName: base.supplier_name,
-    status: base.status,
-    currency: 'USD',
-    lines,
-    orderedAt: base.created_at,
-    expectedAt: base.expected_date,
-    createdAt: base.created_at,
-    updatedAt: base.updated_at,
-  });
+  return res.json(po);
 }
 
 export async function createPO(req: Request, res: Response) {
@@ -182,7 +220,7 @@ export async function receivePO(req: Request, res: Response) {
 
 export async function closePO(req: Request, res: Response) {
   try {
-    const result = await executeClosePO(req.user!.id, req.user!.tenantId, req.params.id);
+    const result = await executeClosePO(req.user!.id, req.user!.tenantId, req.params.id, req.body);
     res.json(result);
   } catch (err: any) {
     res.status(400).json({ message: err.message ?? 'Failed' });
@@ -199,18 +237,20 @@ export async function executeCreatePO(actorId: string, tenantId: string, payload
     const poRes = await client.query(
       `INSERT INTO purchase_orders (tenant_id, supplier_id, status, expected_date, created_by)
        VALUES ($1,$2,'draft',$3,$4) RETURNING id`,
-      [tenantId, body.supplierId, body.expectedDate ?? null, actorId]
+      [tenantId, body.supplierId, body.expectedDate ?? null, actorId],
     );
     const poId = poRes.rows[0].id;
     for (const line of body.lines) {
       await client.query(
         `INSERT INTO purchase_order_lines (tenant_id, po_id, size_id, qty, unit_cost)
          VALUES ($1,$2,$3,$4,$5)`,
-        [tenantId, poId, line.sizeId, line.qty, line.unitCost]
+        [tenantId, poId, line.sizeId, line.qty, line.unitCost],
       );
     }
     await client.query('COMMIT');
-    return { id: poId };
+    const created = await getPOById(client, tenantId, poId);
+    if (!created) throw new Error('Failed to load created purchase order');
+    return created;
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;
@@ -262,10 +302,14 @@ export async function executeReceivePO(actorId: string, tenantId: string, poId: 
   try {
     await client.query('BEGIN');
     const poRes = await client.query(
-      `SELECT id FROM purchase_orders WHERE id = $1 AND tenant_id = $2`,
-      [poId, tenantId]
+      `SELECT id
+       FROM purchase_orders
+       WHERE id = $1
+         AND tenant_id = $2
+         AND status NOT IN ('closed', 'cancelled')`,
+      [poId, tenantId],
     );
-    if (poRes.rowCount === 0) throw new Error('PO not found');
+    if (poRes.rowCount === 0) throw new Error('PO not found or not open for receiving');
 
     const receiptRes = await client.query(
       `INSERT INTO receipts (tenant_id, po_id, location_id, status, created_by)
@@ -300,10 +344,13 @@ export async function executeReceivePO(actorId: string, tenantId: string, poId: 
   }
 }
 
-export async function executeClosePO(actorId: string, tenantId: string, poId: string) {
+export async function executeClosePO(actorId: string, tenantId: string, poId: string, payload: any) {
+  const parsed = confirmSchema.safeParse(payload);
+  if (!parsed.success) throw new Error('Confirmation required');
+
   await pool.query(
     `UPDATE purchase_orders SET status = 'closed', updated_at = NOW() WHERE id = $1 AND tenant_id = $2`,
-    [poId, tenantId]
+    [poId, tenantId],
   );
   return { id: poId, status: 'closed' };
 }

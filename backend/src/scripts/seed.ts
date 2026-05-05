@@ -17,6 +17,7 @@ const ALL_PERMISSIONS = [
   'master.write',
   'purchasing.read',
   'purchasing.write',
+  'sales.read',
   'sales.write',
   'audit.read',
   'chat.use',
@@ -116,7 +117,7 @@ const ROLE_SEEDS: RoleSeed[] = [
   },
   {
     name: 'sales_manager',
-    permissions: ['sales.write', 'inventory.read', 'products.read', 'master.read', 'audit.read', 'chat.use'],
+    permissions: ['sales.read', 'sales.write', 'inventory.read', 'products.read', 'master.read', 'audit.read', 'chat.use'],
   },
   {
     name: 'catalog_manager',

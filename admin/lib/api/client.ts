@@ -20,6 +20,40 @@ function createIdempotencyKey() {
   return `${now}-${randA}-${randB}`;
 }
 
+function createAbortContext(timeoutMs: number, signal?: AbortSignal) {
+  const timeoutController = new AbortController();
+  const requestController = new AbortController();
+  const timeoutId = setTimeout(() => timeoutController.abort(), timeoutMs);
+
+  const abortFromTimeout = () => {
+    requestController.abort();
+  };
+  const abortFromSignal = () => {
+    requestController.abort();
+  };
+
+  timeoutController.signal.addEventListener('abort', abortFromTimeout, { once: true });
+
+  if (signal) {
+    if (signal.aborted) {
+      abortFromSignal();
+    } else {
+      signal.addEventListener('abort', abortFromSignal, { once: true });
+    }
+  }
+
+  return {
+    signal: requestController.signal,
+    didTimeout: () => timeoutController.signal.aborted,
+    wasAbortedByCaller: () => Boolean(signal?.aborted) && !timeoutController.signal.aborted,
+    cleanup: () => {
+      clearTimeout(timeoutId);
+      timeoutController.signal.removeEventListener('abort', abortFromTimeout);
+      signal?.removeEventListener('abort', abortFromSignal);
+    },
+  };
+}
+
 function buildUrl(path: string, query?: QueryParams, baseUrl?: string) {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
   const url = new URL(`${baseUrl ?? API_BASE_URL}${normalizedPath}`);
@@ -108,10 +142,7 @@ export async function request<TResponse, TBody = unknown>({
   idempotencyKey,
   signal,
 }: ApiRequestOptions<TBody>): Promise<TResponse> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
-
-  const mergedSignal = signal ?? controller.signal;
+  const abortContext = createAbortContext(API_TIMEOUT_MS, signal);
   const isWriteMethod = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method.toUpperCase());
   const resolvedIdempotencyKey = idempotencyKey ?? (isWriteMethod ? createIdempotencyKey() : undefined);
   const hasBody = body !== undefined && body !== null;
@@ -127,7 +158,7 @@ export async function request<TResponse, TBody = unknown>({
       method,
       headers: requestHeaders,
       body: hasBody ? (isFormDataBody ? (body as BodyInit) : JSON.stringify(body)) : undefined,
-      signal: mergedSignal,
+      signal: abortContext.signal,
     });
   }
 
@@ -171,12 +202,15 @@ export async function request<TResponse, TBody = unknown>({
     }
 
     if (error instanceof Error && error.name === 'AbortError') {
+      if (abortContext.wasAbortedByCaller()) {
+        throw new ApiError('Request aborted', 499, 'REQUEST_ABORTED');
+      }
       throw new ApiError('Request timed out', 408, 'REQUEST_TIMEOUT');
     }
 
     throw new ApiError('Network request failed', 0, 'NETWORK_ERROR', error);
   } finally {
-    clearTimeout(timeoutId);
+    abortContext.cleanup();
   }
 }
 
@@ -226,9 +260,7 @@ export async function streamRequest<TEvent, TBody = unknown>({
 }: ApiRequestOptions<TBody> & {
   onEvent: (event: TEvent) => void | Promise<void>;
 }) {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS * 4);
-  const mergedSignal = signal ?? controller.signal;
+  const abortContext = createAbortContext(API_TIMEOUT_MS * 4, signal);
   const hasBody = body !== undefined && body !== null;
   const isFormDataBody = hasBody && typeof FormData !== 'undefined' && body instanceof FormData;
   const resolvedIdempotencyKey = idempotencyKey ?? createIdempotencyKey();
@@ -241,7 +273,7 @@ export async function streamRequest<TEvent, TBody = unknown>({
       method,
       headers: requestHeaders,
       body: hasBody ? (isFormDataBody ? (body as BodyInit) : JSON.stringify(body)) : undefined,
-      signal: mergedSignal,
+      signal: abortContext.signal,
     });
 
     if (!response.ok) {
@@ -285,10 +317,13 @@ export async function streamRequest<TEvent, TBody = unknown>({
   } catch (error) {
     if (error instanceof ApiError) throw error;
     if (error instanceof Error && error.name === 'AbortError') {
+      if (abortContext.wasAbortedByCaller()) {
+        throw new ApiError('Request aborted', 499, 'REQUEST_ABORTED');
+      }
       throw new ApiError('Request timed out', 408, 'REQUEST_TIMEOUT');
     }
     throw new ApiError('Network request failed', 0, 'NETWORK_ERROR', error);
   } finally {
-    clearTimeout(timeoutId);
+    abortContext.cleanup();
   }
 }

@@ -117,6 +117,7 @@ export const assistantService = {
       attachments?: Array<{ dataUrl: string; filename?: string }>;
     },
     onEvent: (event: AssistantRunEvent) => void | Promise<void>,
+    options?: { signal?: AbortSignal },
   ): Promise<{ runId: string | null; conversationId: string | null; workflowId: string | null }> {
     let latestEvent: AssistantRunEvent | null = null;
     await engineStream<AssistantRunEvent, typeof input>(
@@ -126,6 +127,7 @@ export const assistantService = {
         latestEvent = event;
         await onEvent(event);
       },
+      options,
     );
     const finalEvent = latestEvent as AssistantRunEvent | null;
     return {

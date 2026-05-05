@@ -33,6 +33,7 @@ export function engineStream<TEvent, TBody = unknown>(
   path: string,
   body: TBody,
   onEvent: (event: TEvent) => void | Promise<void>,
+  options?: { signal?: AbortSignal },
 ) {
   return streamRequest<TEvent, TBody>({
     method: 'POST',
@@ -40,5 +41,6 @@ export function engineStream<TEvent, TBody = unknown>(
     body,
     baseUrl: ENGINE_BASE_URL,
     onEvent,
+    signal: options?.signal,
   });
 }

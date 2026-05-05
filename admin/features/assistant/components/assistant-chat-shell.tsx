@@ -3,6 +3,7 @@ import { MessageSquarePlus, Mic, Paperclip, PanelRightClose, PanelRightOpen, Squ
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Image, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { AppButton } from '@admin/components/ui';
+import { ApiError } from '@admin/lib/api';
 import { queryClient, queryKeys } from '@admin/lib/query';
 import {
   useAssistantConversationQuery,
@@ -14,6 +15,7 @@ import {
   appendAssistantConversationMessage,
   createOptimisticUserMessage,
   mergeAssistantConversationPage,
+  removeAssistantConversationMessage,
   updateAssistantConversationSummaryCache,
 } from '../services/assistant-cache';
 import { AssistantMessageBlocks } from './assistant-message-blocks';
@@ -103,6 +105,27 @@ function buildStreamingAssistantBlocks(streamingState: StreamingAssistantState |
   return blocks;
 }
 
+function getAssistantErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof ApiError) {
+    if (error.code === 'REQUEST_ABORTED') {
+      return null;
+    }
+    if (error.code === 'REQUEST_TIMEOUT' || error.code === 'NETWORK_ERROR' || error.status === 0) {
+      return 'Connection problem. Please retry.';
+    }
+    if (error.status >= 400 && error.status < 500) {
+      return `Assistant error: ${error.message}`;
+    }
+    return error.message || fallback;
+  }
+
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return fallback;
+}
+
 export function AssistantChatShell({
   mode,
   conversationId,
@@ -130,6 +153,7 @@ export function AssistantChatShell({
   const recognitionRef = useRef<WebSpeechRecognitionInstance | null>(null);
   const recognitionCtorRef = useRef<WebSpeechRecognitionConstructor | null>(getSpeechRecognitionConstructor());
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const activeRunAbortRef = useRef<AbortController | null>(null);
 
   const isThreadMode = mode === 'thread' && Boolean(conversationId);
   const activeConversation = isThreadMode ? conversationQuery.data : undefined;
@@ -144,8 +168,24 @@ export function AssistantChatShell({
   const attachmentsRef = useRef<Attachment[]>([]);
   attachmentsRef.current = attachments;
 
+  const invalidateAssistantDrivenQueries = useCallback(() => {
+    [
+      queryKeys.assistant.conversations(),
+      queryKeys.assistant.approvals(),
+      queryKeys.assistant.history(),
+      queryKeys.orders.sales(),
+      queryKeys.orders.purchase(),
+      queryKeys.products.all(),
+      queryKeys.inventory.stockOnHand(),
+      queryKeys.inventory.movements(),
+      queryKeys.inventory.receipts(),
+      queryKeys.settings.tenant(),
+      queryKeys.dashboard.overview(),
+    ].forEach((prefix) => queryClient.invalidateQueries(prefix));
+  }, []);
+
   const reconcileConversationCache = useCallback(async (targetConversationId: string) => {
-    const latest = await assistantService.getConversation(targetConversationId);
+    const latest = await assistantService.getConversation(targetConversationId, { messageLimit: 50 });
     queryClient.setQueryData<AssistantConversation>(
       queryKeys.assistant.conversation(targetConversationId),
       (existing) => mergeAssistantConversationPage(existing, latest, 'replace-latest'),
@@ -154,6 +194,13 @@ export function AssistantChatShell({
       updateAssistantConversationSummaryCache(existing, latest),
     );
     return latest;
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      activeRunAbortRef.current?.abort();
+      activeRunAbortRef.current = null;
+    };
   }, []);
 
   const loadOlderMessages = useCallback(async () => {
@@ -273,6 +320,9 @@ export function AssistantChatShell({
     setError(null);
     setStatusMessage(null);
     setIsStreamingRun(true);
+    activeRunAbortRef.current?.abort();
+    const runController = new AbortController();
+    activeRunAbortRef.current = runController;
 
     try {
       const hasAttachments = attachmentsRef.current.length > 0;
@@ -300,6 +350,7 @@ export function AssistantChatShell({
               setStatusMessage('Approval requested.');
             }
           },
+          { signal: runController.signal },
         );
       } else {
         result = await assistantService.streamRun(
@@ -318,6 +369,7 @@ export function AssistantChatShell({
               setStatusMessage('Approval requested.');
             }
           },
+          { signal: runController.signal },
         );
       }
 
@@ -327,14 +379,21 @@ export function AssistantChatShell({
       const resolvedConversationId = targetConversationId ?? result.conversationId;
       if (resolvedConversationId) {
         await reconcileConversationCache(resolvedConversationId);
+        invalidateAssistantDrivenQueries();
         router.replace(`/ai/thread/${resolvedConversationId}`);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to start conversation.');
+      const message = getAssistantErrorMessage(err, 'Failed to start conversation.');
+      if (message) {
+        setError(message);
+      }
     } finally {
+      if (activeRunAbortRef.current === runController) {
+        activeRunAbortRef.current = null;
+      }
       setIsStreamingRun(false);
     }
-  }, [ensureUploadedAttachments, reconcileConversationCache, router]);
+  }, [ensureUploadedAttachments, invalidateAssistantDrivenQueries, reconcileConversationCache, router]);
 
   const handleSend = useCallback(async () => {
     const trimmedPrompt = prompt.trim();
@@ -352,13 +411,17 @@ export function AssistantChatShell({
     setStatusMessage(null);
     setIsStreamingRun(true);
     setStreamingAssistantState({ text: '', toolName: null, approvalRequested: false });
+    activeRunAbortRef.current?.abort();
+    const runController = new AbortController();
+    activeRunAbortRef.current = runController;
+    let optimisticUserMessage: AssistantMessage | null = null;
 
     try {
       const attachmentIds = await ensureUploadedAttachments(conversationId);
-      const optimisticUserMessage = createOptimisticUserMessage(trimmedPrompt);
+      optimisticUserMessage = createOptimisticUserMessage(trimmedPrompt);
       queryClient.setQueryData<AssistantConversation>(
         queryKeys.assistant.conversation(conversationId),
-        (existing) => appendAssistantConversationMessage(existing, optimisticUserMessage),
+        (existing) => appendAssistantConversationMessage(existing, optimisticUserMessage!),
       );
 
       await assistantService.streamRun(
@@ -394,19 +457,41 @@ export function AssistantChatShell({
             }
           }
         },
+        { signal: runController.signal },
       );
       setPrompt('');
       setAttachments([]);
       setStatusMessage('Run completed.');
       await reconcileConversationCache(conversationId);
+      invalidateAssistantDrivenQueries();
     } catch (err) {
-      void reconcileConversationCache(conversationId).catch(() => undefined);
-      setError(err instanceof Error ? err.message : 'Failed to send message.');
+      if (optimisticUserMessage) {
+        queryClient.setQueryData<AssistantConversation>(
+          queryKeys.assistant.conversation(conversationId),
+          (existing) => removeAssistantConversationMessage(existing, optimisticUserMessage!.id),
+        );
+      }
+
+      const message = getAssistantErrorMessage(err, 'Failed to send message.');
+      if (message) {
+        setError(message);
+      }
+
+      if (!(err instanceof ApiError && err.code === 'REQUEST_ABORTED')) {
+        try {
+          await reconcileConversationCache(conversationId);
+        } catch (reconcileError) {
+          console.error('Failed to reconcile assistant conversation cache after send error.', reconcileError);
+        }
+      }
     } finally {
+      if (activeRunAbortRef.current === runController) {
+        activeRunAbortRef.current = null;
+      }
       setStreamingAssistantState(null);
       setIsStreamingRun(false);
     }
-  }, [conversationId, ensureUploadedAttachments, handleCreateConversation, isThreadMode, prompt, reconcileConversationCache]);
+  }, [conversationId, ensureUploadedAttachments, handleCreateConversation, invalidateAssistantDrivenQueries, isThreadMode, prompt, reconcileConversationCache]);
 
   const handleDecision = useCallback(async (nextDecision: 'confirm' | 'cancel' | 'edit' | 'submit_for_approval') => {
     const workflowId = activeConversation?.workflow?.id;
@@ -424,12 +509,15 @@ export function AssistantChatShell({
       if (conversationId) {
         await reconcileConversationCache(conversationId);
       }
+      invalidateAssistantDrivenQueries();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to apply workflow decision.');
     }
-  }, [activeConversation?.workflow?.id, conversationId, decision, reconcileConversationCache]);
+  }, [activeConversation?.workflow?.id, conversationId, decision, invalidateAssistantDrivenQueries, reconcileConversationCache]);
 
   const handleNewChat = useCallback(() => {
+    activeRunAbortRef.current?.abort();
+    activeRunAbortRef.current = null;
     setPrompt('');
     setError(null);
     setStatusMessage(null);
@@ -441,6 +529,8 @@ export function AssistantChatShell({
   }, [router]);
 
   const handleOpenConversation = useCallback((nextConversationId: string) => {
+    activeRunAbortRef.current?.abort();
+    activeRunAbortRef.current = null;
     setError(null);
     setStatusMessage(null);
     setPrompt('');
