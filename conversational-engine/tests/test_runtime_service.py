@@ -1980,6 +1980,135 @@ async def test_runtime_service_reuses_completed_sales_order_for_dispatch_follow_
     assert outcome.extracted_entities['executionPayload']['locationId'] == LOCATION_A
 
 
+async def test_runtime_service_applies_po_update_clarification_reply_without_replanning():
+    service = AgentRuntimeService(
+        backend_client=FakeBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeExecutor('inventory.stock_on_hand', {'sku': 'unused'}),
+        reviewer=FakeReviewer(),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        state_updater=FakeStateUpdater(
+            {
+                'change expected date to 2026-06-10 and quantity of MT-BLK/SM to 120': {
+                    'useActiveWorkflow': True,
+                    'primaryRoute': 'mutation',
+                    'primaryIntent': 'purchasing.update_po',
+                    'confidence': 0.96,
+                    'rationale': 'The user is clarifying the active PO update draft.',
+                    'entityPatches': {},
+                    'navigationQuery': None,
+                    'postActionQuery': None,
+                }
+            }
+        ),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='change expected date to 2026-06-10 and quantity of MT-BLK/SM to 120',
+        extracted_entities={
+            '_workflowEngine': 'runtime',
+            'toolName': 'purchasing.update_po',
+            'executionPayload': {'poId': 'po-1'},
+            'taskContext': {
+                'primaryRoute': 'mutation',
+                'primaryIntent': 'purchasing.update_po',
+                'entities': {'poId': 'po-1', 'poNumber': 'PO-001'},
+                'missingFields': ['patch'],
+                'postActions': [],
+                'clarificationCount': 1,
+                'status': 'drafting',
+            },
+        },
+        recent_messages=[],
+        workflow_status=WorkflowStatus.NEEDS_INPUT,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.AWAITING_CONFIRMATION
+    assert outcome.extracted_entities['executionPayload'] == {
+        'poId': 'po-1',
+        'headerPatch': {'expectedDate': '2026-06-10'},
+        'lineOps': [
+            {
+                'op': 'change_qty',
+                'lineRef': {'skuCode': 'MT-BLK', 'sizeLabel': 'SM'},
+                'qty': 120,
+            }
+        ],
+    }
+
+
+async def test_runtime_service_applies_sales_update_clarification_reply_without_replanning():
+    service = AgentRuntimeService(
+        backend_client=FakeBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeExecutor('inventory.stock_on_hand', {'sku': 'unused'}),
+        reviewer=FakeReviewer(),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        state_updater=FakeStateUpdater(
+            {
+                'change quantity of HOOD-ECO/MD to 15': {
+                    'useActiveWorkflow': True,
+                    'primaryRoute': 'mutation',
+                    'primaryIntent': 'sales.update_invoice',
+                    'confidence': 0.96,
+                    'rationale': 'The user is clarifying the active sales-order update draft.',
+                    'entityPatches': {},
+                    'navigationQuery': None,
+                    'postActionQuery': None,
+                }
+            }
+        ),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='change quantity of HOOD-ECO/MD to 15',
+        extracted_entities={
+            '_workflowEngine': 'runtime',
+            'toolName': 'sales.update_invoice',
+            'executionPayload': {'invoiceId': 'inv-1'},
+            'taskContext': {
+                'primaryRoute': 'mutation',
+                'primaryIntent': 'sales.update_invoice',
+                'entities': {'invoiceId': 'inv-1', 'invoiceNumber': 'SO-001'},
+                'missingFields': ['patch'],
+                'postActions': [],
+                'clarificationCount': 1,
+                'status': 'drafting',
+            },
+        },
+        recent_messages=[],
+        workflow_status=WorkflowStatus.NEEDS_INPUT,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.AWAITING_CONFIRMATION
+    assert outcome.extracted_entities['executionPayload'] == {
+        'invoiceId': 'inv-1',
+        'lineOps': [
+            {
+                'op': 'change_qty',
+                'lineRef': {'skuCode': 'HOOD-ECO', 'sizeLabel': 'MD'},
+                'qty': 15,
+            }
+        ],
+    }
+
+
 async def test_runtime_service_uses_pending_task_for_short_alias_follow_up():
     service = AgentRuntimeService(
         backend_client=FakeBackendClient(),  # type: ignore[arg-type]

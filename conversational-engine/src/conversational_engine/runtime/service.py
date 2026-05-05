@@ -119,6 +119,44 @@ def _has_meaningful_value(value: object) -> bool:
     return True
 
 
+def _parse_iso_date_from_message(message: str) -> str | None:
+    match = re.search(r'\b(20\d{2}-\d{2}-\d{2})\b', message)
+    if not match:
+        return None
+    return match.group(1)
+
+
+def _extract_quantity_change_ops(message: str) -> list[dict[str, object]]:
+    ops: list[dict[str, object]] = []
+    patterns = (
+        re.compile(
+            r'(?:change|update|adjust|set)\s+(?:the\s+)?quantity(?:\s+of)?\s+'
+            r'(?P<sku>[A-Za-z0-9-]+)\s*/\s*(?P<size>[A-Za-z0-9]+)\s+(?:to|=)\s*(?P<qty>\d+)',
+            re.IGNORECASE,
+        ),
+        re.compile(
+            r'(?P<sku>[A-Za-z0-9-]+)\s*/\s*(?P<size>[A-Za-z0-9]+)\s+'
+            r'(?:quantity\s+)?(?:to|=)\s*(?P<qty>\d+)',
+            re.IGNORECASE,
+        ),
+    )
+    for pattern in patterns:
+        for match in pattern.finditer(message):
+            ops.append(
+                {
+                    'op': 'change_qty',
+                    'lineRef': {
+                        'skuCode': match.group('sku').upper(),
+                        'sizeLabel': match.group('size').upper(),
+                    },
+                    'qty': int(match.group('qty')),
+                }
+            )
+        if ops:
+            break
+    return ops
+
+
 class AgentRuntimeService:
     def __init__(
         self,
@@ -1142,6 +1180,23 @@ class AgentRuntimeService:
             )
             if lines:
                 merged_payload['lines'] = lines
+            return merged_payload
+
+        if tool_name == 'purchasing.update_po':
+            date_value = _parse_iso_date_from_message(user_message)
+            if date_value:
+                header_patch = dict(merged_payload.get('headerPatch') or {})
+                header_patch['expectedDate'] = date_value
+                merged_payload['headerPatch'] = header_patch
+            quantity_ops = _extract_quantity_change_ops(user_message)
+            if quantity_ops:
+                merged_payload['lineOps'] = quantity_ops
+            return merged_payload
+
+        if tool_name == 'sales.update_invoice':
+            quantity_ops = _extract_quantity_change_ops(user_message)
+            if quantity_ops:
+                merged_payload['lineOps'] = quantity_ops
             return merged_payload
 
         return merged_payload
