@@ -1,17 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { QueryKey, QueryState } from './types';
+import type { QueryKey, QueryState, UseQueryOptions } from './types';
 import { queryClient } from './query-client';
-
-type UseQueryOptions<TData> = {
-  key: QueryKey;
-  queryFn: () => Promise<TData>;
-  enabled?: boolean;
-  initialData?: TData | null;
-  retry?: number;
-  retryDelayMs?: number;
-  persist?: boolean;
-  manualInvalidationOnly?: boolean;
-};
 
 export function useQuery<TData>({
   key,
@@ -22,13 +11,42 @@ export function useQuery<TData>({
   retryDelayMs = 250,
   persist = true,
   manualInvalidationOnly = true,
+  staleTimeMs = 0,
+  gcTimeMs,
 }: UseQueryOptions<TData>) {
   const queryFnRef = useRef(queryFn);
   const stableKey = useMemo(() => JSON.stringify(key), [key]);
   const normalizedKey = useMemo<QueryKey>(() => JSON.parse(stableKey) as QueryKey, [stableKey]);
+
+  const getCachedState = useCallback((namespace: string): QueryState<TData> | null => {
+    const cached = queryClient.getQueryState<TData>(normalizedKey, namespace);
+    if (!cached) {
+      return null;
+    }
+
+    if (
+      gcTimeMs !== undefined &&
+      gcTimeMs >= 0 &&
+      cached.updatedAt !== null &&
+      Date.now() - cached.updatedAt > gcTimeMs
+    ) {
+      queryClient.removeQueries(normalizedKey, namespace);
+      return null;
+    }
+
+    return cached;
+  }, [gcTimeMs, normalizedKey]);
+
+  const isFresh = useCallback((state: QueryState<TData> | null) => {
+    if (!state || staleTimeMs <= 0 || state.updatedAt === null) {
+      return false;
+    }
+    return Date.now() - state.updatedAt <= staleTimeMs;
+  }, [staleTimeMs]);
+
   const [state, setState] = useState<QueryState<TData>>(() => {
     const namespace = queryClient.getNamespace();
-    const cached = queryClient.getQueryState<TData>(normalizedKey, namespace);
+    const cached = getCachedState(namespace);
     if (cached) {
       return cached;
     }
@@ -48,7 +66,7 @@ export function useQuery<TData>({
   }, [queryFn]);
 
   const syncFromCache = useCallback((namespace: string) => {
-    const cached = queryClient.getQueryState<TData>(normalizedKey, namespace);
+    const cached = getCachedState(namespace);
     if (cached) {
       setState(cached);
       return cached;
@@ -64,14 +82,14 @@ export function useQuery<TData>({
     };
     setState(fallbackState);
     return fallbackState;
-  }, [enabled, initialData, normalizedKey]);
+  }, [enabled, getCachedState, initialData]);
 
   const runQuery = useCallback(async (force = true) => {
     const namespace = queryClient.getNamespace();
     setActiveNamespace(namespace);
 
     if (!enabled) {
-      const cachedState = queryClient.getQueryState<TData>(normalizedKey, namespace);
+      const cachedState = getCachedState(namespace);
       if (cachedState) {
         setState({ ...cachedState, isLoading: false, isFetching: false });
       } else {
@@ -89,7 +107,7 @@ export function useQuery<TData>({
       persist,
       force,
     });
-  }, [enabled, normalizedKey, persist, retry, retryDelayMs]);
+  }, [enabled, getCachedState, normalizedKey, persist, retry, retryDelayMs]);
 
   useEffect(() => {
     let cancelled = false;
@@ -121,7 +139,7 @@ export function useQuery<TData>({
       await queryClient.ensureHydrated(namespace);
       if (cancelled) return;
 
-      const cached = queryClient.getQueryState<TData>(normalizedKey, namespace);
+      const cached = getCachedState(namespace);
       if (!cached && initialData !== null) {
         queryClient.setQueryData<TData>(normalizedKey, initialData, { namespace, persist });
       } else {
@@ -131,9 +149,9 @@ export function useQuery<TData>({
       const shouldFetch =
         enabled &&
         (
-          !queryClient.hasQueryData(normalizedKey, namespace) ||
+          !cached ||
           queryClient.isInvalidated(normalizedKey, namespace) ||
-          !manualInvalidationOnly
+          (!manualInvalidationOnly && !isFresh(cached))
         );
 
       if (shouldFetch) {
@@ -164,7 +182,7 @@ export function useQuery<TData>({
       unsubscribeEntry();
       unsubscribeNamespace();
     };
-  }, [enabled, initialData, manualInvalidationOnly, normalizedKey, persist, retry, retryDelayMs, stableKey, syncFromCache]);
+  }, [enabled, getCachedState, initialData, isFresh, manualInvalidationOnly, normalizedKey, persist, retry, retryDelayMs, stableKey, syncFromCache]);
 
   return {
     ...state,

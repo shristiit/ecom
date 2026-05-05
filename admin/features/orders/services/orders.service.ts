@@ -147,10 +147,11 @@ export const ordersService = {
   },
 
   async createSalesOrder(payload: { customerId: string; lines: Array<{ sizeId: string; qty: number; unitPrice: number }> }) {
-    return post<{ id: string }, { customerId: string; lines: Array<{ sizeId: string; qty: number; unitPrice: number }> }>(
+    const created = await post<SalesOrderRow, { customerId: string; lines: Array<{ sizeId: string; qty: number; unitPrice: number }> }>(
       '/sales/invoice',
       payload,
     );
+    return toSalesOrder(created);
   },
 
   async dispatchSalesOrder(id: string, payload: { locationId: string; confirm: boolean }) {
@@ -179,10 +180,11 @@ export const ordersService = {
     expectedDate?: string;
     lines: Array<{ sizeId: string; qty: number; unitCost: number }>;
   }) {
-    return post<
-      { id: string },
+    const created = await post<
+      PurchaseOrderRow,
       { supplierId: string; expectedDate?: string; lines: Array<{ sizeId: string; qty: number; unitCost: number }> }
     >('/purchasing/po', payload);
+    return toPurchaseOrder(created);
   },
 
   async receivePurchaseOrder(

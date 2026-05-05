@@ -26,6 +26,19 @@ export type QueryCacheEntry<TData> = QueryState<TData> & {
   persist: boolean;
 };
 
+export type UseQueryOptions<TData> = {
+  key: QueryKey;
+  queryFn: () => Promise<TData>;
+  enabled?: boolean;
+  initialData?: TData | null;
+  retry?: number;
+  retryDelayMs?: number;
+  persist?: boolean;
+  manualInvalidationOnly?: boolean;
+  staleTimeMs?: number;
+  gcTimeMs?: number;
+};
+
 export type QueryPersistenceEntry = {
   key: QueryKey;
   data: unknown;

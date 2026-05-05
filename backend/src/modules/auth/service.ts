@@ -44,6 +44,7 @@ const ALL_TENANT_PERMISSIONS = [
   'master.write',
   'purchasing.read',
   'purchasing.write',
+  'sales.read',
   'sales.write',
   'audit.read',
   'chat.use',

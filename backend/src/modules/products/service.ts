@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { randomUUID } from 'node:crypto';
+import type { QueryResultRow } from 'pg';
 import { z } from 'zod';
 import { S3_BUCKET, S3_PUBLIC_BASE_URL, S3_REGION } from '@backend/config/env.js';
 import { pool, query } from '@backend/db/pool.js';
@@ -118,14 +119,54 @@ function buildS3ObjectUrl(key: string) {
   return `https://${S3_BUCKET}.s3.${S3_REGION}.amazonaws.com/${key}`;
 }
 
+function parsePagination(input: Request['query']) {
+  const page = Math.max(1, Number(input.page ?? 1) || 1);
+  const pageSize = Math.min(100, Math.max(1, Number(input.pageSize ?? 20) || 20));
+  return { page, pageSize };
+}
+
+type UpdateFieldSpec = {
+  column: string;
+  value: unknown;
+};
+
+function buildDynamicUpdate<T extends QueryResultRow>(
+  table: string,
+  idColumn: string,
+  idValue: string,
+  tenantId: string,
+  fields: UpdateFieldSpec[],
+) {
+  if (fields.length === 0) {
+    return query<T>(`SELECT * FROM ${table} WHERE ${idColumn} = $1 AND tenant_id = $2`, [idValue, tenantId]);
+  }
+
+  const assignments = fields.map((field, index) => `${field.column} = $${index + 1}`);
+  const params = fields.map((field) => field.value);
+  params.push(idValue, tenantId);
+
+  return query<T>(
+    `UPDATE ${table}
+     SET ${assignments.join(', ')}, updated_at = NOW()
+     WHERE ${idColumn} = $${fields.length + 1} AND tenant_id = $${fields.length + 2}
+     RETURNING *`,
+    params,
+  );
+}
+
 export async function listProducts(req: Request, res: Response) {
-  const q = typeof req.query.q === 'string' ? req.query.q.trim() : null;
+  const { page, pageSize } = parsePagination(req.query);
+  const offset = (page - 1) * pageSize;
+  const search = typeof req.query.search === 'string' ? req.query.search.trim() : null;
+  const q = search || (typeof req.query.q === 'string' ? req.query.q.trim() : null);
   const color = typeof req.query.color === 'string' ? req.query.color.trim() : null;
   const category = typeof req.query.category === 'string' ? req.query.category.trim() : null;
+  const categoryId = typeof req.query.categoryId === 'string' ? req.query.categoryId.trim() : null;
   const brand = typeof req.query.brand === 'string' ? req.query.brand.trim() : null;
+  const status = typeof req.query.status === 'string' ? req.query.status.trim() : null;
 
   const conditions: string[] = ['p.tenant_id = $1'];
-  const params: (string | null)[] = [req.user!.tenantId];
+  const params: Array<string | number | null> = [req.user!.tenantId];
   let idx = 2;
 
   if (q) {
@@ -143,18 +184,46 @@ export async function listProducts(req: Request, res: Response) {
     params.push(`%${category}%`);
     idx++;
   }
+  if (categoryId) {
+    conditions.push(`p.category_id::text = $${idx}`);
+    params.push(categoryId);
+    idx++;
+  }
   if (brand) {
     conditions.push(`p.brand ILIKE $${idx}`);
     params.push(`%${brand}%`);
     idx++;
   }
+  if (status) {
+    conditions.push(`p.status::text = $${idx}`);
+    params.push(status);
+    idx++;
+  }
+
+  const totalRes = await query<{ total: number }>(
+    `SELECT COUNT(*)::int AS total
+     FROM products p
+     WHERE ${conditions.join(' AND ')}`,
+    params,
+  );
 
   const rows = await query(
-    `SELECT p.id, p.style_code, p.name, p.category, p.brand, p.base_price, p.status, p.created_at, p.updated_at
-     FROM products p WHERE ${conditions.join(' AND ')} ORDER BY p.updated_at DESC LIMIT 30`,
-    params
+    `SELECT p.id, p.tenant_id, p.style_code, p.name, p.category, p.brand, p.base_price, p.status, p.created_at, p.updated_at
+     FROM products p
+     WHERE ${conditions.join(' AND ')}
+     ORDER BY p.updated_at DESC
+     LIMIT $${idx} OFFSET $${idx + 1}`,
+    [...params, pageSize, offset],
   );
-  res.json(rows.rows);
+
+  res.json({
+    items: rows.rows,
+    pagination: {
+      page,
+      pageSize,
+      total: Number(totalRes.rows[0]?.total ?? rows.rows.length),
+    },
+  });
 }
 
 export async function createProduct(req: Request, res: Response) {
@@ -415,38 +484,21 @@ export async function updateProduct(req: Request, res: Response) {
   const parsed = productSchema.partial().safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ message: 'Invalid payload' });
   const p = parsed.data;
-  const result = await query(
-    `UPDATE products SET
-       style_code = COALESCE($1, style_code),
-       name = COALESCE($2, name),
-       category = COALESCE($3, category),
-       brand = COALESCE($4, brand),
-       base_price = COALESCE($5, base_price),
-       price_visible = COALESCE($6, price_visible),
-       inventory_mode = COALESCE($7, inventory_mode),
-       max_backorder_qty = COALESCE($8, max_backorder_qty),
-       pickup_enabled = COALESCE($9, pickup_enabled),
-       category_id = COALESCE($10, category_id),
-       status = COALESCE($11, status),
-       updated_at = NOW()
-     WHERE id = $12 AND tenant_id = $13
-     RETURNING *`,
-    [
-      p.styleCode ?? null,
-      p.name ?? null,
-      p.category ?? null,
-      p.brand ?? null,
-      p.basePrice ?? null,
-      p.priceVisible ?? null,
-      p.inventoryMode ?? null,
-      p.maxBackorderQty ?? null,
-      p.pickupEnabled ?? null,
-      p.categoryId ?? null,
-      p.status ?? null,
-      req.params.id,
-      req.user!.tenantId,
-    ]
-  );
+  const body = req.body ?? {};
+  const fields: UpdateFieldSpec[] = [];
+  if ('styleCode' in body) fields.push({ column: 'style_code', value: p.styleCode });
+  if ('name' in body) fields.push({ column: 'name', value: p.name });
+  if ('category' in body) fields.push({ column: 'category', value: p.category });
+  if ('brand' in body) fields.push({ column: 'brand', value: p.brand });
+  if ('basePrice' in body) fields.push({ column: 'base_price', value: p.basePrice });
+  if ('priceVisible' in body) fields.push({ column: 'price_visible', value: p.priceVisible });
+  if ('inventoryMode' in body) fields.push({ column: 'inventory_mode', value: p.inventoryMode });
+  if ('maxBackorderQty' in body) fields.push({ column: 'max_backorder_qty', value: p.maxBackorderQty ?? null });
+  if ('pickupEnabled' in body) fields.push({ column: 'pickup_enabled', value: p.pickupEnabled });
+  if ('categoryId' in body) fields.push({ column: 'category_id', value: p.categoryId ?? null });
+  if ('status' in body) fields.push({ column: 'status', value: p.status });
+
+  const result = await buildDynamicUpdate('products', 'id', req.params.id, req.user!.tenantId, fields);
   if (result.rowCount === 0) return res.status(404).json({ message: 'Not found' });
   res.json(result.rows[0]);
 }
@@ -498,18 +550,15 @@ export async function updateSku(req: Request, res: Response) {
   const parsed = skuSchema.partial().safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ message: 'Invalid payload' });
   const s = parsed.data;
-  const result = await query(
-    `UPDATE skus SET
-       color_name = COALESCE($1, color_name),
-       color_code = COALESCE($2, color_code),
-       sku_code = COALESCE($3, sku_code),
-       price_override = COALESCE($4, price_override),
-       status = COALESCE($5, status),
-       updated_at = NOW()
-     WHERE id = $6 AND tenant_id = $7
-     RETURNING *`,
-    [s.colorName ?? null, s.colorCode ?? null, s.skuCode ?? null, s.priceOverride ?? null, s.status ?? null, req.params.skuId, req.user!.tenantId]
-  );
+  const body = req.body ?? {};
+  const fields: UpdateFieldSpec[] = [];
+  if ('colorName' in body) fields.push({ column: 'color_name', value: s.colorName });
+  if ('colorCode' in body) fields.push({ column: 'color_code', value: s.colorCode ?? null });
+  if ('skuCode' in body) fields.push({ column: 'sku_code', value: s.skuCode });
+  if ('priceOverride' in body) fields.push({ column: 'price_override', value: s.priceOverride ?? null });
+  if ('status' in body) fields.push({ column: 'status', value: s.status });
+
+  const result = await buildDynamicUpdate('skus', 'id', req.params.skuId, req.user!.tenantId, fields);
   if (result.rowCount === 0) return res.status(404).json({ message: 'Not found' });
   res.json(result.rows[0]);
 }
@@ -537,19 +586,16 @@ export async function updateSkuSize(req: Request, res: Response) {
   const parsed = sizeSchema.partial().safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ message: 'Invalid payload' });
   const s = parsed.data;
-  const result = await query(
-    `UPDATE sku_sizes SET
-       size_label = COALESCE($1, size_label),
-       barcode = COALESCE($2, barcode),
-       unit_of_measure = COALESCE($3, unit_of_measure),
-       pack_size = COALESCE($4, pack_size),
-       price_override = COALESCE($5, price_override),
-       status = COALESCE($6, status),
-       updated_at = NOW()
-     WHERE id = $7 AND tenant_id = $8
-     RETURNING *`,
-    [s.sizeLabel ?? null, s.barcode ?? null, s.unitOfMeasure ?? null, s.packSize ?? null, s.priceOverride ?? null, s.status ?? null, req.params.sizeId, req.user!.tenantId]
-  );
+  const body = req.body ?? {};
+  const fields: UpdateFieldSpec[] = [];
+  if ('sizeLabel' in body) fields.push({ column: 'size_label', value: s.sizeLabel });
+  if ('barcode' in body) fields.push({ column: 'barcode', value: s.barcode });
+  if ('unitOfMeasure' in body) fields.push({ column: 'unit_of_measure', value: s.unitOfMeasure });
+  if ('packSize' in body) fields.push({ column: 'pack_size', value: s.packSize });
+  if ('priceOverride' in body) fields.push({ column: 'price_override', value: s.priceOverride ?? null });
+  if ('status' in body) fields.push({ column: 'status', value: s.status });
+
+  const result = await buildDynamicUpdate('sku_sizes', 'id', req.params.sizeId, req.user!.tenantId, fields);
   if (result.rowCount === 0) return res.status(404).json({ message: 'Not found' });
   res.json(result.rows[0]);
 }

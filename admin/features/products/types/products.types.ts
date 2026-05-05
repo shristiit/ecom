@@ -18,7 +18,7 @@ export type ProductInput = {
   inventoryMode?: 'local' | 'global';
   maxBackorderQty?: number | null;
   pickupEnabled?: boolean;
-  categoryId?: string;
+  categoryId?: string | null;
   status?: Extract<Status, 'active' | 'inactive'>;
 };
 
