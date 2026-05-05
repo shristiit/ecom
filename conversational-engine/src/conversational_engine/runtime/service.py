@@ -1078,11 +1078,30 @@ class AgentRuntimeService:
                 try:
                     catalog.validate(tool_name, tool_arguments)
                 except ToolSchemaValidationError as exc:
-                    return self._clarification_outcome_from_schema_error(
-                        current_entities=current_entities,
-                        required=exc.required_fields,
-                        prompt=exc.prompt,
-                    )
+                    # For read-only tools, attempt recovery by stripping any
+                    # extra keys the executor mistakenly merged in (e.g. via
+                    # Recovery 3 top-level key collection).  This avoids surfacing
+                    # an "unexpected property" error to the user when the only
+                    # problem is a stray key like "product" alongside "query".
+                    _read_tool = catalog.get(tool_name)
+                    if _read_tool is not None and not _read_tool.side_effect:
+                        _allowed = set((_read_tool.input_schema.get('properties') or {}).keys())
+                        _stripped = {k: v for k, v in tool_arguments.items() if k in _allowed}
+                        try:
+                            catalog.validate(tool_name, _stripped)
+                            tool_arguments = _stripped
+                        except ToolSchemaValidationError:
+                            return self._clarification_outcome_from_schema_error(
+                                current_entities=current_entities,
+                                required=exc.required_fields,
+                                prompt=exc.prompt,
+                            )
+                    else:
+                        return self._clarification_outcome_from_schema_error(
+                            current_entities=current_entities,
+                            required=exc.required_fields,
+                            prompt=exc.prompt,
+                        )
 
                 try:
                     tool_result = await self._run_phase(

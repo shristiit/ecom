@@ -471,6 +471,9 @@ def _resolve_primary_route_and_intent(text: str) -> tuple[str, str, str, float]:
                 0.96,
             )
 
+    if normalized in _NON_DOMAIN_SMALL_TALK:
+        return (ROUTE_READ, 'navigation_help', 'Detected conversational small talk.', 0.95)
+
     if _is_off_topic(normalized):
         return (ROUTE_READ, 'off_topic', 'Detected a request outside the inventory domain.', 0.95)
 
@@ -718,7 +721,7 @@ def _should_continue_pending_task(
     active_intent = str(task_context.get('primaryIntent') or '')
     missing_fields = [str(item) for item in task_context.get('missingFields') or []]
     status = str(task_context.get('status') or '')
-    if active_route not in {ROUTE_MUTATION, ROUTE_READ} or not active_intent:
+    if active_route != ROUTE_MUTATION or not active_intent:
         return False
     # A new mutation for a *different* intent starts a fresh workflow.
     if route_fallback == ROUTE_MUTATION and intent_fallback and intent_fallback != active_intent:
