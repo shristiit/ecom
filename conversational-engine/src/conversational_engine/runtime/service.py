@@ -367,6 +367,20 @@ def _message_implies_remove_line(message: str) -> bool:
     )
 
 
+def _canonical_po_line_signature(line: dict[str, object]) -> tuple[str, int, int] | None:
+    size_id = str(line.get('sizeId') or line.get('skuId') or '').strip()
+    if not size_id:
+        return None
+    raw_qty = line.get('qty', line.get('qtyOrdered'))
+    raw_cost = line.get('unitCost')
+    if raw_qty is None or raw_cost is None:
+        return None
+    try:
+        return (size_id, int(raw_qty), int(raw_cost))
+    except (TypeError, ValueError):
+        return None
+
+
 class AgentRuntimeService:
     def __init__(
         self,
@@ -1503,6 +1517,74 @@ class AgentRuntimeService:
             return matching_refs[0]
         return None
 
+    async def _build_confirmation_warnings(
+        self,
+        *,
+        auth: AuthContext,
+        tool_name: str,
+        prepared_arguments: dict[str, object],
+    ) -> list[str]:
+        if tool_name != 'purchasing.create_po':
+            return []
+
+        supplier_id = str(prepared_arguments.get('supplierId') or '').strip()
+        raw_lines = prepared_arguments.get('lines')
+        if not supplier_id or not isinstance(raw_lines, list) or not raw_lines:
+            return []
+
+        expected_signature = sorted(
+            signature
+            for signature in (
+                _canonical_po_line_signature(line)
+                for line in raw_lines
+                if isinstance(line, dict)
+            )
+            if signature is not None
+        )
+        if not expected_signature:
+            return []
+
+        try:
+            payload = await self._backend_client.list_pos(auth.access_token or '', auth.tenant_id)
+        except Exception:
+            return []
+        items = payload.get('items') if isinstance(payload, dict) else None
+        rows = [row for row in items if isinstance(row, dict)] if isinstance(items, list) else []
+
+        duplicates: list[str] = []
+        for row in rows:
+            row_supplier_id = str(row.get('supplierId') or '').strip()
+            if row_supplier_id and row_supplier_id != supplier_id:
+                continue
+            po_id = str(row.get('id') or '').strip()
+            if not po_id:
+                continue
+            try:
+                detail = await self._backend_client.get_po(auth.access_token or '', auth.tenant_id, po_id)
+            except Exception:
+                continue
+            detail_lines = detail.get('lines') if isinstance(detail, dict) else None
+            existing_signature = sorted(
+                signature
+                for signature in (
+                    _canonical_po_line_signature(line)
+                    for line in detail_lines
+                    if isinstance(detail_lines, list) and isinstance(line, dict)
+                )
+                if signature is not None
+            )
+            if existing_signature != expected_signature:
+                continue
+            po_number = str(row.get('number') or row.get('poNumber') or po_id).strip()
+            duplicates.append(po_number)
+
+        if not duplicates:
+            return []
+        listed = ', '.join(duplicates[:3])
+        if len(duplicates) == 1:
+            return [f'Possible duplicate purchase order: {listed} already has the same supplier and line items.']
+        return [f'Possible duplicate purchase orders: {listed} already match this supplier and line set.']
+
     async def _merge_direct_follow_up_payload(
         self,
         *,
@@ -1919,6 +2001,11 @@ class AgentRuntimeService:
             confirmation_prompt = 'Review these details and confirm. The request will then be submitted for approval.'
         else:
             confirmation_prompt = 'Review these details and confirm to continue.'
+        preview_warnings = await self._build_confirmation_warnings(
+            auth=auth,
+            tool_name=tool_name,
+            prepared_arguments=prepared_arguments,
+        )
 
         enriched_task_context = task_context_from_entities(state_update.extracted_entities)
         enriched_task_context['missingFields'] = []
@@ -1948,6 +2035,7 @@ class AgentRuntimeService:
                 'arguments': tool_arguments,
                 'preparedArguments': prepared_arguments,
                 'taskContext': enriched_task_context,
+                'warnings': preview_warnings,
             },
             'approvalRequired': evaluation.requires_approval,
             'approvalReason': evaluation.reason,
@@ -1979,6 +2067,7 @@ class AgentRuntimeService:
                 approval_required=evaluation.requires_approval,
                 confirmation_prompt=confirmation_prompt,
                 actor=auth.email,
+                warnings=preview_warnings,
             ),
             status=WorkflowStatus.AWAITING_CONFIRMATION,
             current_task='awaiting_confirmation',

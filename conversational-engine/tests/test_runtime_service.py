@@ -1234,6 +1234,50 @@ async def test_runtime_service_confirmation_preview_uses_authenticated_actor():
     assert preview_blocks[0].actor == 'ops@example.com'
 
 
+async def test_runtime_service_warns_before_confirming_duplicate_purchase_order():
+    service = AgentRuntimeService(
+        backend_client=FakeBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeExecutor(
+            'purchasing.create_po',
+            {
+                'supplierId': 'sup-1',
+                'lines': [
+                    {'sizeId': 'size-sand-m', 'qty': 20, 'unitCost': 42},
+                    {'sizeId': 'size-sand-l', 'qty': 10, 'unitCost': 42},
+                ],
+            },
+        ),
+        reviewer=FakeReviewer(),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='create the same purchase order again',
+        extracted_entities={},
+        recent_messages=[],
+        workflow_status=WorkflowStatus.IDLE,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    preview_blocks = [block for block in outcome.blocks if block.type == BlockType.PREVIEW]
+    assert outcome.status == WorkflowStatus.AWAITING_CONFIRMATION
+    assert preview_blocks
+    assert preview_blocks[0].warnings == [
+        'Possible duplicate purchase order: PO-001 already has the same supplier and line items.'
+    ]
+    assert outcome.extracted_entities['preview']['warnings'] == [
+        'Possible duplicate purchase order: PO-001 already has the same supplier and line items.'
+    ]
+
+
 async def test_runtime_service_clarifies_missing_customer_name_before_confirmation():
     service = AgentRuntimeService(
         backend_client=FakeApprovalBackendClient(),  # type: ignore[arg-type]

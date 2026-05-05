@@ -102,6 +102,7 @@ def render_confirmation_required(
     approval_required: bool,
     confirmation_prompt: str,
     actor: str,
+    warnings: list[str] | None = None,
 ) -> list[MessageBlock]:
     entities = [
         PreviewEntity(label=key, value=str(value))
@@ -114,7 +115,7 @@ def render_confirmation_required(
             action_type=tool_name.replace('.', ' ').title(),
             actor=actor,
             entities=entities,
-            warnings=[],
+            warnings=list(warnings or []),
             approval_required=approval_required,
             next_step=confirmation_prompt,
         ),
