@@ -1188,3 +1188,55 @@ async def test_catalog_relative_reference_requires_context_when_missing():
             'sales.dispatch_invoice',
             {'invoiceId': 'that sales order', 'locationId': 'WH1'},
         )
+
+
+async def test_catalog_resolves_last_po_for_supplier_from_latest_matching_item():
+    backend = FakeBackendClient()
+    backend.purchase_orders = [
+        {'id': 'po-9', 'number': 'PO-0009', 'supplierName': 'Beta Goods'},
+        {'id': 'po-7', 'number': 'PO-0007', 'supplierName': 'Acme Supply'},
+        {'id': 'po-1', 'number': 'PO-0001', 'supplierName': 'Acme Supply'},
+    ]
+    catalog = SemanticToolCatalog(backend=backend, auth=make_auth())  # type: ignore[arg-type]
+
+    prepared = await catalog.prepare(
+        'purchasing.cancel_po',
+        {'poId': 'last PO for Acme Supply'},
+    )
+
+    assert prepared['poId'] == 'po-7'
+
+
+async def test_catalog_resolves_last_sales_order_for_customer_from_latest_matching_item():
+    backend = FakeBackendClient()
+    backend.invoices = [
+        {'id': 'inv-9', 'number': 'SO-0009', 'customerName': 'Alice Jones'},
+        {'id': 'inv-7', 'number': 'SO-0007', 'customerName': 'Bob Smith'},
+        {'id': 'inv-1', 'number': 'SO-0001', 'customerName': 'Bob Smith'},
+    ]
+    catalog = SemanticToolCatalog(backend=backend, auth=make_auth())  # type: ignore[arg-type]
+
+    prepared = await catalog.prepare(
+        'sales.cancel_invoice',
+        {'invoiceId': 'last sales order for Bob Smith'},
+    )
+
+    assert prepared['invoiceId'] == 'inv-7'
+
+
+async def test_catalog_scoped_latest_reference_is_ambiguous_for_partial_party_match():
+    backend = FakeBackendClient()
+    backend.invoices = [
+        {'id': 'inv-7', 'number': 'SO-0007', 'customerName': 'Bob Smith'},
+        {'id': 'inv-6', 'number': 'SO-0006', 'customerName': 'Bob Stone'},
+    ]
+    catalog = SemanticToolCatalog(backend=backend, auth=make_auth())  # type: ignore[arg-type]
+
+    with pytest.raises(
+        ToolPreparationError,
+        match='I found multiple sales orders matching "Bob". Which sales order should I use\\?',
+    ):
+        await catalog.prepare(
+            'sales.cancel_invoice',
+            {'invoiceId': 'last sales order for Bob'},
+        )

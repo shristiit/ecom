@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 from typing import Any
 
 from conversational_engine.clients.backend import BackendClient
@@ -132,6 +133,20 @@ class EntityResolver:
         payload = await self._cached_value('purchase_orders', lambda: self._backend.list_pos(self._token, self._tenant))
         items = payload.get('items') if isinstance(payload, dict) else None
         rows = items if isinstance(items, list) else []
+        latest_for_party = self._latest_reference_for_party(
+            number_or_id,
+            rows=rows,
+            pattern=re.compile(
+                r'^(?:my\s+last|last|latest)\s+(?:purchase order|po)\s+for\s+(.+)$',
+                re.IGNORECASE,
+            ),
+            scope_fields=('supplierName', 'supplier_name'),
+            label_fields=('number', 'supplierName', 'supplier_name'),
+            singular='purchase order',
+            party_label='supplier',
+        )
+        if latest_for_party is not None:
+            return self._require_resolved(latest_for_party)
         relative = self._relative_context_value(
             number_or_id,
             terms=('this purchase order', 'that purchase order', 'this po', 'that po'),
@@ -165,6 +180,20 @@ class EntityResolver:
         payload = await self._cached_value('invoices', lambda: self._backend.list_invoices(self._token, self._tenant))
         items = payload.get('items') if isinstance(payload, dict) else None
         rows = items if isinstance(items, list) else []
+        latest_for_party = self._latest_reference_for_party(
+            number_or_id,
+            rows=rows,
+            pattern=re.compile(
+                r'^(?:my\s+last|last|latest)\s+(?:sales order|invoice|so)\s+for\s+(.+)$',
+                re.IGNORECASE,
+            ),
+            scope_fields=('customerName', 'customer_name'),
+            label_fields=('number', 'customerName', 'customer_name'),
+            singular='sales order',
+            party_label='customer',
+        )
+        if latest_for_party is not None:
+            return self._require_resolved(latest_for_party)
         relative = self._relative_context_value(
             number_or_id,
             terms=('this sales order', 'that sales order', 'this invoice', 'that invoice', 'this so', 'that so'),
@@ -576,6 +605,58 @@ class EntityResolver:
             return ResolutionResult(
                 status='not_found',
                 message=f'The latest {singular} is missing an id.',
+            )
+        return ResolutionResult(status='relative_reference', value=identifier)
+
+    def _latest_reference_for_party(
+        self,
+        query: str,
+        *,
+        rows: list[dict[str, object]],
+        pattern: re.Pattern[str],
+        scope_fields: tuple[str, ...],
+        label_fields: tuple[str, ...],
+        singular: str,
+        party_label: str,
+    ) -> ResolutionResult | None:
+        match = pattern.match(query.strip())
+        if not match:
+            return None
+        scope_query = str(match.group(1) or '').strip().lower()
+        if not scope_query:
+            return ResolutionResult(
+                status='not_found',
+                message=f'Which {party_label} should I use for the latest {singular} reference?',
+            )
+
+        exact_matches = self._matching_rows(rows, scope_query, scope_fields, exact=True)
+        partial_matches = self._matching_rows(rows, scope_query, scope_fields, exact=False)
+        matches = exact_matches or partial_matches
+        if not matches:
+            return ResolutionResult(
+                status='not_found',
+                message=f'No {singular} found for {party_label} "{match.group(1).strip()}".',
+            )
+
+        distinct_labels = {
+            self._candidate_label(row, scope_fields)
+            for row in matches
+            if self._candidate_label(row, scope_fields)
+        }
+        if len(distinct_labels) > 1 and not exact_matches:
+            return self._ambiguous_result(
+                match.group(1).strip(),
+                matches,
+                label_fields=label_fields,
+                singular=singular,
+                plural=f'{singular}s',
+            )
+
+        identifier = str(matches[0].get('id') or '').strip()
+        if not identifier:
+            return ResolutionResult(
+                status='not_found',
+                message=f'The latest {singular} for {party_label} "{match.group(1).strip()}" is missing an id.',
             )
         return ResolutionResult(status='relative_reference', value=identifier)
 
