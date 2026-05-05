@@ -44,6 +44,7 @@ def commerce_line_ref_schema() -> dict[str, Any]:
     return object_schema(
         {
             'lineId': {'type': ['string', 'null'], 'description': 'Existing line UUID when known'},
+            'lineNumber': {'type': ['integer', 'null'], 'description': '1-based line number within the current order'},
             'sizeId': {'type': ['string', 'null'], 'description': 'Existing sku_size UUID when known'},
             'skuCode': {'type': ['string', 'null'], 'description': 'SKU code for an exact variant reference'},
             'sizeLabel': {'type': ['string', 'null'], 'description': 'Size label paired with skuCode'},
@@ -246,10 +247,33 @@ def build_commerce_tools(
         except ValueError as exc:
             raise ToolPreparationError(str(exc), missing_fields) from exc
 
-    async def resolve_line_ref(raw_line_ref: dict[str, Any]) -> dict[str, Any]:
+    async def resolve_line_ref(
+        raw_line_ref: dict[str, Any],
+        *,
+        existing_lines: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
         line_id = str(raw_line_ref.get('lineId') or '').strip()
         if line_id:
             return {'lineId': line_id}
+
+        line_number = raw_line_ref.get('lineNumber')
+        if line_number is not None:
+            if not isinstance(existing_lines, list) or not existing_lines:
+                raise ToolPreparationError('lineNumber can only be used when the current order lines are available.', ['line_ref'])
+            try:
+                index = as_positive_int(line_number, field_name='Line number') - 1
+            except ValueError as exc:
+                raise ToolPreparationError(str(exc), ['line_ref']) from exc
+            if index < 0 or index >= len(existing_lines):
+                raise ToolPreparationError('lineNumber is outside the current order line range.', ['line_ref'])
+            selected_line = existing_lines[index]
+            selected_line_id = str(selected_line.get('id') or '').strip()
+            if selected_line_id:
+                return {'lineId': selected_line_id}
+            selected_size_id = str(selected_line.get('skuId') or '').strip()
+            if selected_size_id:
+                return {'sizeId': selected_size_id}
+            raise ToolPreparationError('The selected line is missing a stable identifier.', ['line_ref'])
 
         size_id = str(raw_line_ref.get('sizeId') or '').strip()
         if size_id:
@@ -274,6 +298,7 @@ def build_commerce_tools(
         price_field: str,
         price_aliases: tuple[str, ...],
         patch_price_field: str,
+        existing_lines: list[dict[str, Any]] | None = None,
     ) -> list[dict[str, Any]]:
         resolved_ops: list[dict[str, Any]] = []
         for raw_line_op in raw_line_ops:
@@ -303,7 +328,7 @@ def build_commerce_tools(
             line_ref = raw_line_op.get('lineRef')
             if not isinstance(line_ref, dict):
                 raise ToolPreparationError('Each line change needs a lineRef.', ['line_ops'])
-            resolved_line_ref = await resolve_line_ref(line_ref)
+            resolved_line_ref = await resolve_line_ref(line_ref, existing_lines=existing_lines)
 
             if op == 'replace':
                 values = raw_line_op.get('values')
@@ -642,11 +667,15 @@ def build_commerce_tools(
         if isinstance(raw_line_ops, list) and raw_line_ops:
             if not all(isinstance(raw_line_op, dict) for raw_line_op in raw_line_ops):
                 raise ToolPreparationError('Each purchase order line change must be an object.', ['line_ops'])
+            po_detail = await backend.get_po(token, tenant, str(resolved['poId']))
+            detail_lines = po_detail.get('lines') if isinstance(po_detail, dict) else None
+            po_lines = [line for line in detail_lines if isinstance(line, dict)] if isinstance(detail_lines, list) else []
             resolved['lineOps'] = await resolve_line_ops(
                 raw_line_ops,  # type: ignore[arg-type]
                 price_field='unitCost',
                 price_aliases=('cost', 'unit_price', 'price'),
                 patch_price_field='change_cost',
+                existing_lines=po_lines,
             )
 
         if not any(key in resolved for key in ('headerPatch', 'lines', 'lineOps')):
@@ -872,11 +901,15 @@ def build_commerce_tools(
         if isinstance(raw_line_ops, list) and raw_line_ops:
             if not all(isinstance(raw_line_op, dict) for raw_line_op in raw_line_ops):
                 raise ToolPreparationError('Each sales order line change must be an object.', ['line_ops'])
+            invoice_detail = await backend.get_invoice(token, tenant, str(resolved['invoiceId']))
+            detail_lines = invoice_detail.get('lines') if isinstance(invoice_detail, dict) else None
+            invoice_lines = [line for line in detail_lines if isinstance(line, dict)] if isinstance(detail_lines, list) else []
             resolved['lineOps'] = await resolve_line_ops(
                 raw_line_ops,  # type: ignore[arg-type]
                 price_field='unitPrice',
                 price_aliases=('unit_price', 'price'),
                 patch_price_field='change_price',
+                existing_lines=invoice_lines,
             )
 
         if not any(key in resolved for key in ('headerPatch', 'lines', 'lineOps')):

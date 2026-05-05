@@ -654,6 +654,39 @@ async def test_purchase_order_update_normalizes_header_patch_and_line_ops():
     ]
 
 
+async def test_purchase_order_update_resolves_line_number_refs():
+    backend = FakeBackendClient()
+    catalog = SemanticToolCatalog(backend=backend, auth=make_auth())  # type: ignore[arg-type]
+
+    result = await catalog.invoke(
+        'purchasing.update_po',
+        {
+            'poId': 'PO-0001',
+            'lineOps': [
+                {
+                    'op': 'remove',
+                    'lineRef': {'lineNumber': 2},
+                },
+            ],
+        },
+    )
+
+    assert result['result']['ok'] is True
+    assert backend.po_updates == [
+        (
+            'po-1',
+            {
+                'lineOps': [
+                    {
+                        'op': 'remove',
+                        'lineRef': {'sizeId': 'size-clay-m'},
+                    },
+                ],
+            },
+        )
+    ]
+
+
 async def test_purchase_order_cancel_resolves_order_number():
     backend = FakeBackendClient()
     catalog = SemanticToolCatalog(backend=backend, auth=make_auth())  # type: ignore[arg-type]
@@ -780,6 +813,41 @@ async def test_sales_update_invoice_normalizes_line_ops():
                         'op': 'change_price',
                         'lineRef': {'skuCode': 'sku-sand', 'sizeLabel': 'L'},
                         'unitPrice': 60,
+                    },
+                ]
+            },
+        )
+    ]
+
+
+async def test_sales_update_invoice_resolves_line_number_refs():
+    backend = FakeBackendClient()
+    catalog = SemanticToolCatalog(backend=backend, auth=make_auth())  # type: ignore[arg-type]
+
+    result = await catalog.invoke(
+        'sales.update_invoice',
+        {
+            'invoiceId': 'SO-0001',
+            'lineOps': [
+                {
+                    'op': 'change_qty',
+                    'lineRef': {'lineNumber': 2},
+                    'qty': 9,
+                },
+            ],
+        },
+    )
+
+    assert result['result']['ok'] is True
+    assert backend.invoice_updates == [
+        (
+            'inv-1',
+            {
+                'lineOps': [
+                    {
+                        'op': 'change_qty',
+                        'lineRef': {'lineId': 'inv-line-2'},
+                        'qty': 9,
                     },
                 ]
             },
