@@ -34,6 +34,7 @@ def conversation_detail_from_row(row: dict[str, object], *, id_field: str = 'id'
     return ConversationDetail(
         id=row[id_field],
         title=row['title'],
+        created_by=row.get('created_by'),
         created_at=row['created_at'],
         updated_at=row['updated_at'],
     )

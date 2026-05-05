@@ -168,7 +168,11 @@ export function requireTenantPermission(permission: string) {
     );
     if (roleRes.rowCount === 0) return res.status(403).json({ message: 'Role not found' });
     const permissions: string[] = roleRes.rows[0].permissions ?? [];
-    if (!permissions.includes(permission)) return res.status(403).json({ message: 'Forbidden' });
+    const canReadFromWrite =
+      permission.endsWith('.read') && permissions.includes(permission.replace(/\.read$/, '.write'));
+    if (!permissions.includes(permission) && !canReadFromWrite) {
+      return res.status(403).json({ message: 'Forbidden' });
+    }
     next();
   };
 }

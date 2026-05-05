@@ -14,8 +14,8 @@ const r = Router();
 r.use(authGuard, requireTenantUser, requireTenantFeatureAccess('sales'));
 const idem = idempotencyGuard((req) => req.user?.tenantId ?? null);
 
-r.get('/invoice', requirePermission('sales.write'), ctrl.listInvoices);
-r.get('/invoice/:id', requirePermission('sales.write'), ctrl.getInvoice);
+r.get('/invoice', requirePermission('sales.read'), ctrl.listInvoices);
+r.get('/invoice/:id', requirePermission('sales.read'), ctrl.getInvoice);
 r.post('/invoice', requirePermission('sales.write'), requireTenantWriteAccess({ feature: 'sales' }), idem, ctrl.createInvoice);
 r.patch('/invoice/:id', requirePermission('sales.write'), requireTenantWriteAccess({ feature: 'sales' }), idem, ctrl.updateInvoice);
 r.post('/invoice/:id/dispatch', requirePermission('sales.write'), requireTenantWriteAccess({ feature: 'sales' }), idem, ctrl.dispatchInvoice);

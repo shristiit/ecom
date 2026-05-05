@@ -25,14 +25,14 @@ def parse_uuid(text: str) -> str | None:
 
 def parse_money(text: str) -> int | None:
     patterns = [
-        r'(?:\$|cost|unit cost|base price|price|prce)\s*(?:is|of|=)?\s*(\d+)',
-        r'\b(\d+)\s*(?:gbp|usd|eur|pounds?|dollars?)\b',
-        r'@\s*(\d+)',
+        r'(?:\$|cost|unit cost|base price|price|prce)\s*(?:is|of|=)?\s*(\d+(?:\.\d{1,2})?)',
+        r'\b(\d+(?:\.\d{1,2})?)\s*(?:gbp|usd|eur|pounds?|dollars?)\b',
+        r'@\s*(\d+(?:\.\d{1,2})?)',
     ]
     for pattern in patterns:
         match = re.search(pattern, text, re.IGNORECASE)
         if match:
-            return int(match.group(1))
+            return int(round(float(match.group(1)) * 100))
     return None
 
 
@@ -85,4 +85,3 @@ def json_safe_row(row: dict[str, Any]) -> dict[str, object]:
         else:
             safe[key] = value
     return safe
-

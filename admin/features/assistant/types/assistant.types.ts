@@ -89,6 +89,12 @@ export type AssistantPendingAction = {
   prompt: string;
 };
 
+export type AssistantMessagePage = {
+  nextCursorCreatedAt?: string | null;
+  nextCursorId?: string | null;
+  hasMore: boolean;
+};
+
 export type AssistantConversation = {
   conversation: {
     id: string;
@@ -99,6 +105,7 @@ export type AssistantConversation = {
   workflow?: AssistantWorkflowState | null;
   messages: AssistantMessage[];
   pendingAction?: AssistantPendingAction | null;
+  messagePage?: AssistantMessagePage | null;
 };
 
 export type AssistantDecisionResponse = {

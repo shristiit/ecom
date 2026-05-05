@@ -7,6 +7,10 @@ from conversational_engine.clients.backend import BackendClient
 from conversational_engine.contracts.auth import AuthContext
 
 
+# NOTE: There are currently two EntityResolver implementations:
+# - this agent-facing resolver for the legacy orchestrator path
+# - tools/catalog/resolvers.py for the runtime semantic tool path
+# Keep their behavior aligned until they are merged into one implementation.
 class EntityResolver:
     def __init__(self, backend: BackendClient) -> None:
         self._backend = backend

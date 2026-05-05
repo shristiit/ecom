@@ -14,9 +14,9 @@ class ImageAttachment(ContractModel):
 
 
 class RunRequest(ContractModel):
-    content: str
+    content: str = Field(max_length=4000)
     conversation_id: UUID | None = None
-    title: str | None = None
+    title: str | None = Field(default=None, max_length=200)
     attachment_ids: list[str] = Field(default_factory=list)
     attachments: list[ImageAttachment] = Field(default_factory=list)
 

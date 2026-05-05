@@ -237,6 +237,29 @@ class AIRepository(Protocol):
 
     async def list_business_memory(self, tenant_id: str, *, limit: int) -> list[dict[str, object]]: ...
 
+    async def record_audit_event(
+        self,
+        *,
+        tenant_id: str,
+        user_id: str | None,
+        actor_email: str | None,
+        event_type: str,
+        conversation_id: str | None = None,
+        workflow_id: str | None = None,
+        approval_id: str | None = None,
+        tool_name: str | None = None,
+        payload: dict[str, object] | None = None,
+    ) -> dict[str, object]: ...
+
+    async def list_audit_events(
+        self,
+        *,
+        tenant_id: str,
+        limit: int,
+        conversation_id: str | None = None,
+        workflow_id: str | None = None,
+    ) -> list[dict[str, object]]: ...
+
     async def upsert_user_memory(
         self,
         *,

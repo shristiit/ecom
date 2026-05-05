@@ -3,13 +3,23 @@ import { MessageSquarePlus, Mic, Paperclip, PanelRightClose, PanelRightOpen, Squ
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Image, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { AppButton } from '@admin/components/ui';
+import { ApiError } from '@admin/lib/api';
+import { queryClient, queryKeys } from '@admin/lib/query';
 import {
   useAssistantConversationQuery,
   useAssistantConversationsQuery,
   useAssistantDecisionMutation,
 } from '../hooks';
 import { assistantService } from '../services';
+import {
+  appendAssistantConversationMessage,
+  createOptimisticUserMessage,
+  mergeAssistantConversationPage,
+  removeAssistantConversationMessage,
+  updateAssistantConversationSummaryCache,
+} from '../services/assistant-cache';
 import { AssistantMessageBlocks } from './assistant-message-blocks';
+import type { AssistantConversation, AssistantConversationSummary, AssistantMessage } from '../types/assistant.types';
 
 type Attachment = {
   id: string;
@@ -42,6 +52,12 @@ type WebSpeechRecognitionInstance = {
 
 type WebSpeechRecognitionConstructor = new () => WebSpeechRecognitionInstance;
 
+type StreamingAssistantState = {
+  text: string;
+  toolName: string | null;
+  approvalRequested: boolean;
+};
+
 function getSpeechRecognitionConstructor(): WebSpeechRecognitionConstructor | null {
   if (typeof window === 'undefined') return null;
 
@@ -72,6 +88,44 @@ const promptSuggestions = [
   'How do I receive a purchase order?',
 ];
 
+function buildStreamingAssistantBlocks(streamingState: StreamingAssistantState | null) {
+  if (!streamingState) return [];
+
+  const blocks: AssistantMessage['blocks'] = [];
+  if (streamingState.text.trim()) {
+    blocks.push({ type: 'text', content: streamingState.text.trim() });
+  } else if (streamingState.toolName) {
+    blocks.push({ type: 'text', content: `Running ${streamingState.toolName}...` });
+  } else if (streamingState.approvalRequested) {
+    blocks.push({ type: 'text', content: 'Approval requested.' });
+  } else {
+    blocks.push({ type: 'text', content: 'Thinking...' });
+  }
+
+  return blocks;
+}
+
+function getAssistantErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof ApiError) {
+    if (error.code === 'REQUEST_ABORTED') {
+      return null;
+    }
+    if (error.code === 'REQUEST_TIMEOUT' || error.code === 'NETWORK_ERROR' || error.status === 0) {
+      return 'Connection problem. Please retry.';
+    }
+    if (error.status >= 400 && error.status < 500) {
+      return `Assistant error: ${error.message}`;
+    }
+    return error.message || fallback;
+  }
+
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return fallback;
+}
+
 export function AssistantChatShell({
   mode,
   conversationId,
@@ -91,12 +145,15 @@ export function AssistantChatShell({
   const [isHistoryRailOpen, setIsHistoryRailOpen] = useState(false);
   const [isStreamingRun, setIsStreamingRun] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [streamingAssistantState, setStreamingAssistantState] = useState<StreamingAssistantState | null>(null);
+  const [isLoadingOlderMessages, setIsLoadingOlderMessages] = useState(false);
 
   const scrollRef = useRef<ScrollView | null>(null);
   const lastAutoStartedPromptRef = useRef<string | null>(null);
   const recognitionRef = useRef<WebSpeechRecognitionInstance | null>(null);
   const recognitionCtorRef = useRef<WebSpeechRecognitionConstructor | null>(getSpeechRecognitionConstructor());
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const activeRunAbortRef = useRef<AbortController | null>(null);
 
   const isThreadMode = mode === 'thread' && Boolean(conversationId);
   const activeConversation = isThreadMode ? conversationQuery.data : undefined;
@@ -106,16 +163,68 @@ export function AssistantChatShell({
   const isDesktop = width >= 1280;
   const showHistoryRail = isDesktop ? isHistoryRailOpen : isHistoryRailOpen;
   const historyRailContainerClassName = isDesktop ? 'lg:w-[340px]' : 'w-full';
-
-  const refreshConversationViews = useCallback(async () => {
-    await Promise.all([
-      conversationsQuery.refetch(),
-      isThreadMode ? conversationQuery.refetch() : Promise.resolve(),
-    ]);
-  }, [conversationQuery, conversationsQuery, isThreadMode]);
+  const streamingAssistantBlocks = buildStreamingAssistantBlocks(streamingAssistantState);
 
   const attachmentsRef = useRef<Attachment[]>([]);
   attachmentsRef.current = attachments;
+
+  const invalidateAssistantDrivenQueries = useCallback(() => {
+    [
+      queryKeys.assistant.conversations(),
+      queryKeys.assistant.approvals(),
+      queryKeys.assistant.history(),
+      queryKeys.orders.sales(),
+      queryKeys.orders.purchase(),
+      queryKeys.products.all(),
+      queryKeys.inventory.stockOnHand(),
+      queryKeys.inventory.movements(),
+      queryKeys.inventory.receipts(),
+      queryKeys.settings.tenant(),
+      queryKeys.dashboard.overview(),
+    ].forEach((prefix) => queryClient.invalidateQueries(prefix));
+  }, []);
+
+  const reconcileConversationCache = useCallback(async (targetConversationId: string) => {
+    const latest = await assistantService.getConversation(targetConversationId, { messageLimit: 50 });
+    queryClient.setQueryData<AssistantConversation>(
+      queryKeys.assistant.conversation(targetConversationId),
+      (existing) => mergeAssistantConversationPage(existing, latest, 'replace-latest'),
+    );
+    queryClient.setQueryData<AssistantConversationSummary[]>(queryKeys.assistant.conversations(), (existing) =>
+      updateAssistantConversationSummaryCache(existing, latest),
+    );
+    return latest;
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      activeRunAbortRef.current?.abort();
+      activeRunAbortRef.current = null;
+    };
+  }, []);
+
+  const loadOlderMessages = useCallback(async () => {
+    if (!conversationId || !activeConversation?.messagePage?.hasMore || isLoadingOlderMessages) {
+      return;
+    }
+
+    setError(null);
+    setIsLoadingOlderMessages(true);
+    try {
+      const olderPage = await assistantService.getConversation(conversationId, {
+        beforeCreatedAt: activeConversation.messagePage.nextCursorCreatedAt ?? null,
+        beforeId: activeConversation.messagePage.nextCursorId ?? null,
+      });
+      queryClient.setQueryData<AssistantConversation>(
+        queryKeys.assistant.conversation(conversationId),
+        (existing) => mergeAssistantConversationPage(existing, olderPage, 'prepend-older'),
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load older messages.');
+    } finally {
+      setIsLoadingOlderMessages(false);
+    }
+  }, [activeConversation?.messagePage?.hasMore, activeConversation?.messagePage?.nextCursorCreatedAt, activeConversation?.messagePage?.nextCursorId, conversationId, isLoadingOlderMessages]);
 
   const handleAttach = useCallback(() => {
     fileInputRef.current?.click();
@@ -211,14 +320,18 @@ export function AssistantChatShell({
     setError(null);
     setStatusMessage(null);
     setIsStreamingRun(true);
+    activeRunAbortRef.current?.abort();
+    const runController = new AbortController();
+    activeRunAbortRef.current = runController;
 
     try {
       const hasAttachments = attachmentsRef.current.length > 0;
       let result: { runId: string | null; conversationId: string | null; workflowId: string | null };
+      let targetConversationId: string | null = null;
 
       if (hasAttachments) {
         const conversation = await assistantService.createConversation({ title: trimmedPrompt.slice(0, 60) });
-        const targetConversationId = conversation.conversation.id;
+        targetConversationId = conversation.conversation.id;
         const attachmentIds = await ensureUploadedAttachments(targetConversationId);
         result = await assistantService.streamRun(
           {
@@ -237,6 +350,7 @@ export function AssistantChatShell({
               setStatusMessage('Approval requested.');
             }
           },
+          { signal: runController.signal },
         );
       } else {
         result = await assistantService.streamRun(
@@ -255,22 +369,31 @@ export function AssistantChatShell({
               setStatusMessage('Approval requested.');
             }
           },
+          { signal: runController.signal },
         );
       }
 
       setPrompt('');
       setAttachments([]);
       setStatusMessage('Run completed.');
-      await conversationsQuery.refetch();
-      if (result.conversationId) {
-        router.replace(`/ai/thread/${result.conversationId}`);
+      const resolvedConversationId = targetConversationId ?? result.conversationId;
+      if (resolvedConversationId) {
+        await reconcileConversationCache(resolvedConversationId);
+        invalidateAssistantDrivenQueries();
+        router.replace(`/ai/thread/${resolvedConversationId}`);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to start conversation.');
+      const message = getAssistantErrorMessage(err, 'Failed to start conversation.');
+      if (message) {
+        setError(message);
+      }
     } finally {
+      if (activeRunAbortRef.current === runController) {
+        activeRunAbortRef.current = null;
+      }
       setIsStreamingRun(false);
     }
-  }, [conversationsQuery, ensureUploadedAttachments, router]);
+  }, [ensureUploadedAttachments, invalidateAssistantDrivenQueries, reconcileConversationCache, router]);
 
   const handleSend = useCallback(async () => {
     const trimmedPrompt = prompt.trim();
@@ -287,9 +410,20 @@ export function AssistantChatShell({
     setError(null);
     setStatusMessage(null);
     setIsStreamingRun(true);
+    setStreamingAssistantState({ text: '', toolName: null, approvalRequested: false });
+    activeRunAbortRef.current?.abort();
+    const runController = new AbortController();
+    activeRunAbortRef.current = runController;
+    let optimisticUserMessage: AssistantMessage | null = null;
 
     try {
       const attachmentIds = await ensureUploadedAttachments(conversationId);
+      optimisticUserMessage = createOptimisticUserMessage(trimmedPrompt);
+      queryClient.setQueryData<AssistantConversation>(
+        queryKeys.assistant.conversation(conversationId),
+        (existing) => appendAssistantConversationMessage(existing, optimisticUserMessage!),
+      );
+
       await assistantService.streamRun(
         { conversationId, content: trimmedPrompt, attachmentIds },
         async (event) => {
@@ -298,22 +432,66 @@ export function AssistantChatShell({
           }
           if (event.type === 'tool.called') {
             setStatusMessage(`Running ${String(event.payload?.toolName ?? 'tool')}...`);
+            setStreamingAssistantState((current) => ({
+              text: current?.text ?? '',
+              toolName: String(event.payload?.toolName ?? 'tool'),
+              approvalRequested: current?.approvalRequested ?? false,
+            }));
           }
           if (event.type === 'approval.requested') {
             setStatusMessage('Approval requested.');
+            setStreamingAssistantState((current) => ({
+              text: current?.text ?? '',
+              toolName: current?.toolName ?? null,
+              approvalRequested: true,
+            }));
+          }
+          if (event.type === 'assistant.message.delta') {
+            const nextChunk = String(event.payload?.content ?? '');
+            if (nextChunk) {
+              setStreamingAssistantState((current) => ({
+                text: `${current?.text ?? ''}${nextChunk}`,
+                toolName: current?.toolName ?? null,
+                approvalRequested: current?.approvalRequested ?? false,
+              }));
+            }
           }
         },
+        { signal: runController.signal },
       );
       setPrompt('');
       setAttachments([]);
       setStatusMessage('Run completed.');
-      await refreshConversationViews();
+      await reconcileConversationCache(conversationId);
+      invalidateAssistantDrivenQueries();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to send message.');
+      if (optimisticUserMessage) {
+        queryClient.setQueryData<AssistantConversation>(
+          queryKeys.assistant.conversation(conversationId),
+          (existing) => removeAssistantConversationMessage(existing, optimisticUserMessage!.id),
+        );
+      }
+
+      const message = getAssistantErrorMessage(err, 'Failed to send message.');
+      if (message) {
+        setError(message);
+      }
+
+      if (!(err instanceof ApiError && err.code === 'REQUEST_ABORTED')) {
+        try {
+          await reconcileConversationCache(conversationId);
+        } catch (reconcileError) {
+          console.error('Failed to reconcile assistant conversation cache after send error.', reconcileError);
+        }
+      }
     } finally {
+      if (activeRunAbortRef.current === runController) {
+        activeRunAbortRef.current = null;
+      }
+      setStreamingAssistantState(null);
       setIsStreamingRun(false);
     }
-  }, [conversationId, ensureUploadedAttachments, handleCreateConversation, isThreadMode, prompt, refreshConversationViews]);
+  }, [conversationId, ensureUploadedAttachments, handleCreateConversation, invalidateAssistantDrivenQueries, isThreadMode, prompt, reconcileConversationCache]);
 
   const handleDecision = useCallback(async (nextDecision: 'confirm' | 'cancel' | 'edit' | 'submit_for_approval') => {
     const workflowId = activeConversation?.workflow?.id;
@@ -328,16 +506,22 @@ export function AssistantChatShell({
     try {
       const result = await decision.mutateAsync({ workflowId, decision: nextDecision });
       setStatusMessage(result.message);
-      await refreshConversationViews();
+      if (conversationId) {
+        await reconcileConversationCache(conversationId);
+      }
+      invalidateAssistantDrivenQueries();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to apply workflow decision.');
     }
-  }, [activeConversation?.workflow?.id, decision, refreshConversationViews]);
+  }, [activeConversation?.workflow?.id, conversationId, decision, invalidateAssistantDrivenQueries, reconcileConversationCache]);
 
   const handleNewChat = useCallback(() => {
+    activeRunAbortRef.current?.abort();
+    activeRunAbortRef.current = null;
     setPrompt('');
     setError(null);
     setStatusMessage(null);
+    setStreamingAssistantState(null);
     setIsDictating(false);
     router.replace({
       pathname: '/ai',
@@ -345,9 +529,12 @@ export function AssistantChatShell({
   }, [router]);
 
   const handleOpenConversation = useCallback((nextConversationId: string) => {
+    activeRunAbortRef.current?.abort();
+    activeRunAbortRef.current = null;
     setError(null);
     setStatusMessage(null);
     setPrompt('');
+    setStreamingAssistantState(null);
     router.replace(`/ai/thread/${nextConversationId}`);
   }, [router]);
 
@@ -539,6 +726,18 @@ export function AssistantChatShell({
                   </View>
                 ) : null}
 
+                {activeConversation?.messagePage?.hasMore ? (
+                  <View className="w-full max-w-3xl items-center">
+                    <AppButton
+                      label={isLoadingOlderMessages ? 'Loading older messages...' : 'Load older messages'}
+                      size="sm"
+                      variant="secondary"
+                      onPress={() => void loadOlderMessages()}
+                      loading={isLoadingOlderMessages}
+                    />
+                  </View>
+                ) : null}
+
                 {activeConversation?.messages.map((turn) => (
                   <View
                     key={turn.id}
@@ -563,6 +762,17 @@ export function AssistantChatShell({
                     </View>
                   </View>
                 ))}
+
+                {isThreadMode && isStreamingRun && streamingAssistantBlocks.length > 0 ? (
+                  <View className="w-full items-start">
+                    <View className="max-w-3xl items-start gap-2">
+                      <Text className="px-1 text-caption uppercase tracking-[0.16em] text-subtle">Assistant</Text>
+                      <View className="rounded-lg bg-[#F8F6F1] px-0 py-0">
+                        <AssistantMessageBlocks blocks={streamingAssistantBlocks} />
+                      </View>
+                    </View>
+                  </View>
+                ) : null}
 
                 {activeConversation && activeConversation.messages.length === 0 ? (
                   <View className="w-full max-w-3xl rounded-md border border-dashed border-border bg-surface-2 px-5 py-5">

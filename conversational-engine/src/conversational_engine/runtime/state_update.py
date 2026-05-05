@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from conversational_engine.retrieval.service import RetrievalService
+from conversational_engine.utils.casing import to_camel
+from conversational_engine.utils.time import utc_now
 
 if TYPE_CHECKING:
     from conversational_engine.agents.state_updater import StateUpdateAgent
@@ -22,6 +25,35 @@ _NAVIGATION_PREFIXES = (
     'show me ',
     'show ',
 )
+_INVENTORY_KEYWORDS = (
+    'stock',
+    'inventory',
+    'product',
+    'products',
+    'sku',
+    'size',
+    'sizes',
+    'color',
+    'colors',
+    'purchase',
+    'supplier',
+    'customer',
+    'invoice',
+    'sales order',
+    'warehouse',
+    'location',
+    'report',
+    'movement',
+    'receipt',
+    'transfer',
+    'adjust',
+    'write off',
+    'category',
+    'brand',
+    'price',
+)
+_NON_DOMAIN_SMALL_TALK = ('hi', 'hello', 'thanks', 'thank you')
+_PENDING_TASK_TTL = timedelta(minutes=30)
 _MASTER_CREATE_VERBS = r'(create|add|new|onboard|register)'
 _MASTER_UPDATE_VERBS = r'(update|edit|change|rename)'
 _MASTER_DELETE_VERBS = r'(delete|remove)'
@@ -90,6 +122,22 @@ _MUTATION_PATTERNS: tuple[tuple[str, str], ...] = (
     ),
 )
 _READ_PATTERNS: tuple[tuple[str, str], ...] = (
+    (
+        'purchasing.list_pos',
+        r'\b(list|show|search|find)\b.*\b(open\s+)?(purchase orders|purchase order|pos|po)\b',
+    ),
+    (
+        'purchasing.get_po',
+        r'\b(status of|what(?:s| is) the status of|lines in|details of|inspect)\b.*\b(purchase order|po)\b',
+    ),
+    (
+        'sales.list_invoices',
+        r'\b(list|show|search|find)\b.*\b(open\s+)?(sales orders|sales order|invoices|invoice|sos|so)\b',
+    ),
+    (
+        'sales.get_invoice',
+        r'\b(status of|what(?:s| is) the status of|lines in|details of|inspect)\b.*\b(sales order|invoice|so)\b',
+    ),
     ('inventory.stock_on_hand', r'\b(stock|stock on hand|available)\b'),
     ('inventory.stock_on_hand', r'\b(size|sizes|variant|variants|color|colors)\b'),
     ('reporting.stock_summary', r'\b(summary|report)\b'),
@@ -116,7 +164,14 @@ def task_context_from_entities(extracted_entities: dict[str, Any]) -> dict[str, 
     if isinstance(existing, dict):
         context = dict(existing)
     else:
-        context = {'primaryRoute': None, 'primaryIntent': None}
+        pending_task = _active_pending_task(extracted_entities)
+        context = {
+            'primaryRoute': pending_task.get('route') if pending_task else None,
+            'primaryIntent': pending_task.get('intent') if pending_task else None,
+            'entities': dict(pending_task.get('entities') or {}) if pending_task else {},
+            'missingFields': list(pending_task.get('missingFields') or []) if pending_task else [],
+            'status': str(pending_task.get('status') or 'drafting') if pending_task else 'drafting',
+        }
     context.setdefault('primaryRoute', None)
     context.setdefault('primaryIntent', None)
     context.setdefault('entities', {})
@@ -128,6 +183,19 @@ def task_context_from_entities(extracted_entities: dict[str, Any]) -> dict[str, 
     return context
 
 
+def fresh_task_context() -> dict[str, Any]:
+    return {
+        'primaryRoute': None,
+        'primaryIntent': None,
+        'entities': {},
+        'missingFields': [],
+        'postActions': [],
+        'lastResolvedRoute': None,
+        'clarificationCount': 0,
+        'status': 'drafting',
+    }
+
+
 def apply_task_context(extracted_entities: dict[str, Any], task_context: dict[str, Any]) -> dict[str, Any]:
     merged = dict(extracted_entities)
     merged['taskContext'] = task_context
@@ -135,6 +203,7 @@ def apply_task_context(extracted_entities: dict[str, Any], task_context: dict[st
     if isinstance(entities, dict):
         for key, value in entities.items():
             merged[key] = value
+    _sync_pending_task(merged, task_context)
     return merged
 
 
@@ -153,6 +222,8 @@ def mark_task_status(
     updated = dict(extracted_entities)
     task_context = task_context_from_entities(updated)
     task_context['status'] = status
+    if status in {'awaiting_confirmation', 'awaiting_approval', 'completed'}:
+        task_context['missingFields'] = []
     if clear_post_actions:
         task_context['postActions'] = []
     updated['taskContext'] = task_context
@@ -256,11 +327,17 @@ async def resolve_state_update(
         primary_route = ROUTE_MIXED
         rationale = f'{rationale} Queued a post-action navigation step after the mutation succeeds.'
 
-    merged_entities.update(patches)
     active_intent = str(task_context.get('primaryIntent') or '')
+    merged_entities.update(patches)
     if primary_intent == 'master.create_location' or active_intent == 'master.create_location':
         merged_entities.update(_extract_location_create_entities(action_text or text))
-    if not is_workflow_edit and _should_continue_pending_mutation(
+    if (
+        primary_intent in {'master.create_supplier', 'master.create_customer'}
+        or active_intent in {'master.create_supplier', 'master.create_customer'}
+    ):
+        merged_entities.update(_extract_contact_create_entities(action_text or text))
+
+    if not is_workflow_edit and _should_continue_pending_task(
         text=action_text or text,
         task_context=task_context,
         route_fallback=route_fallback,
@@ -273,6 +350,31 @@ async def resolve_state_update(
         rationale = 'Applied this turn as missing-field input for the active workflow.'
         confidence = max(confidence, 0.91)
         used_memory = True
+    elif not is_workflow_edit and _should_reset_mutation_context(
+        task_context=task_context,
+        primary_route=primary_route,
+        primary_intent=primary_intent,
+    ):
+        carryover_entities: dict[str, Any] = {}
+        if isinstance(prior_entities, dict):
+            if active_intent == 'master.create_supplier' and primary_intent == 'purchasing.create_po':
+                for key in ('supplierId', 'supplierName'):
+                    value = prior_entities.get(key)
+                    if value is not None:
+                        carryover_entities[key] = value
+            if active_intent == 'master.create_customer' and primary_intent == 'sales.create_invoice':
+                for key in ('customerId', 'customerName'):
+                    value = prior_entities.get(key)
+                    if value is not None:
+                        carryover_entities[key] = value
+        extracted_entities = _clear_runtime_workflow_state(extracted_entities, task_context)
+        task_context = fresh_task_context()
+        merged_entities = {**carryover_entities, **patches}
+        if primary_intent == 'master.create_location':
+            merged_entities.update(_extract_location_create_entities(action_text or text))
+        if primary_intent in {'master.create_supplier', 'master.create_customer'}:
+            merged_entities.update(_extract_contact_create_entities(action_text or text))
+
     task_context['primaryRoute'] = primary_route
     task_context['primaryIntent'] = primary_intent
     task_context['entities'] = merged_entities
@@ -293,7 +395,16 @@ async def resolve_state_update(
             task_context['postActions'] = [*existing_actions] if isinstance(existing_actions, list) else []
             task_context['postActions'].extend(new_post_actions)
 
-    task_context['missingFields'] = list(task_context.get('missingFields') or [])
+    # When continuing an active workflow, remove any missing fields that are
+    # now satisfied by the merged entities so the planner doesn't keep asking
+    # for them even after the user has supplied the values.
+    if is_workflow_edit:
+        task_context['missingFields'] = [
+            field for field in (task_context.get('missingFields') or [])
+            if not _entity_has_value(merged_entities, field)
+        ]
+    else:
+        task_context['missingFields'] = list(task_context.get('missingFields') or [])
     updated_entities = apply_task_context(extracted_entities, task_context)
     planner_message = _build_planner_message(
         original_message=text,
@@ -360,7 +471,25 @@ def _resolve_primary_route_and_intent(text: str) -> tuple[str, str, str, float]:
                 0.96,
             )
 
+    if _is_off_topic(normalized):
+        return (ROUTE_READ, 'off_topic', 'Detected a request outside the inventory domain.', 0.95)
+
     return (ROUTE_READ, 'inventory.stock_on_hand', 'Defaulted to a read workflow.', 0.42)
+
+
+def _is_off_topic(normalized: str) -> bool:
+    if not normalized:
+        return False
+    if normalized in _NON_DOMAIN_SMALL_TALK:
+        return False
+    if any(keyword in normalized for keyword in _INVENTORY_KEYWORDS):
+        return False
+    if any(normalized.startswith(prefix.strip()) for prefix in _NAVIGATION_PREFIXES):
+        return False
+    tokens = re.findall(r"[a-z0-9']+", normalized)
+    if len(tokens) <= 3:
+        return False
+    return True
 
 
 async def _resolve_navigation_rows(
@@ -492,7 +621,92 @@ def _extract_location_create_entities(text: str) -> dict[str, Any]:
     return extracted
 
 
-def _should_continue_pending_mutation(
+def _active_pending_task(extracted_entities: dict[str, Any]) -> dict[str, Any] | None:
+    raw = extracted_entities.get('pendingTask')
+    if not isinstance(raw, dict):
+        raw = extracted_entities.get('pending_task')
+    if not isinstance(raw, dict):
+        return None
+    updated_at = raw.get('updatedAt')
+    if not isinstance(updated_at, str):
+        return None
+    try:
+        age = utc_now() - datetime.fromisoformat(updated_at.replace('Z', '+00:00'))
+    except ValueError:
+        return None
+    if age > _PENDING_TASK_TTL:
+        return None
+    return raw
+
+
+def _sync_pending_task(extracted_entities: dict[str, Any], task_context: dict[str, Any]) -> None:
+    status = str(task_context.get('status') or '')
+    if status in {'completed', 'failed'}:
+        extracted_entities.pop('pendingTask', None)
+        extracted_entities.pop('pending_task', None)
+        return
+    primary_intent = str(task_context.get('primaryIntent') or '')
+    if not primary_intent:
+        extracted_entities.pop('pendingTask', None)
+        extracted_entities.pop('pending_task', None)
+        return
+    extracted_entities['pendingTask'] = {
+        'route': task_context.get('primaryRoute'),
+        'intent': primary_intent,
+        'entities': dict(task_context.get('entities') or {}),
+        'missingFields': list(task_context.get('missingFields') or []),
+        'status': status or 'drafting',
+        'updatedAt': utc_now().isoformat(),
+    }
+
+
+def _should_reset_mutation_context(
+    *,
+    task_context: dict[str, Any],
+    primary_route: str,
+    primary_intent: str,
+) -> bool:
+    active_route = str(task_context.get('primaryRoute') or '')
+    active_intent = str(task_context.get('primaryIntent') or '')
+    if active_route != ROUTE_MUTATION or primary_route != ROUTE_MUTATION:
+        return False
+    if not active_intent or not primary_intent:
+        return False
+    return active_intent != primary_intent
+
+
+def _clear_runtime_workflow_state(
+    extracted_entities: dict[str, Any],
+    task_context: dict[str, Any],
+) -> dict[str, Any]:
+    cleared = dict(extracted_entities)
+    entities = task_context.get('entities')
+    if isinstance(entities, dict):
+        for key in entities:
+            cleared.pop(key, None)
+
+    for key in (
+        'taskContext',
+        'pendingTask',
+        'pending_task',
+        'toolName',
+        'executionPayload',
+        'preview',
+        'approvalRequired',
+        'approvalReason',
+        'summary',
+        'activeApprovalId',
+        'activeApprovalStatus',
+        '_pendingActions',
+        '_pendingPrompt',
+        '_pendingApprovalUpdateOriginal',
+        '_approvalOperation',
+    ):
+        cleared.pop(key, None)
+    return cleared
+
+
+def _should_continue_pending_task(
     *,
     text: str,
     task_context: dict[str, Any],
@@ -503,23 +717,93 @@ def _should_continue_pending_mutation(
     active_route = str(task_context.get('primaryRoute') or '')
     active_intent = str(task_context.get('primaryIntent') or '')
     missing_fields = [str(item) for item in task_context.get('missingFields') or []]
-    if active_route != ROUTE_MUTATION or not active_intent or not missing_fields:
+    status = str(task_context.get('status') or '')
+    if active_route not in {ROUTE_MUTATION, ROUTE_READ} or not active_intent:
         return False
+    # A new mutation for a *different* intent starts a fresh workflow.
     if route_fallback == ROUTE_MUTATION and intent_fallback and intent_fallback != active_intent:
         return False
+    if not missing_fields:
+        normalized = _normalize(text)
+        return (
+            active_route == ROUTE_MUTATION
+            and status in {'drafting', 'awaiting_confirmation', 'awaiting_approval'}
+            and route_fallback != ROUTE_MUTATION
+            and bool(normalized)
+            and not normalized.endswith('?')
+            and _looks_like_mutation_follow_up(normalized)
+        )
+    # Always continue when an entity extracted from this turn satisfies a missing field.
     if any(_entity_has_value(merged_entities, field) for field in missing_fields):
         return True
     normalized = _normalize(text)
     if not normalized or normalized.endswith('?'):
         return False
-    return ':' in text or '\n' in text
+    # Structured input (key:value or multiline) is clearly a follow-up.
+    if ':' in text or '\n' in text:
+        return True
+    # When an active mutation workflow is waiting for input and the user's
+    # message didn't resolve to a competing mutation intent, treat any
+    # non-question reply as continuation — regardless of how many tokens it
+    # has.  This handles detailed follow-ups like
+    # "tshirt, tees-1202, base price 100, xl size, black color".
+    if active_route == ROUTE_MUTATION and route_fallback != ROUTE_MUTATION:
+        return True
+    # Legacy short-message heuristic for read workflows.
+    return len(re.findall(r"[a-z0-9']+", normalized)) <= 4
 
 
 def _entity_has_value(entities: dict[str, Any], field: str) -> bool:
-    value = entities.get(field)
-    if isinstance(value, str):
-        return bool(value.strip())
-    return value is not None
+    for key in _entity_field_aliases(field):
+        value = entities.get(key)
+        if isinstance(value, str) and value.strip():
+            return True
+        if value is not None:
+            return True
+    return False
+
+
+def _entity_field_aliases(field: str) -> tuple[str, ...]:
+    aliases = {
+        'sku_and_size': ('sizeId', 'skuCode', 'sizeLabel'),
+        'location_and_quantity': ('locationId', 'quantity'),
+        'color_name': ('colorName',),
+        'size_labels': ('sizeLabels',),
+        'base_price': ('basePrice',),
+        'style_code': ('styleCode',),
+        'product_id': ('productId',),
+        'supplier_id': ('supplierId',),
+        'customer_id': ('customerId',),
+        'po_id': ('poId',),
+        'invoice_id': ('invoiceId',),
+        'location_id': ('locationId',),
+        'from_location_id': ('fromLocationId',),
+        'to_location_id': ('toLocationId',),
+    }
+    return (field, to_camel(field), *aliases.get(field, ()))
+
+
+def _looks_like_mutation_follow_up(normalized: str) -> bool:
+    if any(char.isdigit() for char in normalized):
+        return True
+    return any(
+        keyword in normalized
+        for keyword in (
+            'item',
+            'items',
+            'qty',
+            'quantity',
+            'supplier',
+            'customer',
+            'product',
+            'sku',
+            'style',
+            'color',
+            'size',
+            'same supplier',
+            'same customer',
+        )
+    )
 
 
 def _looks_like_location_code(value: str) -> bool:
@@ -538,6 +822,93 @@ def _normalize_location_type(value: str) -> str | None:
     if collapsed == 'outlet':
         return 'outlet'
     return None
+
+
+def _extract_contact_create_entities(text: str) -> dict[str, Any]:
+    """Extract name/email/phone/address from a supplier or customer creation message.
+
+    Handles inputs like:
+      "raghu"
+      "name : raghu"
+      "name : raghubez email raghu@bez.com"
+      "raghu, raghu@example.com, +447700123456, 10 Baker St"
+    """
+    extracted: dict[str, Any] = {}
+    working = text.strip()
+
+    # ── email ──────────────────────────────────────────────────────────────────
+    email_match = re.search(r'\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b', working)
+    if email_match:
+        extracted['email'] = email_match.group(0)
+        working = (working[: email_match.start()] + ' ' + working[email_match.end() :]).strip()
+
+    # ── phone ──────────────────────────────────────────────────────────────────
+    phone_match = re.search(r'(?<!\w)(\+?[0-9][\d\s\-()]{6,15}[0-9])(?!\w)', working)
+    if phone_match:
+        extracted['phone'] = phone_match.group(1).strip()
+        working = (working[: phone_match.start()] + ' ' + working[phone_match.end() :]).strip()
+
+    # ── labelled fields (field : value  or  field = value) ────────────────────
+    # Allow optional stray punctuation after the separator, e.g. "name:; raghu" or "name:, raghu".
+    _CONTACT_FIELDS = ('name', 'email', 'phone', 'address', 'status')
+    _FIELD_BOUNDARY = r'(?=\s*(?:$|,|;|\b(?:name|email|phone|address|status)\b))'
+    for field in _CONTACT_FIELDS:
+        if field in extracted:
+            continue
+        if field == 'address':
+            m = re.search(
+                r'\baddress\b(?:\s*[:=][;,]?\s*|\s+\bis\b\s+|\s+)(.+?)(?=\s*(?:$|;|\b(?:name|email|phone|status)\b))',
+                working,
+                re.IGNORECASE,
+            )
+        else:
+            m = re.search(
+                rf'\b{field}\b(?:\s*[:=][;,]?\s*|\s+\bis\b\s+)([^\n,;:]+?){_FIELD_BOUNDARY}',
+                working,
+                re.IGNORECASE,
+            )
+        if m:
+            value = m.group(1).strip().strip('"\'')
+            if value:
+                extracted[field] = value
+
+    if 'name' not in extracted:
+        named_match = re.search(
+            r'\b(?:name|named|called)\b\s*[:=]?\s*"?(.+?)"?(?=\s*(?:$|,|;|\b(?:with\s+email|email|phone|address|status)\b))',
+            working,
+            re.IGNORECASE,
+        )
+        if named_match:
+            value = named_match.group(1).strip().strip('"\'')
+            if value:
+                extracted['name'] = value
+
+    # ── bare name fallback ─────────────────────────────────────────────────────
+    if 'name' not in extracted:
+        _COMMAND_WORDS = r'\b(create|add|new|onboard|register|supplier|customer|vendor|client|named|called)\b'
+        # Also strip any remaining "field:;" style label artifacts before extracting the bare name.
+        _LABEL_ARTIFACTS = r'\b(?:name|email|phone|address|status)\b\s*[:=][;,]?\s*'
+        candidate = re.sub(_COMMAND_WORDS, '', working, flags=re.IGNORECASE)
+        candidate = re.sub(_LABEL_ARTIFACTS, '', candidate, flags=re.IGNORECASE).strip(' ,;:')
+        normalized_candidate = _normalize(candidate)
+        if candidate and normalized_candidate not in {
+            'yes',
+            'yeah',
+            'yep',
+            'ok',
+            'okay',
+            'sure',
+            'same',
+            'same one',
+            'same details',
+            'same as before',
+            'use same',
+            'use same details',
+            'again',
+        } and not re.search(r'\b(?:phone|email|address|status)\b', candidate, re.IGNORECASE):
+            extracted['name'] = candidate
+
+    return extracted
 
 
 def _looks_like_location_creation_request(value: str) -> bool:

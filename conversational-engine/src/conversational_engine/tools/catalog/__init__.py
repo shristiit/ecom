@@ -5,6 +5,7 @@ from typing import Any
 from conversational_engine.clients.backend import BackendClient
 from conversational_engine.contracts.auth import AuthContext
 from conversational_engine.tools.definitions import SemanticTool
+from conversational_engine.tools.validation import ToolSchemaValidationError, validate_payload
 from .commerce import build_commerce_tools
 from .inventory import build_inventory_tools
 from .products import build_product_tools
@@ -12,9 +13,16 @@ from .resolvers import EntityResolver
 
 
 class SemanticToolCatalog:
-    def __init__(self, *, backend: BackendClient, auth: AuthContext) -> None:
+    def __init__(
+        self,
+        *,
+        backend: BackendClient,
+        auth: AuthContext,
+        context_entities: dict[str, Any] | None = None,
+    ) -> None:
         self._backend = backend
         self._auth = auth
+        self._context_entities = dict(context_entities or {})
         self._tools = self._build_tools()
 
     def definitions(self) -> list[SemanticTool]:
@@ -35,6 +43,14 @@ class SemanticToolCatalog:
     def get(self, name: str) -> SemanticTool | None:
         return self._tools.get(name)
 
+    def validate(self, name: str, payload: dict[str, Any]) -> None:
+        tool = self.get(name)
+        if tool is None:
+            raise RuntimeError(f'Unknown semantic tool: {name}')
+        issues = validate_payload(tool.input_schema, payload)
+        if issues:
+            raise ToolSchemaValidationError(issues)
+
     async def prepare(self, name: str, payload: dict[str, Any]) -> dict[str, Any]:
         tool = self.get(name)
         if tool is None:
@@ -51,7 +67,7 @@ class SemanticToolCatalog:
         return await tool.executor(prepared)
 
     def _build_tools(self) -> dict[str, SemanticTool]:
-        resolver = EntityResolver(self._backend, self._auth)
+        resolver = EntityResolver(self._backend, self._auth, context_entities=self._context_entities)
         return {
             **build_commerce_tools(self._backend, self._auth, resolver),
             **build_inventory_tools(self._backend, self._auth, resolver),

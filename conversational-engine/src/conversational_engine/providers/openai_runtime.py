@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import json
 from typing import Any
 
 import httpx
 
 from conversational_engine.providers.runtime import ProviderMessage, ProviderResponse, RuntimeProvider
+from conversational_engine.utils.json_parsing import parse_json_object
 
 
 class OpenAICompatibleRuntimeProvider(RuntimeProvider):
@@ -115,12 +115,7 @@ class OpenAICompatibleRuntimeProvider(RuntimeProvider):
         if not isinstance(raw, str) or not raw.strip():
             raise RuntimeError(f'{self.name} returned an empty JSON response')
 
-        try:
-            parsed = json.loads(raw)
-        except json.JSONDecodeError as exc:
-            raise RuntimeError(f'{self.name} returned invalid JSON: {exc}') from exc
-        if not isinstance(parsed, dict):
-            raise RuntimeError(f'{self.name} returned a non-object JSON payload')
+        parsed = parse_json_object(raw, source=self.name)
 
         return ProviderResponse(
             provider_name=self.name,

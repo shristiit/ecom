@@ -30,7 +30,10 @@ def _embed(text: str, dimensions: int = 64) -> list[float]:
 
 
 def _cosine(left: list[float], right: list[float]) -> float:
-    return sum(a * b for a, b in zip(left, right, strict=False))
+    try:
+        return sum(a * b for a, b in zip(left, right, strict=True))
+    except ValueError as exc:
+        raise ValueError('Embedding vectors must have the same length for cosine similarity.') from exc
 
 
 def _chunks(content: str) -> list[str]:

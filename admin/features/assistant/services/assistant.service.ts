@@ -79,8 +79,19 @@ export const assistantService = {
     );
   },
 
-  getConversation(id: string) {
-    return engineGet<AssistantConversation>(`/api/chat/conversations/${id}`);
+  getConversation(
+    id: string,
+    options?: {
+      messageLimit?: number;
+      beforeCreatedAt?: string | null;
+      beforeId?: string | null;
+    },
+  ) {
+    return engineGet<AssistantConversation>(`/api/chat/conversations/${id}`, {
+      message_limit: options?.messageLimit,
+      before_created_at: options?.beforeCreatedAt ?? undefined,
+      before_id: options?.beforeId ?? undefined,
+    });
   },
 
   createConversation(input: { title?: string; initialMessage?: string | null; attachmentIds?: string[] }) {
@@ -106,6 +117,7 @@ export const assistantService = {
       attachments?: Array<{ dataUrl: string; filename?: string }>;
     },
     onEvent: (event: AssistantRunEvent) => void | Promise<void>,
+    options?: { signal?: AbortSignal },
   ): Promise<{ runId: string | null; conversationId: string | null; workflowId: string | null }> {
     let latestEvent: AssistantRunEvent | null = null;
     await engineStream<AssistantRunEvent, typeof input>(
@@ -115,6 +127,7 @@ export const assistantService = {
         latestEvent = event;
         await onEvent(event);
       },
+      options,
     );
     const finalEvent = latestEvent as AssistantRunEvent | null;
     return {

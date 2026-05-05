@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-import json
 from typing import Any
 
 from conversational_engine.providers.router import ProviderRouter, ProviderTrace
 from conversational_engine.providers.runtime import ProviderMessage
+from conversational_engine.utils.json_parsing import parse_json_object
 
 NARRATOR_SCHEMA = {
     'type': 'object',
@@ -134,25 +134,33 @@ class NarratorAgent:
         if not cleaned:
             return ''
         try:
-            payload = json.loads(cleaned)
-        except json.JSONDecodeError:
+            payload = parse_json_object(cleaned, source='Narrator')
+        except RuntimeError:
             return cleaned
-        if isinstance(payload, dict):
-            message = payload.get('message')
-            if isinstance(message, str):
-                return message.strip()
+        message = payload.get('message')
+        if isinstance(message, str):
+            return message.strip()
         return cleaned
 
     @staticmethod
     def _looks_like_internal_instruction(message: str, directive: str) -> bool:
         normalized_message = ' '.join(message.split()).strip().lower()
-        normalized_directive = ' '.join(directive.split()).strip().lower()
         if not normalized_message:
             return True
-        if normalized_message == normalized_directive:
-            return True
+        normalized_directive = ' '.join(directive.split()).strip().lower()
+        # Reject messages that are literally meta-instructions leaked from the prompt.
+        # NOTE: Do NOT reject messages that happen to match the directive — a clarification
+        # question directive IS the message we want to send to the user.
         if normalized_message.startswith('reply naturally to the user'):
             return True
+        if normalized_message.startswith('reply to the user in'):
+            return True
         if normalized_message.startswith('directive for what to communicate'):
+            return True
+        if normalized_message.startswith('write a natural'):
+            return True
+        if normalized_message.startswith('communicate that'):
+            return True
+        if normalized_message == normalized_directive and normalized_message.startswith('reply to the user'):
             return True
         return False

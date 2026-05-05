@@ -2,6 +2,7 @@ import { type ReactNode, createContext, useCallback, useContext, useEffect, useM
 import { Platform } from 'react-native';
 import { openBrowserAsync, WebBrowserPresentationStyle } from 'expo-web-browser';
 import { configureApiClient } from '@admin/lib/api';
+import { queryClient } from '@admin/lib/query';
 import { authService } from '../services/auth.service';
 import { sessionStorage } from '../services/session-storage';
 import type { LoginInput, RegisterBusinessInput } from '../types/auth.types';
@@ -59,6 +60,28 @@ function resolvePortalMode(): PortalMode {
   return 'business';
 }
 
+function buildQueryCacheNamespace({
+  portalMode,
+  principalType,
+  userId,
+  selectedTenantId,
+}: {
+  portalMode: PortalMode;
+  principalType?: PrincipalType | null;
+  userId?: string | null;
+  selectedTenantId?: string | null;
+}) {
+  if (!principalType || !userId) {
+    return `guest:${portalMode}`;
+  }
+
+  if (portalMode === 'platform' || principalType === 'platform_admin') {
+    return `portal:${portalMode}:platform_admin:${userId}`;
+  }
+
+  return `portal:${portalMode}:tenant_user:${userId}:tenant:${selectedTenantId ?? 'none'}`;
+}
+
 async function buildSessionUser(portalMode: PortalMode) {
   if (portalMode === 'platform') {
     const profile = await authService.platformMe();
@@ -104,10 +127,12 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
 
   const signOut = useCallback(() => {
     sessionStorage.clear();
+    queryClient.setNamespace(buildQueryCacheNamespace({ portalMode }));
+    void queryClient.clearAll();
     setState({ ...initialState, status: 'signed_out' });
     unauthorizedHandlerRef.current = null;
     configureApiClient({ getAccessToken: () => null, getTenantId: () => null, onUnauthorized: undefined });
-  }, []);
+  }, [portalMode]);
 
   const applyApiContext = useCallback((nextState: SessionState) => {
     configureApiClient({
@@ -153,6 +178,14 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
         selectedTenantId: nextSelectedTenantId,
       };
 
+      queryClient.setNamespace(
+        buildQueryCacheNamespace({
+          portalMode,
+          principalType: user.principalType,
+          userId: user.id,
+          selectedTenantId: nextSelectedTenantId,
+        }),
+      );
       setState(nextState);
       applyApiContext(nextState);
     },
@@ -195,6 +228,7 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
 
     if (!stored.accessToken || !stored.refreshToken) {
       const signedOut: SessionState = { ...initialState, status: 'signed_out' };
+      queryClient.setNamespace(buildQueryCacheNamespace({ portalMode }));
       setState(signedOut);
       applyApiContext(signedOut);
       return;
@@ -292,6 +326,14 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
     if (portalMode !== 'business') return;
     setState((prev) => {
       const nextState = { ...prev, selectedTenantId: tenantId };
+      queryClient.setNamespace(
+        buildQueryCacheNamespace({
+          portalMode,
+          principalType: nextState.user?.principalType,
+          userId: nextState.user?.id,
+          selectedTenantId: tenantId,
+        }),
+      );
       applyApiContext(nextState);
       return nextState;
     });

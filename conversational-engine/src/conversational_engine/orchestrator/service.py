@@ -33,6 +33,7 @@ from conversational_engine.contracts.common import (
 )
 from conversational_engine.providers.base import IntentClassifier
 from conversational_engine.retrieval.service import RetrievalService
+from conversational_engine.utils.time import utc_now
 from conversational_engine.orchestrator.entities import (
     extract_inventory_entities,
     extract_po_entities,
@@ -149,6 +150,18 @@ class OrchestratorService:
 
         intent = await self._classify_intent_with_providers(user_message, memory, workflow)
         memory['intent'] = intent
+        if intent == 'off_topic':
+            return OrchestratorOutcome(
+                blocks=[
+                    TextBlock(
+                        content='I can help with inventory, products, purchasing, sales orders, suppliers, customers, and reports.'
+                    )
+                ],
+                status=WorkflowStatus.COMPLETED,
+                current_task='off_topic_redirected',
+                extracted_entities=memory,
+                missing_fields=[],
+            )
         await self._audit(
             auth,
             conversation_id=str(conversation.id),
@@ -220,6 +233,7 @@ class OrchestratorService:
         memory.update(result.memory_updates or {})
 
         if result.next_action == 'return_read_result':
+            self._clear_pending_task(memory)
             return OrchestratorOutcome(
                 blocks=result.blocks or [TextBlock(content='Done.')],
                 status=WorkflowStatus.IDLE,
@@ -235,6 +249,7 @@ class OrchestratorService:
             prompt = result.follow_up_prompt or self._clarification_prompt(intent, memory, missing_fields)
             memory.pop('_pendingActions', None)
             memory.pop('_pendingPrompt', None)
+            self._set_pending_task(memory, intent=intent, missing_fields=missing_fields)
             await self._audit(
                 auth,
                 conversation_id=str(conversation.id),
@@ -278,8 +293,14 @@ class OrchestratorService:
             WorkflowStatus.AWAITING_CONFIRMATION,
             WorkflowStatus.AWAITING_APPROVAL,
         }:
-            if memory.get('intent') and 'new chat' not in normalized and 'start over' not in normalized:
-                return str(memory['intent'])
+            pending_task = memory.get('pendingTask')
+            if (
+                isinstance(pending_task, dict)
+                and pending_task.get('intent')
+                and 'new chat' not in normalized
+                and 'start over' not in normalized
+            ):
+                return str(pending_task['intent'])
 
         intents = [
             'stock_query',
@@ -343,6 +364,7 @@ class OrchestratorService:
             memory['requesterAccessToken'] = auth.access_token
         memory['_pendingActions'] = WRITE_PENDING_ACTIONS
         memory['_pendingPrompt'] = 'Review the preview, then confirm or submit it for approval.'
+        self._set_pending_task(memory, intent=intent, missing_fields=[])
 
         await self._audit(
             auth,
@@ -395,6 +417,7 @@ class OrchestratorService:
             memory.pop('requesterAccessToken', None)
             memory.pop('_pendingActions', None)
             memory.pop('_pendingPrompt', None)
+            self._clear_pending_task(memory)
             await self._audit(
                 auth,
                 conversation_id=str(conversation.id),
@@ -420,6 +443,7 @@ class OrchestratorService:
         if decision == PendingActionType.EDIT.value:
             memory.pop('_pendingActions', None)
             memory.pop('_pendingPrompt', None)
+            self._set_pending_task(memory, intent=str(memory.get('intent') or action_type), missing_fields=[])
             return OrchestratorOutcome(
                 blocks=[
                     ClarificationBlock(
@@ -1448,3 +1472,18 @@ class OrchestratorService:
             )
         except Exception:
             return
+
+    @staticmethod
+    def _set_pending_task(memory: dict[str, object], *, intent: str, missing_fields: list[str]) -> None:
+        entity_snapshot = {key: value for key, value in memory.items() if key not in {'pendingTask', 'pending_task'}}
+        memory['pendingTask'] = {
+            'intent': intent,
+            'entities': entity_snapshot,
+            'missingFields': list(missing_fields),
+            'updatedAt': utc_now().isoformat(),
+        }
+
+    @staticmethod
+    def _clear_pending_task(memory: dict[str, object]) -> None:
+        memory.pop('pendingTask', None)
+        memory.pop('pending_task', None)

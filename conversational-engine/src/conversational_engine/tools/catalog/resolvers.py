@@ -1,19 +1,49 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+import re
 from typing import Any
 
 from conversational_engine.clients.backend import BackendClient
 from conversational_engine.contracts.auth import AuthContext
 
-from .utils import best_match, is_uuid
+from .utils import is_uuid
+
+
+@dataclass(frozen=True, slots=True)
+class ResolutionCandidate:
+    id: str
+    label: str
+
+
+@dataclass(frozen=True, slots=True)
+class ResolutionResult:
+    status: str
+    value: str | None = None
+    message: str = ''
+    candidates: tuple[ResolutionCandidate, ...] = ()
+
+
+class ResolutionError(ValueError):
+    def __init__(self, result: ResolutionResult) -> None:
+        super().__init__(result.message)
+        self.result = result
 
 
 class EntityResolver:
     """Resolves human-readable names (locations, suppliers, products…) to backend UUIDs."""
 
-    def __init__(self, backend: BackendClient, auth: AuthContext) -> None:
+    def __init__(
+        self,
+        backend: BackendClient,
+        auth: AuthContext,
+        *,
+        context_entities: dict[str, Any] | None = None,
+    ) -> None:
         self._backend = backend
         self._auth = auth
+        self._cache: dict[str, object] = {}
+        self._context_entities = dict(context_entities or {})
 
     @property
     def _token(self) -> str:
@@ -26,66 +56,170 @@ class EntityResolver:
     async def location(self, name_or_id: str) -> str:
         if is_uuid(name_or_id):
             return name_or_id
-        items = await self._backend.list_locations(self._token, self._tenant)
-        match = best_match(items, name_or_id, 'name', 'code')
-        if match:
-            return str(match['id'])
-        available = ', '.join(str(location.get('name') or location.get('code')) for location in items[:10])
-        raise ValueError(f'Location "{name_or_id}" not found. Available: {available}')
+        items = await self._cached_rows('locations', lambda: self._backend.list_locations(self._token, self._tenant))
+        return self._require_resolved(
+            self._resolve_named_entity(
+                items,
+                name_or_id,
+                match_fields=('id', 'name', 'code'),
+                label_fields=('name', 'code'),
+                singular='location',
+                plural='locations',
+            )
+        )
 
     async def supplier(self, name_or_id: str) -> str:
         if is_uuid(name_or_id):
             return name_or_id
-        items = await self._backend.list_suppliers(self._token, self._tenant)
-        match = best_match(items, name_or_id, 'name', 'code')
-        if match:
-            return str(match['id'])
-        available = ', '.join(str(s.get('name')) for s in items[:10])
-        raise ValueError(f'Supplier "{name_or_id}" not found. Available: {available}')
+        relative = self._relative_context_value(
+            name_or_id,
+            terms=('same supplier', 'this supplier', 'that supplier', 'supplier we just created'),
+            value_keys=('supplierId',),
+        )
+        if relative is not None:
+            return self._require_resolved(relative)
+        items = await self._cached_rows('suppliers', lambda: self._backend.list_suppliers(self._token, self._tenant))
+        return self._require_resolved(
+            self._resolve_named_entity(
+                items,
+                name_or_id,
+                match_fields=('id', 'name', 'code'),
+                label_fields=('name', 'code'),
+                singular='supplier',
+                plural='suppliers',
+            )
+        )
 
     async def customer(self, name_or_id: str) -> str:
         if is_uuid(name_or_id):
             return name_or_id
-        items = await self._backend.list_customers(self._token, self._tenant)
-        match = best_match(items, name_or_id, 'name', 'email', 'code')
-        if match:
-            return str(match['id'])
-        available = ', '.join(str(c.get('name')) for c in items[:10])
-        raise ValueError(f'Customer "{name_or_id}" not found. Available: {available}')
+        relative = self._relative_context_value(
+            name_or_id,
+            terms=('same customer', 'this customer', 'that customer', 'customer we just created'),
+            value_keys=('customerId',),
+        )
+        if relative is not None:
+            return self._require_resolved(relative)
+        items = await self._cached_rows('customers', lambda: self._backend.list_customers(self._token, self._tenant))
+        return self._require_resolved(
+            self._resolve_named_entity(
+                items,
+                name_or_id,
+                match_fields=('id', 'name', 'email', 'code'),
+                label_fields=('name', 'email', 'code'),
+                singular='customer',
+                plural='customers',
+            )
+        )
 
     async def category(self, name_or_id: str) -> str:
         if is_uuid(name_or_id):
             return name_or_id
-        items = await self._backend.list_categories(self._token, self._tenant)
-        match = best_match(items, name_or_id, 'name')
-        if match:
-            return str(match['id'])
-        available = ', '.join(str(c.get('name')) for c in items[:10])
-        raise ValueError(f'Category "{name_or_id}" not found. Available: {available}')
+        items = await self._cached_rows('categories', lambda: self._backend.list_categories(self._token, self._tenant))
+        return self._require_resolved(
+            self._resolve_named_entity(
+                items,
+                name_or_id,
+                match_fields=('id', 'name'),
+                label_fields=('name',),
+                singular='category',
+                plural='categories',
+            )
+        )
 
     async def purchase_order(self, number_or_id: str) -> str:
         if is_uuid(number_or_id):
             return number_or_id
-        payload = await self._backend.list_pos(self._token, self._tenant)
+        payload = await self._cached_value('purchase_orders', lambda: self._backend.list_pos(self._token, self._tenant))
         items = payload.get('items') if isinstance(payload, dict) else None
         rows = items if isinstance(items, list) else []
-        match = best_match(rows, number_or_id, 'number', 'id', 'supplierName', 'supplier_name')
-        if match:
-            return str(match['id'])
-        available = ', '.join(str(row.get('number') or row.get('id')) for row in rows[:10])
-        raise ValueError(f'Purchase order "{number_or_id}" not found. Available: {available or "none"}')
+        latest_for_party = self._latest_reference_for_party(
+            number_or_id,
+            rows=rows,
+            pattern=re.compile(
+                r'^(?:my\s+last|last|latest)\s+(?:purchase order|po)\s+for\s+(.+)$',
+                re.IGNORECASE,
+            ),
+            scope_fields=('supplierName', 'supplier_name'),
+            label_fields=('number', 'supplierName', 'supplier_name'),
+            singular='purchase order',
+            party_label='supplier',
+        )
+        if latest_for_party is not None:
+            return self._require_resolved(latest_for_party)
+        relative = self._relative_context_value(
+            number_or_id,
+            terms=('this purchase order', 'that purchase order', 'this po', 'that po'),
+            value_keys=('poId',),
+        )
+        if relative is not None:
+            return self._require_resolved(relative)
+        latest = self._latest_list_reference(
+            number_or_id,
+            terms=('last purchase order', 'my last purchase order', 'last po', 'my last po', 'latest po'),
+            rows=rows,
+            label_fields=('number', 'supplierName', 'supplier_name'),
+            singular='purchase order',
+        )
+        if latest is not None:
+            return self._require_resolved(latest)
+        return self._require_resolved(
+            self._resolve_named_entity(
+                rows,
+                number_or_id,
+                match_fields=('number', 'id', 'supplierName', 'supplier_name'),
+                label_fields=('number', 'supplierName', 'supplier_name'),
+                singular='purchase order',
+                plural='purchase orders',
+            )
+        )
 
     async def invoice(self, number_or_id: str) -> str:
         if is_uuid(number_or_id):
             return number_or_id
-        payload = await self._backend.list_invoices(self._token, self._tenant)
+        payload = await self._cached_value('invoices', lambda: self._backend.list_invoices(self._token, self._tenant))
         items = payload.get('items') if isinstance(payload, dict) else None
         rows = items if isinstance(items, list) else []
-        match = best_match(rows, number_or_id, 'number', 'id', 'customerName', 'customer_name')
-        if match:
-            return str(match['id'])
-        available = ', '.join(str(row.get('number') or row.get('id')) for row in rows[:10])
-        raise ValueError(f'Sales order "{number_or_id}" not found. Available: {available or "none"}')
+        latest_for_party = self._latest_reference_for_party(
+            number_or_id,
+            rows=rows,
+            pattern=re.compile(
+                r'^(?:my\s+last|last|latest)\s+(?:sales order|invoice|so)\s+for\s+(.+)$',
+                re.IGNORECASE,
+            ),
+            scope_fields=('customerName', 'customer_name'),
+            label_fields=('number', 'customerName', 'customer_name'),
+            singular='sales order',
+            party_label='customer',
+        )
+        if latest_for_party is not None:
+            return self._require_resolved(latest_for_party)
+        relative = self._relative_context_value(
+            number_or_id,
+            terms=('this sales order', 'that sales order', 'this invoice', 'that invoice', 'this so', 'that so'),
+            value_keys=('invoiceId',),
+        )
+        if relative is not None:
+            return self._require_resolved(relative)
+        latest = self._latest_list_reference(
+            number_or_id,
+            terms=('last sales order', 'my last sales order', 'last invoice', 'my last invoice', 'latest sales order'),
+            rows=rows,
+            label_fields=('number', 'customerName', 'customer_name'),
+            singular='sales order',
+        )
+        if latest is not None:
+            return self._require_resolved(latest)
+        return self._require_resolved(
+            self._resolve_named_entity(
+                rows,
+                number_or_id,
+                match_fields=('number', 'id', 'customerName', 'customer_name'),
+                label_fields=('number', 'customerName', 'customer_name'),
+                singular='sales order',
+                plural='sales orders',
+            )
+        )
 
     async def sku_size(
         self,
@@ -94,7 +228,7 @@ class EntityResolver:
         color_name: str | None = None,
     ) -> str:
         """Resolve product name + size label (+ optional colour) to a sku_size UUID."""
-        products = await self._backend.search_products(self._token, self._tenant, q=product_name)
+        products = self._product_rows(await self._backend.search_products(self._token, self._tenant, q=product_name))
         if not products:
             raise ValueError(f'Product "{product_name}" not found.')
 
@@ -133,37 +267,45 @@ class EntityResolver:
         product_name: str,
         size_label: str,
         color_name: str | None = None,
+        *,
+        sku_code: str | None = None,
     ) -> dict[str, int | str]:
         """Resolve a sales-order line to a sku_size UUID and effective unit price."""
-        products = await self._backend.search_products(self._token, self._tenant, q=product_name)
-        if not products:
-            raise ValueError(f'Product "{product_name}" not found.')
-
-        full = await self._backend.get_product(self._token, self._tenant, str(products[0]['id']))
+        product_label = sku_code or product_name
+        full = await self._product_detail(product_name=product_name, sku_code=sku_code)
         product = full.get('product') or {}
         skus: list[dict[str, Any]] = full.get('skus') or []  # type: ignore[assignment]
         sizes: list[dict[str, Any]] = full.get('sizes') or []  # type: ignore[assignment]
 
+        requested_sku_code = str(sku_code or '').strip().upper()
+        if requested_sku_code:
+            sku_matches = [
+                sku for sku in skus if str(sku.get('sku_code') or '').strip().upper() == requested_sku_code
+            ]
+            if not sku_matches:
+                raise ValueError(f'SKU "{requested_sku_code}" was not found for "{product_label}".')
+            candidate_skus = sku_matches
+        else:
+            candidate_skus = skus
+
         available_colors = sorted(
             {
                 str(sku.get('color_name')).strip()
-                for sku in skus
+                for sku in candidate_skus
                 if isinstance(sku.get('color_name'), str) and str(sku.get('color_name')).strip()
             }
         )
 
-        if color_name:
+        if color_name and not requested_sku_code:
             cnl = color_name.lower()
-            colour_skus = [s for s in skus if cnl in str(s.get('color_name') or '').lower()]
+            colour_skus = [s for s in candidate_skus if cnl in str(s.get('color_name') or '').lower()]
             if not colour_skus:
                 available = ', '.join(available_colors[:10]) or 'none'
-                raise ValueError(f'Color "{color_name}" not found for "{product_name}". Available: {available}')
+                raise ValueError(f'Color "{color_name}" not found for "{product_label}". Available: {available}')
             candidate_skus = colour_skus
-        else:
+        elif not requested_sku_code:
             if len(available_colors) > 1:
-                available = ', '.join(available_colors[:10])
-                raise ValueError(f'Color is required for "{product_name}". Available: {available}')
-            candidate_skus = skus
+                raise ValueError(self._variant_prompt(product_label, skus, sizes))
 
         candidate_ids = {str(s['id']) for s in candidate_skus}
         sku_by_id = {str(s['id']): s for s in candidate_skus}
@@ -186,20 +328,30 @@ class EntityResolver:
                 raw_price = product.get('base_price')
             if raw_price is None:
                 raise ValueError(
-                    f'Unit price is not configured for "{product_name}" {color_name or ""} {size_label}'.strip()
+                    f'Unit price is not configured for "{product_label}" {color_name or ""} {size_label}'.strip()
                 )
             return int(raw_price)
 
+        base_price = product.get('base_price')
+        if base_price is None:
+            raise ValueError(
+                f'Base price is not configured for "{product_label}". Provide unit cost explicitly or set the product base price.'
+            )
+
+        def resolved_unit_cost() -> int:
+            return int(base_price)
+
         if not sl:
-            if len(available_sizes) > 1:
-                available = ', '.join(available_sizes[:10]) or 'none'
-                raise ValueError(
-                    f'Size is required for "{product_name}" {color_name or ""}. Available: {available}'.strip()
-                )
+            if len(available_sizes) > 1 or len(candidate_sizes) > 1:
+                raise ValueError(self._variant_prompt(product_label, candidate_skus, candidate_sizes))
             if len(candidate_sizes) == 1:
                 size = candidate_sizes[0]
-                return {'sizeId': str(size['id']), 'unitPrice': effective_unit_price(size)}
-            raise ValueError(f'Size is required for "{product_name}" {color_name or ""}.'.strip())
+                return {
+                    'sizeId': str(size['id']),
+                    'unitPrice': effective_unit_price(size),
+                    'unitCost': resolved_unit_cost(),
+                }
+            raise ValueError(f'Size is required for "{product_label}" {color_name or ""}.'.strip())
 
         exact_matches = [
             size
@@ -208,7 +360,11 @@ class EntityResolver:
         ]
         if len(exact_matches) == 1:
             size = exact_matches[0]
-            return {'sizeId': str(size['id']), 'unitPrice': effective_unit_price(size)}
+            return {
+                'sizeId': str(size['id']),
+                'unitPrice': effective_unit_price(size),
+                'unitCost': resolved_unit_cost(),
+            }
 
         partial_matches = [
             size
@@ -217,11 +373,15 @@ class EntityResolver:
         ]
         if len(partial_matches) == 1:
             size = partial_matches[0]
-            return {'sizeId': str(size['id']), 'unitPrice': effective_unit_price(size)}
+            return {
+                'sizeId': str(size['id']),
+                'unitPrice': effective_unit_price(size),
+                'unitCost': resolved_unit_cost(),
+            }
 
         available = ', '.join(available_sizes[:10])
         raise ValueError(
-            f'Size "{size_label}" not found for "{product_name}". Available: {available or "none"}'
+            f'Size "{size_label}" not found for "{product_label}". Available: {available or "none"}'
         )
 
     async def size_from_payload(self, payload: dict[str, Any]) -> str:
@@ -239,6 +399,25 @@ class EntityResolver:
         details = await self.sku_size_details(product_name, size_label, color_name)
         return str(details['sizeId'])
 
+    async def _cached_rows(
+        self,
+        key: str,
+        loader,
+    ) -> list[dict[str, object]]:
+        cached = self._cache.get(key)
+        if isinstance(cached, list):
+            return cached
+        rows = await loader()
+        self._cache[key] = rows
+        return rows
+
+    async def _cached_value(self, key: str, loader):
+        if key in self._cache:
+            return self._cache[key]
+        value = await loader()
+        self._cache[key] = value
+        return value
+
     async def size_lines_from_product(
         self,
         product_name: str,
@@ -247,7 +426,7 @@ class EntityResolver:
         size_labels: list[str] | None = None,
     ) -> list[dict[str, str]]:
         """Expand a product reference into concrete size rows for matching colours/sizes."""
-        products = await self._backend.search_products(self._token, self._tenant, q=product_name)
+        products = self._product_rows(await self._backend.search_products(self._token, self._tenant, q=product_name))
         if not products:
             raise ValueError(f'Product "{product_name}" not found.')
 
@@ -311,3 +490,276 @@ class EntityResolver:
         ]
         rows.sort(key=lambda row: (row['colorName'], row['sizeLabel']))
         return rows
+
+    @staticmethod
+    def _product_rows(payload: object) -> list[dict[str, Any]]:
+        if isinstance(payload, list):
+            return [item for item in payload if isinstance(item, dict)]
+        if isinstance(payload, dict):
+            items = payload.get('items')
+            if isinstance(items, list):
+                return [item for item in items if isinstance(item, dict)]
+        return []
+
+    async def _product_detail(
+        self,
+        *,
+        product_name: str,
+        sku_code: str | None = None,
+    ) -> dict[str, Any]:
+        requested_sku_code = str(sku_code or '').strip().upper()
+        if requested_sku_code:
+            sku_matches = await self._backend.search_skus(self._token, self._tenant, requested_sku_code)
+            exact = None
+            for candidate in sku_matches:
+                code = str(candidate.get('sku_code') or '').strip().upper()
+                if code == requested_sku_code:
+                    exact = candidate
+                    break
+            candidate = exact or (sku_matches[0] if sku_matches else None)
+            if isinstance(candidate, dict) and candidate.get('product_id'):
+                return await self._backend.get_product(self._token, self._tenant, str(candidate['product_id']))
+
+        products = self._product_rows(await self._backend.search_products(self._token, self._tenant, q=product_name))
+        if not products:
+            label = requested_sku_code or product_name
+            raise ValueError(f'Product "{label}" not found.')
+        return await self._backend.get_product(self._token, self._tenant, str(products[0]['id']))
+
+    @staticmethod
+    def _variant_prompt(
+        product_label: str,
+        skus: list[dict[str, Any]],
+        sizes: list[dict[str, Any]],
+    ) -> str:
+        color_by_sku_id = {
+            str(sku.get('id')): str(sku.get('color_name') or '').strip()
+            for sku in skus
+            if str(sku.get('id') or '').strip()
+        }
+        options = sorted(
+            {
+                ' / '.join(
+                    part
+                    for part in (
+                        color_by_sku_id.get(str(size.get('sku_id')), ''),
+                        str(size.get('size_label') or '').strip().upper(),
+                    )
+                    if part
+                )
+                for size in sizes
+                if str(size.get('id') or '').strip()
+            }
+        )
+        available = ', '.join(option for option in options[:12] if option) or 'none'
+        return (
+            f'Multiple variants are available for "{product_label}". '
+            f'Which variant should I use? Available variants: {available}.'
+        )
+
+    @staticmethod
+    def _require_resolved(result: ResolutionResult) -> str:
+        if result.status in {'resolved', 'relative_reference'} and result.value:
+            return result.value
+        raise ResolutionError(result)
+
+    def _relative_context_value(
+        self,
+        query: str,
+        *,
+        terms: tuple[str, ...],
+        value_keys: tuple[str, ...],
+    ) -> ResolutionResult | None:
+        normalized_query = query.strip().lower()
+        if normalized_query not in terms:
+            return None
+        for key in value_keys:
+            value = self._context_entities.get(key)
+            if isinstance(value, str) and value.strip():
+                return ResolutionResult(status='relative_reference', value=value.strip())
+        missing_label = terms[0]
+        return ResolutionResult(
+            status='not_found',
+            message=f'I do not have an active reference for "{missing_label}". Please specify the exact record.',
+        )
+
+    def _latest_list_reference(
+        self,
+        query: str,
+        *,
+        terms: tuple[str, ...],
+        rows: list[dict[str, object]],
+        label_fields: tuple[str, ...],
+        singular: str,
+    ) -> ResolutionResult | None:
+        normalized_query = query.strip().lower()
+        if normalized_query not in terms:
+            return None
+        if not rows:
+            return ResolutionResult(
+                status='not_found',
+                message=f'I could not find any {singular}s to use as the latest reference.',
+            )
+        identifier = str(rows[0].get('id') or '').strip()
+        if not identifier:
+            return ResolutionResult(
+                status='not_found',
+                message=f'The latest {singular} is missing an id.',
+            )
+        return ResolutionResult(status='relative_reference', value=identifier)
+
+    def _latest_reference_for_party(
+        self,
+        query: str,
+        *,
+        rows: list[dict[str, object]],
+        pattern: re.Pattern[str],
+        scope_fields: tuple[str, ...],
+        label_fields: tuple[str, ...],
+        singular: str,
+        party_label: str,
+    ) -> ResolutionResult | None:
+        match = pattern.match(query.strip())
+        if not match:
+            return None
+        scope_query = str(match.group(1) or '').strip().lower()
+        if not scope_query:
+            return ResolutionResult(
+                status='not_found',
+                message=f'Which {party_label} should I use for the latest {singular} reference?',
+            )
+
+        exact_matches = self._matching_rows(rows, scope_query, scope_fields, exact=True)
+        partial_matches = self._matching_rows(rows, scope_query, scope_fields, exact=False)
+        matches = exact_matches or partial_matches
+        if not matches:
+            return ResolutionResult(
+                status='not_found',
+                message=f'No {singular} found for {party_label} "{match.group(1).strip()}".',
+            )
+
+        distinct_labels = {
+            self._candidate_label(row, scope_fields)
+            for row in matches
+            if self._candidate_label(row, scope_fields)
+        }
+        if len(distinct_labels) > 1 and not exact_matches:
+            return self._ambiguous_result(
+                match.group(1).strip(),
+                matches,
+                label_fields=label_fields,
+                singular=singular,
+                plural=f'{singular}s',
+            )
+
+        identifier = str(matches[0].get('id') or '').strip()
+        if not identifier:
+            return ResolutionResult(
+                status='not_found',
+                message=f'The latest {singular} for {party_label} "{match.group(1).strip()}" is missing an id.',
+            )
+        return ResolutionResult(status='relative_reference', value=identifier)
+
+    def _resolve_named_entity(
+        self,
+        rows: list[dict[str, object]],
+        query: str,
+        *,
+        match_fields: tuple[str, ...],
+        label_fields: tuple[str, ...],
+        singular: str,
+        plural: str,
+    ) -> ResolutionResult:
+        normalized_query = query.strip().lower()
+        if not normalized_query:
+            return ResolutionResult(
+                status='not_found',
+                message=f'{singular.title()} reference is required.',
+            )
+
+        exact_matches = self._matching_rows(rows, normalized_query, match_fields, exact=True)
+        if len(exact_matches) == 1:
+            return ResolutionResult(status='resolved', value=str(exact_matches[0]['id']))
+        if len(exact_matches) > 1:
+            return self._ambiguous_result(query, exact_matches, label_fields=label_fields, singular=singular, plural=plural)
+
+        partial_matches = self._matching_rows(rows, normalized_query, match_fields, exact=False)
+        if len(partial_matches) == 1:
+            return ResolutionResult(status='resolved', value=str(partial_matches[0]['id']))
+        if len(partial_matches) > 1:
+            return self._ambiguous_result(query, partial_matches, label_fields=label_fields, singular=singular, plural=plural)
+
+        return ResolutionResult(
+            status='not_found',
+            message=f'{singular.title()} "{query}" not found. Search to see available {plural}.',
+        )
+
+    def _ambiguous_result(
+        self,
+        query: str,
+        rows: list[dict[str, object]],
+        *,
+        label_fields: tuple[str, ...],
+        singular: str,
+        plural: str,
+    ) -> ResolutionResult:
+        candidates = tuple(
+            ResolutionCandidate(
+                id=str(row.get('id') or ''),
+                label=self._candidate_label(row, label_fields),
+            )
+            for row in rows[:5]
+            if str(row.get('id') or '').strip()
+        )
+        options = ', '.join(candidate.label for candidate in candidates) or 'none'
+        return ResolutionResult(
+            status='ambiguous',
+            message=(
+                f'I found multiple {plural} matching "{query}". '
+                f'Which {singular} should I use? Options: {options}.'
+            ),
+            candidates=candidates,
+        )
+
+    @staticmethod
+    def _matching_rows(
+        rows: list[dict[str, object]],
+        normalized_query: str,
+        fields: tuple[str, ...],
+        *,
+        exact: bool,
+    ) -> list[dict[str, object]]:
+        matches: list[dict[str, object]] = []
+        seen_ids: set[str] = set()
+        for row in rows:
+            row_id = str(row.get('id') or '').strip()
+            if not row_id or row_id in seen_ids:
+                continue
+            for field in fields:
+                value = str(row.get(field) or '').strip().lower()
+                if not value:
+                    continue
+                if exact and value == normalized_query:
+                    matches.append(row)
+                    seen_ids.add(row_id)
+                    break
+                if not exact and normalized_query in value:
+                    matches.append(row)
+                    seen_ids.add(row_id)
+                    break
+        return matches
+
+    @staticmethod
+    def _candidate_label(row: dict[str, object], label_fields: tuple[str, ...]) -> str:
+        values = [str(row.get(field) or '').strip() for field in label_fields]
+        values = [value for value in values if value]
+        if not values:
+            return str(row.get('id') or '').strip()
+        primary = values[0]
+        extras: list[str] = []
+        for value in values[1:]:
+            if value != primary and value not in extras:
+                extras.append(value)
+        if not extras:
+            return primary
+        return f'{primary} ({", ".join(extras[:2])})'

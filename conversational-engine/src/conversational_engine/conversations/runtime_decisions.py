@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import logging
-from uuid import UUID
+from uuid import UUID, uuid4
 
-from conversational_engine.clients.backend import BackendClient
+from conversational_engine.audit.service import AuditService
+from conversational_engine.clients.backend import BackendClient, idempotency_scope
 from conversational_engine.contracts.auth import AuthContext
 from conversational_engine.contracts.common import (
     ClarificationBlock,
@@ -11,6 +12,7 @@ from conversational_engine.contracts.common import (
     WorkflowStatus,
 )
 from conversational_engine.orchestrator.service import OrchestratorOutcome
+from conversational_engine.runtime.service import AgentRuntimeService
 from conversational_engine.runtime.renderer import render_approval_pending, render_navigation_blocks, render_tool_result
 from conversational_engine.runtime.state_update import build_post_action_blocks, mark_task_status
 from conversational_engine.tools.catalog import SemanticToolCatalog
@@ -19,8 +21,16 @@ logger = logging.getLogger(__name__)
 
 
 class RuntimeDecisionHandler:
-    def __init__(self, backend_client: BackendClient) -> None:
+    def __init__(
+        self,
+        backend_client: BackendClient,
+        *,
+        audit_service: AuditService | None = None,
+        runtime_service: AgentRuntimeService | None = None,
+    ) -> None:
         self._backend_client = backend_client
+        self._audit_service = audit_service
+        self._runtime_service = runtime_service
 
     @staticmethod
     def _restore_pending_approval_state(memory: dict[str, object]) -> tuple[str, dict[str, object]]:
@@ -82,6 +92,7 @@ class RuntimeDecisionHandler:
                         approval_id=approval_id,
                         tool_name=restored_tool_name,
                         tool_arguments=restored_payload,
+                        actor=auth.email,
                     ),
                     status=WorkflowStatus.AWAITING_APPROVAL,
                     current_task='awaiting_approval',
@@ -157,6 +168,7 @@ class RuntimeDecisionHandler:
                 'workflowId': str(workflow_id),
                 'summary': str(memory.get('summary') or tool_name),
                 'reason': str(memory.get('approvalReason') or 'Approval required by policy.'),
+                'requestedBy': auth.email,
                 'preview': memory.get('preview') if isinstance(memory.get('preview'), dict) else {},
                 'executionPayload': execution_payload,
             }
@@ -190,6 +202,20 @@ class RuntimeDecisionHandler:
                     extracted_entities=memory,
                     missing_fields=[],
                 )
+            await self._record_audit_event(
+                auth=auth,
+                conversation_id=str(conversation_id),
+                workflow_id=str(workflow_id),
+                approval_id=str(approval.id),
+                event_type='approval_updated' if is_pending_approval_update else 'approval_created',
+                tool_name=tool_name,
+                payload={
+                    'actionType': tool_name,
+                    'summary': str(memory.get('summary') or tool_name),
+                    'status': approval.status,
+                    'executionPayload': execution_payload,
+                },
+            )
             memory['activeApprovalId'] = str(approval.id)
             memory['activeApprovalStatus'] = approval.status
             memory.pop('_pendingApprovalUpdateOriginal', None)
@@ -200,6 +226,7 @@ class RuntimeDecisionHandler:
                     approval_id=approval.id,
                     tool_name=tool_name,
                     tool_arguments=execution_payload,
+                    actor=auth.email,
                 ),
                 status=WorkflowStatus.AWAITING_APPROVAL,
                 current_task='awaiting_approval',
@@ -210,7 +237,8 @@ class RuntimeDecisionHandler:
 
         catalog = SemanticToolCatalog(backend=self._backend_client, auth=auth)
         try:
-            result = await catalog.invoke(tool_name, execution_payload)
+            with idempotency_scope(f'confirmation:{workflow_id}:{tool_name}'):
+                result = await catalog.invoke(tool_name, execution_payload)
         except Exception:
             logger.exception('Failed to execute runtime confirmation tool %s', tool_name)
             return OrchestratorOutcome(
@@ -230,29 +258,63 @@ class RuntimeDecisionHandler:
         memory.pop('activeApprovalStatus', None)
         memory.pop('_pendingApprovalUpdateOriginal', None)
         memory.pop('_approvalOperation', None)
-        try:
-            await self._backend_client.record_audit_event(
-                access_token=auth.access_token or '',
-                tenant_id=auth.tenant_id,
-                payload={
-                    'conversationId': str(conversation_id),
-                    'workflowId': str(workflow_id),
-                    'approvalRequestId': str(active_approval_id) if isinstance(active_approval_id, str) and active_approval_id else None,
-                    'eventType': 'execution_result',
-                    'payload': {
-                        'status': 'success',
-                        'toolName': tool_name,
-                        'actionType': tool_name,
-                        'summary': str(memory.get('summary') or tool_name),
-                        'executionPayload': execution_payload,
-                        'result': result,
-                    },
-                },
+        next_entities = AgentRuntimeService._merge_context_from_tool_interaction(
+            current_entities=memory,
+            tool_name=tool_name,
+            tool_arguments=execution_payload,
+            tool_result=result,
+        )
+        await self._record_audit_event(
+            auth=auth,
+            conversation_id=str(conversation_id),
+            workflow_id=str(workflow_id),
+            approval_id=str(active_approval_id) if isinstance(active_approval_id, str) and active_approval_id else None,
+            event_type='tool_executed',
+            tool_name=tool_name,
+            payload={
+                'actionType': tool_name,
+                'summary': str(memory.get('summary') or tool_name),
+                'executionPayload': execution_payload,
+                'result': result,
+            },
+        )
+        compound_queue = next_entities.get('compoundQueue')
+        if isinstance(compound_queue, list) and compound_queue and self._runtime_service is not None:
+            remaining_queue = [item for item in compound_queue[1:] if isinstance(item, str) and item.strip()]
+            chained_entities = dict(next_entities)
+            if remaining_queue:
+                chained_entities['compoundQueue'] = remaining_queue
+            else:
+                chained_entities.pop('compoundQueue', None)
+            chained_outcome = await self._runtime_service.execute(
+                auth=auth,
+                conversation_id=conversation_id,
+                workflow_id=workflow_id,
+                user_message=str(compound_queue[0]),
+                extracted_entities=chained_entities,
+                recent_messages=[],
+                workflow_status=WorkflowStatus.COMPLETED,
+                emit=lambda *_args, **_kwargs: None,
+                run_id=uuid4(),
             )
-        except Exception:
-            logger.exception('Failed to persist execution audit event for workflow %s', workflow_id)
+            return OrchestratorOutcome(
+                blocks=[
+                    *render_tool_result(
+                        'Confirmation recorded and the requested action has been executed.',
+                        tool_name,
+                        result,
+                    ),
+                    *chained_outcome.blocks,
+                ],
+                status=chained_outcome.status,
+                current_task=chained_outcome.current_task,
+                extracted_entities=chained_outcome.extracted_entities,
+                missing_fields=chained_outcome.missing_fields,
+                active_preview_id=chained_outcome.active_preview_id,
+                active_approval_id=chained_outcome.active_approval_id,
+            )
         post_action_blocks = render_navigation_blocks(build_post_action_blocks(_post_actions_from_memory(memory)))
-        next_entities = mark_task_status(memory, 'completed', clear_post_actions=True)
+        next_entities = mark_task_status(next_entities, 'completed', clear_post_actions=True)
         return OrchestratorOutcome(
             blocks=[
                 *render_tool_result(
@@ -267,6 +329,34 @@ class RuntimeDecisionHandler:
             extracted_entities=next_entities,
             missing_fields=[],
         )
+
+    async def _record_audit_event(
+        self,
+        *,
+        auth: AuthContext,
+        conversation_id: str,
+        workflow_id: str,
+        event_type: str,
+        payload: dict[str, object],
+        tool_name: str | None = None,
+        approval_id: str | None = None,
+    ) -> None:
+        if self._audit_service is None:
+            return
+        try:
+            await self._audit_service.record(
+                tenant_id=auth.tenant_id,
+                user_id=auth.id,
+                actor_email=auth.email,
+                event_type=event_type,
+                conversation_id=conversation_id,
+                workflow_id=workflow_id,
+                approval_id=approval_id,
+                tool_name=tool_name,
+                payload=payload,
+            )
+        except Exception:
+            logger.exception('Failed to persist runtime decision audit event %s', event_type)
 
 
 def _post_actions_from_memory(memory: dict[str, object]) -> list[dict[str, object]]:
