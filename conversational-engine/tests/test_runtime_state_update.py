@@ -115,6 +115,37 @@ async def test_state_update_continues_draft_mutation_without_missing_field_alias
     assert state.primary_intent == 'purchasing.create_po'
 
 
+async def test_state_update_extracts_supplier_phone_and_address_without_overwriting_name():
+    state = await resolve_state_update(
+        user_message='Phone is 020-765-4321, address 45 Textile Lane, Liverpool.',
+        extracted_entities={
+            'taskContext': {
+                'primaryRoute': 'mutation',
+                'primaryIntent': 'master.create_supplier',
+                'entities': {
+                    'name': 'Eagle Fabrics',
+                    'email': 'eagle@example.com',
+                },
+                'missingFields': ['phone', 'address'],
+                'postActions': [],
+                'clarificationCount': 1,
+                'status': 'drafting',
+            }
+        },
+        recent_messages=[],
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+        state_updater=None,
+    )
+
+    assert state.is_workflow_edit is True
+    assert state.primary_route == 'mutation'
+    assert state.primary_intent == 'master.create_supplier'
+    assert state.extracted_entities['name'] == 'Eagle Fabrics'
+    assert state.extracted_entities['email'] == 'eagle@example.com'
+    assert state.extracted_entities['phone'] == '020-765-4321'
+    assert state.extracted_entities['address'] == '45 Textile Lane, Liverpool.'
+
+
 def test_state_update_formats_preview_entities_into_recent_message_context():
     formatted = _format_recent_messages(
         [

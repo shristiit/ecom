@@ -517,6 +517,36 @@ class ScopedLatestBackendClient(FakeBackendClient):
         return {'items': self.invoices}
 
 
+class HarborVariantBackendClient(FakeBackendClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self.products = [{'id': 'prod-harbor', 'name': 'Harbor Intelligent Parka', 'styleCode': 'STK-0013'}]
+        self.product_detail = {
+            'product': {'id': 'prod-harbor', 'base_price': 55},
+            'skus': [
+                {'id': 'sku-sand', 'color_name': 'Sand', 'price_override': None},
+                {'id': 'sku-navy', 'color_name': 'Navy', 'price_override': None},
+            ],
+            'sizes': [
+                {'id': 'size-sand-xs', 'sku_id': 'sku-sand', 'size_label': 'XS', 'price_override': None},
+                {'id': 'size-sand-s', 'sku_id': 'sku-sand', 'size_label': 'S', 'price_override': None},
+                {'id': 'size-sand-m', 'sku_id': 'sku-sand', 'size_label': 'M', 'price_override': None},
+                {'id': 'size-sand-l', 'sku_id': 'sku-sand', 'size_label': 'L', 'price_override': None},
+                {'id': 'size-sand-xl', 'sku_id': 'sku-sand', 'size_label': 'XL', 'price_override': None},
+                {'id': 'size-navy-xs', 'sku_id': 'sku-navy', 'size_label': 'XS', 'price_override': None},
+                {'id': 'size-navy-s', 'sku_id': 'sku-navy', 'size_label': 'S', 'price_override': None},
+                {'id': 'size-navy-m', 'sku_id': 'sku-navy', 'size_label': 'M', 'price_override': None},
+                {'id': 'size-navy-l', 'sku_id': 'sku-navy', 'size_label': 'L', 'price_override': None},
+                {'id': 'size-navy-xl', 'sku_id': 'sku-navy', 'size_label': 'XL', 'price_override': None},
+            ],
+        }
+
+    async def get_product(self, access_token: str, tenant_id: str | None, product_id: str):
+        del access_token, tenant_id
+        assert product_id == 'prod-harbor'
+        return self.product_detail
+
+
 class FakeAuditService:
     def __init__(self) -> None:
         self.events: list[dict[str, object]] = []
@@ -994,6 +1024,78 @@ async def test_runtime_service_keeps_existing_contact_name_when_user_confirms_re
     assert outcome.status == WorkflowStatus.AWAITING_CONFIRMATION
     assert outcome.extracted_entities['executionPayload']['name'] == 'aiseller'
     assert outcome.extracted_entities['preview']['preparedArguments']['name'] == 'aiseller'
+
+
+async def test_runtime_service_updates_supplier_confirmation_draft_with_phone_and_address():
+    service = AgentRuntimeService(
+        backend_client=FakeApprovalBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeExecutor(
+            'master.create_supplier',
+            {
+                'name': 'Eagle Fabrics',
+                'email': 'eagle@example.com',
+            },
+        ),
+        reviewer=FakeReviewer(),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        state_updater=FakeStateUpdater(
+            {
+                'Phone is 020-765-4321, address 45 Textile Lane, Liverpool.': {
+                    'useActiveWorkflow': True,
+                    'primaryRoute': 'mutation',
+                    'primaryIntent': 'master.create_supplier',
+                    'confidence': 0.97,
+                    'rationale': 'The user is filling missing contact fields on the active supplier draft.',
+                    'entityPatches': {},
+                    'navigationQuery': None,
+                    'postActionQuery': None,
+                }
+            }
+        ),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='Phone is 020-765-4321, address 45 Textile Lane, Liverpool.',
+        extracted_entities={
+            '_workflowEngine': 'runtime',
+            'toolName': 'master.create_supplier',
+            'executionPayload': {
+                'name': 'Eagle Fabrics',
+                'email': 'eagle@example.com',
+            },
+            'taskContext': {
+                'primaryRoute': 'mutation',
+                'primaryIntent': 'master.create_supplier',
+                'entities': {
+                    'name': 'Eagle Fabrics',
+                    'email': 'eagle@example.com',
+                },
+                'missingFields': ['phone', 'address'],
+                'postActions': [],
+                'clarificationCount': 1,
+                'status': 'awaiting_confirmation',
+            },
+        },
+        recent_messages=[],
+        workflow_status=WorkflowStatus.AWAITING_CONFIRMATION,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.AWAITING_CONFIRMATION
+    assert outcome.extracted_entities['executionPayload'] == {
+        'name': 'Eagle Fabrics',
+        'email': 'eagle@example.com',
+        'phone': '020-765-4321',
+        'address': '45 Textile Lane, Liverpool.',
+    }
 
 
 async def test_runtime_service_handles_trace_attempts_without_crashing():
@@ -1568,6 +1670,207 @@ async def test_runtime_service_applies_po_clarification_reply_with_product_price
     assert any(block.type == BlockType.CONFIRMATION_REQUIRED for block in outcome.blocks)
 
 
+async def test_runtime_service_applies_po_color_correction_follow_up_without_replanning():
+    service = AgentRuntimeService(
+        backend_client=FakeBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeExecutor('inventory.stock_on_hand', {'sku': 'TSHIRT-BLACK'}),
+        reviewer=FakeReviewer(),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        state_updater=FakeStateUpdater(),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='go with sand',
+        extracted_entities={
+            '_workflowEngine': 'runtime',
+            'toolName': 'purchasing.create_po',
+            'executionPayload': {
+                'supplierId': 'Acme Supply',
+                'lines': [
+                    {
+                        'productName': 'Field Fresh Short',
+                        'colorName': 'Red',
+                        'sizeLabel': 'L',
+                        'quantity': 10,
+                    }
+                ],
+            },
+            'taskContext': {
+                'primaryRoute': 'mutation',
+                'primaryIntent': 'purchasing.create_po',
+                'entities': {
+                    'supplierId': 'Acme Supply',
+                    'lines': [
+                        {
+                            'productName': 'Field Fresh Short',
+                            'colorName': 'Red',
+                            'sizeLabel': 'L',
+                            'quantity': 10,
+                        }
+                    ],
+                },
+                'missingFields': ['lines'],
+                'postActions': [],
+                'clarificationCount': 2,
+                'status': 'drafting',
+            },
+        },
+        recent_messages=[],
+        workflow_status=WorkflowStatus.NEEDS_INPUT,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.AWAITING_CONFIRMATION
+    assert outcome.extracted_entities['executionPayload']['lines'] == [
+        {'sizeId': 'size-sand-l', 'qty': 10, 'unitCost': 42}
+    ]
+    assert any(block.type == BlockType.CONFIRMATION_REQUIRED for block in outcome.blocks)
+
+
+async def test_runtime_service_shows_variant_table_for_product_only_po_clarification():
+    service = AgentRuntimeService(
+        backend_client=FakeBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeExecutor('inventory.stock_on_hand', {'sku': 'TSHIRT-BLACK'}),
+        reviewer=FakeReviewer(),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        state_updater=FakeStateUpdater(),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='use this product',
+        extracted_entities={
+            '_workflowEngine': 'runtime',
+            'toolName': 'purchasing.create_po',
+            'executionPayload': {
+                'supplierId': 'Acme Supply',
+                'lines': [
+                    {
+                        'productName': 'Field Fresh Short',
+                        'quantity': 5,
+                    }
+                ],
+            },
+            'taskContext': {
+                'primaryRoute': 'mutation',
+                'primaryIntent': 'purchasing.create_po',
+                'entities': {
+                    'supplierId': 'Acme Supply',
+                    'lines': [
+                        {
+                            'productName': 'Field Fresh Short',
+                            'quantity': 5,
+                        }
+                    ],
+                },
+                'missingFields': ['lines'],
+                'postActions': [],
+                'clarificationCount': 1,
+                'status': 'drafting',
+            },
+        },
+        recent_messages=[],
+        workflow_status=WorkflowStatus.NEEDS_INPUT,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.NEEDS_INPUT
+    assert any(block.type == BlockType.CLARIFICATION for block in outcome.blocks)
+    assert any(block.type == BlockType.TABLE_RESULT for block in outcome.blocks)
+    assert 'Which variant should I use?' in outcome.blocks[0].prompt
+
+
+async def test_runtime_service_applies_grouped_variant_follow_up_as_multiple_po_lines():
+    service = AgentRuntimeService(
+        backend_client=HarborVariantBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeExecutor('inventory.stock_on_hand', {'sku': 'TSHIRT-BLACK'}),
+        reviewer=FakeReviewer(),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        state_updater=FakeStateUpdater(),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='sand xs,s,m,l,xl -10. navy xs,s,m,l,xl -20',
+        extracted_entities={
+            '_workflowEngine': 'runtime',
+            'toolName': 'purchasing.create_po',
+            'executionPayload': {
+                'supplierId': 'Acme Supply',
+                'lines': [
+                    {
+                        'productName': 'Harbor Intelligent Parka',
+                        'colorName': 'Red',
+                        'sizeLabel': 'XL',
+                        'quantity': 10,
+                        'unitCost': 10,
+                    }
+                ],
+            },
+            'taskContext': {
+                'primaryRoute': 'mutation',
+                'primaryIntent': 'purchasing.create_po',
+                'entities': {
+                    'supplierId': 'Acme Supply',
+                    'lines': [
+                        {
+                            'productName': 'Harbor Intelligent Parka',
+                            'colorName': 'Red',
+                            'sizeLabel': 'XL',
+                            'quantity': 10,
+                            'unitCost': 10,
+                        }
+                    ],
+                },
+                'missingFields': ['lines'],
+                'postActions': [],
+                'clarificationCount': 2,
+                'status': 'drafting',
+            },
+        },
+        recent_messages=[],
+        workflow_status=WorkflowStatus.NEEDS_INPUT,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.AWAITING_CONFIRMATION
+    assert outcome.extracted_entities['executionPayload']['lines'] == [
+        {'sizeId': 'size-sand-xs', 'qty': 10, 'unitCost': 10},
+        {'sizeId': 'size-sand-s', 'qty': 10, 'unitCost': 10},
+        {'sizeId': 'size-sand-m', 'qty': 10, 'unitCost': 10},
+        {'sizeId': 'size-sand-l', 'qty': 10, 'unitCost': 10},
+        {'sizeId': 'size-sand-xl', 'qty': 10, 'unitCost': 10},
+        {'sizeId': 'size-navy-xs', 'qty': 20, 'unitCost': 10},
+        {'sizeId': 'size-navy-s', 'qty': 20, 'unitCost': 10},
+        {'sizeId': 'size-navy-m', 'qty': 20, 'unitCost': 10},
+        {'sizeId': 'size-navy-l', 'qty': 20, 'unitCost': 10},
+        {'sizeId': 'size-navy-xl', 'qty': 20, 'unitCost': 10},
+    ]
+    assert any(block.type == BlockType.CONFIRMATION_REQUIRED for block in outcome.blocks)
+
+
 async def test_runtime_service_edits_pending_po_in_awaiting_approval_and_requests_variant_selection():
     service = AgentRuntimeService(
         backend_client=FakeBackendClient(),  # type: ignore[arg-type]
@@ -1971,7 +2274,7 @@ async def test_runtime_service_reviewer_clarification_uses_intent_specific_promp
     assert outcome.status == WorkflowStatus.NEEDS_INPUT
     assert (
         outcome.blocks[0].prompt
-        == 'Reply with the supplier name and PO lines in the format `SKUCODE/SIZE xQTY @UNIT_COST`, separated by commas.'
+        == 'Reply with the supplier plus the product, color, size, and quantity for each PO line. Unit cost is optional if you want to use the product default.'
     )
     assert outcome.missing_fields == ['supplier_id', 'lines']
 
@@ -2355,6 +2658,67 @@ async def test_runtime_service_recovers_get_last_po_from_sparse_executor_proposa
     assert any(block.type == BlockType.TEXT for block in outcome.blocks)
 
 
+async def test_runtime_service_recovers_create_po_from_sparse_executor_proposal_with_supplier_context():
+    service = AgentRuntimeService(
+        backend_client=FakeBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeInvalidExecutor(),  # type: ignore[arg-type]
+        reviewer=FakeReviewer(message='Variants loaded.'),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        state_updater=FakeStateUpdater(
+            {
+                'create a purchase order for Field Fresh Short': {
+                    'useActiveWorkflow': False,
+                    'primaryRoute': 'mutation',
+                    'primaryIntent': 'purchasing.create_po',
+                    'confidence': 0.96,
+                    'rationale': 'Purchase order creation request detected.',
+                    'entityPatches': {},
+                    'navigationQuery': None,
+                    'postActionQuery': None,
+                }
+            }
+        ),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='create a purchase order for Field Fresh Short',
+        extracted_entities={
+            'taskContext': {
+                'primaryRoute': 'mutation',
+                'primaryIntent': 'master.create_supplier',
+                'entities': {
+                    'supplierId': 'sup-1',
+                    'supplierName': 'Acme Supply',
+                },
+                'missingFields': [],
+                'postActions': [],
+                'clarificationCount': 0,
+                'status': 'completed',
+            }
+        },
+        recent_messages=[],
+        workflow_status=WorkflowStatus.COMPLETED,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.NEEDS_INPUT
+    assert outcome.extracted_entities['toolName'] == 'purchasing.create_po'
+    assert outcome.extracted_entities['executionPayload'] == {
+        'supplierId': 'sup-1',
+        'lines': [{'productName': 'Field Fresh Short'}],
+    }
+    assert any(block.type == BlockType.CLARIFICATION for block in outcome.blocks)
+    assert any(block.type == BlockType.TABLE_RESULT for block in outcome.blocks)
+
+
 def test_runtime_service_sanitizes_write_arguments_from_task_context_entities():
     tool_arguments = AgentRuntimeService._sanitize_tool_arguments(
         tool_name='sales.dispatch_invoice',
@@ -2491,6 +2855,81 @@ async def test_runtime_service_reuses_completed_po_supplier_for_new_po_follow_up
     assert outcome.extracted_entities['executionPayload']['supplierId'] == 'sup-1'
     assert outcome.extracted_entities['executionPayload']['lines'] == [
         {'sizeId': 'size-sand-m', 'qty': 7, 'unitCost': 18}
+    ]
+
+
+async def test_runtime_service_reuses_last_po_lines_when_user_confirms_same_details():
+    service = AgentRuntimeService(
+        backend_client=FakeBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeExecutor('inventory.stock_on_hand', {'sku': 'TSHIRT-BLACK'}),
+        reviewer=FakeReviewer(),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        state_updater=FakeStateUpdater(
+            {
+                'yes use same details': {
+                    'useActiveWorkflow': True,
+                    'primaryRoute': 'mutation',
+                    'primaryIntent': 'purchasing.create_po',
+                    'confidence': 0.95,
+                    'rationale': 'Reuse the previous purchase-order line set.',
+                    'entityPatches': {},
+                    'navigationQuery': None,
+                    'postActionQuery': None,
+                }
+            }
+        ),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='yes use same details',
+        extracted_entities={
+            '_workflowEngine': 'runtime',
+            'toolName': 'purchasing.create_po',
+            'executionPayload': {
+                'supplierId': 'sup-1',
+                'lines': [
+                    {
+                        'productName': 'Harbor Intelligent Parka',
+                        'colorName': 'Red',
+                        'sizeLabel': 'XL',
+                        'quantity': 10,
+                        'unitCost': 10,
+                    }
+                ],
+            },
+            'taskContext': {
+                'primaryRoute': 'mutation',
+                'primaryIntent': 'purchasing.create_po',
+                'entities': {
+                    'supplierId': 'sup-1',
+                    'lastPoLines': [
+                        {'sizeId': 'size-sand-m', 'qty': 7, 'unitCost': 18},
+                        {'sizeId': 'size-sand-l', 'qty': 7, 'unitCost': 18},
+                    ],
+                },
+                'missingFields': ['lines'],
+                'postActions': [],
+                'clarificationCount': 1,
+                'status': 'drafting',
+            },
+        },
+        recent_messages=[],
+        workflow_status=WorkflowStatus.NEEDS_INPUT,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.AWAITING_CONFIRMATION
+    assert outcome.extracted_entities['executionPayload']['lines'] == [
+        {'sizeId': 'size-sand-m', 'qty': 7, 'unitCost': 18},
+        {'sizeId': 'size-sand-l', 'qty': 7, 'unitCost': 18},
     ]
 
 

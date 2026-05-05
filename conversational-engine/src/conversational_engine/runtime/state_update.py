@@ -355,9 +355,21 @@ async def resolve_state_update(
         primary_route=primary_route,
         primary_intent=primary_intent,
     ):
+        carryover_entities: dict[str, Any] = {}
+        if isinstance(prior_entities, dict):
+            if active_intent == 'master.create_supplier' and primary_intent == 'purchasing.create_po':
+                for key in ('supplierId', 'supplierName'):
+                    value = prior_entities.get(key)
+                    if value is not None:
+                        carryover_entities[key] = value
+            if active_intent == 'master.create_customer' and primary_intent == 'sales.create_invoice':
+                for key in ('customerId', 'customerName'):
+                    value = prior_entities.get(key)
+                    if value is not None:
+                        carryover_entities[key] = value
         extracted_entities = _clear_runtime_workflow_state(extracted_entities, task_context)
         task_context = fresh_task_context()
-        merged_entities = dict(patches)
+        merged_entities = {**carryover_entities, **patches}
         if primary_intent == 'master.create_location':
             merged_entities.update(_extract_location_create_entities(action_text or text))
         if primary_intent in {'master.create_supplier', 'master.create_customer'}:
@@ -843,19 +855,37 @@ def _extract_contact_create_entities(text: str) -> dict[str, Any]:
     for field in _CONTACT_FIELDS:
         if field in extracted:
             continue
-        m = re.search(
-            rf'\b{field}\b\s*[:=][;,]?\s*([^\n,;:]+?){_FIELD_BOUNDARY}',
-            working,
-            re.IGNORECASE,
-        )
+        if field == 'address':
+            m = re.search(
+                r'\baddress\b(?:\s*[:=][;,]?\s*|\s+\bis\b\s+|\s+)(.+?)(?=\s*(?:$|;|\b(?:name|email|phone|status)\b))',
+                working,
+                re.IGNORECASE,
+            )
+        else:
+            m = re.search(
+                rf'\b{field}\b(?:\s*[:=][;,]?\s*|\s+\bis\b\s+)([^\n,;:]+?){_FIELD_BOUNDARY}',
+                working,
+                re.IGNORECASE,
+            )
         if m:
             value = m.group(1).strip().strip('"\'')
             if value:
                 extracted[field] = value
 
+    if 'name' not in extracted:
+        named_match = re.search(
+            r'\b(?:name|named|called)\b\s*[:=]?\s*"?(.+?)"?(?=\s*(?:$|,|;|\b(?:with\s+email|email|phone|address|status)\b))',
+            working,
+            re.IGNORECASE,
+        )
+        if named_match:
+            value = named_match.group(1).strip().strip('"\'')
+            if value:
+                extracted['name'] = value
+
     # ── bare name fallback ─────────────────────────────────────────────────────
     if 'name' not in extracted:
-        _COMMAND_WORDS = r'\b(create|add|new|onboard|register|supplier|customer|vendor|client)\b'
+        _COMMAND_WORDS = r'\b(create|add|new|onboard|register|supplier|customer|vendor|client|named|called)\b'
         # Also strip any remaining "field:;" style label artifacts before extracting the bare name.
         _LABEL_ARTIFACTS = r'\b(?:name|email|phone|address|status)\b\s*[:=][;,]?\s*'
         candidate = re.sub(_COMMAND_WORDS, '', working, flags=re.IGNORECASE)
@@ -875,7 +905,7 @@ def _extract_contact_create_entities(text: str) -> dict[str, Any]:
             'use same',
             'use same details',
             'again',
-        }:
+        } and not re.search(r'\b(?:phone|email|address|status)\b', candidate, re.IGNORECASE):
             extracted['name'] = candidate
 
     return extracted
