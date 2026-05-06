@@ -5,6 +5,22 @@ import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from conversational_engine.keyword_sets import (
+    CONTACT_COMMAND_WORDS_PATTERN,
+    CONTACT_FIELDS,
+    CUSTOMER_NOUNS_PATTERN,
+    DOMAIN_KEYWORDS,
+    GENERIC_CONFIRMATION_PHRASES,
+    LOCATION_NOUNS_PATTERN,
+    MASTER_CREATE_VERBS_PATTERN,
+    MASTER_DELETE_VERBS_PATTERN,
+    MASTER_UPDATE_VERBS_PATTERN,
+    MUTATION_FOLLOW_UP_KEYWORDS,
+    NAVIGATION_PREFIXES,
+    NON_DOMAIN_SMALL_TALK,
+    REUSE_REFERENCE_PHRASES,
+    SUPPLIER_NOUNS_PATTERN,
+)
 from conversational_engine.retrieval.service import RetrievalService
 from conversational_engine.utils.casing import to_camel
 from conversational_engine.utils.time import utc_now
@@ -17,49 +33,7 @@ ROUTE_READ = 'read'
 ROUTE_MUTATION = 'mutation'
 ROUTE_MIXED = 'mixed'
 
-_NAVIGATION_PREFIXES = (
-    'go to ',
-    'open ',
-    'take me to ',
-    'navigate to ',
-    'show me ',
-    'show ',
-)
-_INVENTORY_KEYWORDS = (
-    'stock',
-    'inventory',
-    'product',
-    'products',
-    'sku',
-    'size',
-    'sizes',
-    'color',
-    'colors',
-    'purchase',
-    'supplier',
-    'customer',
-    'invoice',
-    'sales order',
-    'warehouse',
-    'location',
-    'report',
-    'movement',
-    'receipt',
-    'transfer',
-    'adjust',
-    'write off',
-    'category',
-    'brand',
-    'price',
-)
-_NON_DOMAIN_SMALL_TALK = ('hi', 'hello', 'thanks', 'thank you')
 _PENDING_TASK_TTL = timedelta(minutes=30)
-_MASTER_CREATE_VERBS = r'(create|add|new|onboard|register)'
-_MASTER_UPDATE_VERBS = r'(update|edit|change|rename)'
-_MASTER_DELETE_VERBS = r'(delete|remove)'
-_LOCATION_NOUNS = r'(location|warehouse|ware\s*house)'
-_SUPPLIER_NOUNS = r'(supplier|vendor)'
-_CUSTOMER_NOUNS = r'(customer|client)'
 _MUTATION_PATTERNS: tuple[tuple[str, str], ...] = (
     (
         'purchasing.receive_po',
@@ -86,39 +60,39 @@ _MUTATION_PATTERNS: tuple[tuple[str, str], ...] = (
     ('products.create_product', r'\b(create product|create a product|new product)\b'),
     (
         'master.create_location',
-        rf'\b{_MASTER_CREATE_VERBS}\b.*\b{_LOCATION_NOUNS}\b|\b{_LOCATION_NOUNS}\b.*\b{_MASTER_CREATE_VERBS}\b',
+        rf'\b{MASTER_CREATE_VERBS_PATTERN}\b.*\b{LOCATION_NOUNS_PATTERN}\b|\b{LOCATION_NOUNS_PATTERN}\b.*\b{MASTER_CREATE_VERBS_PATTERN}\b',
     ),
     (
         'master.update_location',
-        rf'\b{_MASTER_UPDATE_VERBS}\b.*\b{_LOCATION_NOUNS}\b|\b{_LOCATION_NOUNS}\b.*\b{_MASTER_UPDATE_VERBS}\b',
+        rf'\b{MASTER_UPDATE_VERBS_PATTERN}\b.*\b{LOCATION_NOUNS_PATTERN}\b|\b{LOCATION_NOUNS_PATTERN}\b.*\b{MASTER_UPDATE_VERBS_PATTERN}\b',
     ),
     (
         'master.delete_location',
-        rf'\b{_MASTER_DELETE_VERBS}\b.*\b{_LOCATION_NOUNS}\b|\b{_LOCATION_NOUNS}\b.*\b{_MASTER_DELETE_VERBS}\b',
+        rf'\b{MASTER_DELETE_VERBS_PATTERN}\b.*\b{LOCATION_NOUNS_PATTERN}\b|\b{LOCATION_NOUNS_PATTERN}\b.*\b{MASTER_DELETE_VERBS_PATTERN}\b',
     ),
     (
         'master.create_supplier',
-        rf'\b{_MASTER_CREATE_VERBS}\b.*\b{_SUPPLIER_NOUNS}\b|\b{_SUPPLIER_NOUNS}\b.*\b{_MASTER_CREATE_VERBS}\b',
+        rf'\b{MASTER_CREATE_VERBS_PATTERN}\b.*\b{SUPPLIER_NOUNS_PATTERN}\b|\b{SUPPLIER_NOUNS_PATTERN}\b.*\b{MASTER_CREATE_VERBS_PATTERN}\b',
     ),
     (
         'master.update_supplier',
-        rf'\b{_MASTER_UPDATE_VERBS}\b.*\b{_SUPPLIER_NOUNS}\b|\b{_SUPPLIER_NOUNS}\b.*\b{_MASTER_UPDATE_VERBS}\b',
+        rf'\b{MASTER_UPDATE_VERBS_PATTERN}\b.*\b{SUPPLIER_NOUNS_PATTERN}\b|\b{SUPPLIER_NOUNS_PATTERN}\b.*\b{MASTER_UPDATE_VERBS_PATTERN}\b',
     ),
     (
         'master.delete_supplier',
-        rf'\b{_MASTER_DELETE_VERBS}\b.*\b{_SUPPLIER_NOUNS}\b|\b{_SUPPLIER_NOUNS}\b.*\b{_MASTER_DELETE_VERBS}\b',
+        rf'\b{MASTER_DELETE_VERBS_PATTERN}\b.*\b{SUPPLIER_NOUNS_PATTERN}\b|\b{SUPPLIER_NOUNS_PATTERN}\b.*\b{MASTER_DELETE_VERBS_PATTERN}\b',
     ),
     (
         'master.create_customer',
-        rf'\b{_MASTER_CREATE_VERBS}\b.*\b{_CUSTOMER_NOUNS}\b|\b{_CUSTOMER_NOUNS}\b.*\b{_MASTER_CREATE_VERBS}\b',
+        rf'\b{MASTER_CREATE_VERBS_PATTERN}\b.*\b{CUSTOMER_NOUNS_PATTERN}\b|\b{CUSTOMER_NOUNS_PATTERN}\b.*\b{MASTER_CREATE_VERBS_PATTERN}\b',
     ),
     (
         'master.update_customer',
-        rf'\b{_MASTER_UPDATE_VERBS}\b.*\b{_CUSTOMER_NOUNS}\b|\b{_CUSTOMER_NOUNS}\b.*\b{_MASTER_UPDATE_VERBS}\b',
+        rf'\b{MASTER_UPDATE_VERBS_PATTERN}\b.*\b{CUSTOMER_NOUNS_PATTERN}\b|\b{CUSTOMER_NOUNS_PATTERN}\b.*\b{MASTER_UPDATE_VERBS_PATTERN}\b',
     ),
     (
         'master.delete_customer',
-        rf'\b{_MASTER_DELETE_VERBS}\b.*\b{_CUSTOMER_NOUNS}\b|\b{_CUSTOMER_NOUNS}\b.*\b{_MASTER_DELETE_VERBS}\b',
+        rf'\b{MASTER_DELETE_VERBS_PATTERN}\b.*\b{CUSTOMER_NOUNS_PATTERN}\b|\b{CUSTOMER_NOUNS_PATTERN}\b.*\b{MASTER_DELETE_VERBS_PATTERN}\b',
     ),
 )
 _READ_PATTERNS: tuple[tuple[str, str], ...] = (
@@ -462,7 +436,7 @@ def _resolve_primary_route_and_intent(text: str) -> tuple[str, str, str, float]:
         if re.search(pattern, normalized):
             return (ROUTE_READ, intent, f'Detected read-oriented language for {intent}.', 0.76)
 
-    for prefix in _NAVIGATION_PREFIXES:
+    for prefix in NAVIGATION_PREFIXES:
         if normalized.startswith(prefix):
             return (
                 ROUTE_NAVIGATION,
@@ -480,11 +454,11 @@ def _resolve_primary_route_and_intent(text: str) -> tuple[str, str, str, float]:
 def _is_off_topic(normalized: str) -> bool:
     if not normalized:
         return False
-    if normalized in _NON_DOMAIN_SMALL_TALK:
+    if normalized in NON_DOMAIN_SMALL_TALK:
         return False
-    if any(keyword in normalized for keyword in _INVENTORY_KEYWORDS):
+    if any(keyword in normalized for keyword in DOMAIN_KEYWORDS):
         return False
-    if any(normalized.startswith(prefix.strip()) for prefix in _NAVIGATION_PREFIXES):
+    if any(normalized.startswith(prefix.strip()) for prefix in NAVIGATION_PREFIXES):
         return False
     tokens = re.findall(r"[a-z0-9']+", normalized)
     if len(tokens) <= 3:
@@ -617,7 +591,15 @@ def _extract_location_create_entities(text: str) -> dict[str, Any]:
             extracted['status'] = status_match.group(1).strip().lower()
 
     if unlabeled_lines and 'name' not in extracted and not _looks_like_location_creation_request(normalized):
-        extracted['name'] = unlabeled_lines[0]
+        candidate = unlabeled_lines[0].strip()
+        normalized_candidate = _normalize(candidate)
+        if normalized_candidate not in {
+            *GENERIC_CONFIRMATION_PHRASES,
+            'yes correct',
+            'same',
+            'same one',
+        }:
+            extracted['name'] = candidate
     return extracted
 
 
@@ -743,12 +725,14 @@ def _should_continue_pending_task(
     if ':' in text or '\n' in text:
         return True
     # When an active mutation workflow is waiting for input and the user's
-    # message didn't resolve to a competing mutation intent, treat any
-    # non-question reply as continuation — regardless of how many tokens it
-    # has.  This handles detailed follow-ups like
-    # "tshirt, tees-1202, base price 100, xl size, black color".
+    # message didn't resolve to a competing mutation intent, continue only for
+    # follow-up-shaped replies. This still catches short answers like
+    # "Cloud XS" or "PO-0001", but avoids trapping unrelated small talk like
+    # "hello" inside the old draft.
     if active_route == ROUTE_MUTATION and route_fallback != ROUTE_MUTATION:
-        return True
+        if normalized in NON_DOMAIN_SMALL_TALK:
+            return False
+        return _looks_like_mutation_follow_up(normalized) or len(re.findall(r"[a-z0-9']+", normalized)) <= 4
     # Legacy short-message heuristic for read workflows.
     return len(re.findall(r"[a-z0-9']+", normalized)) <= 4
 
@@ -788,21 +772,7 @@ def _looks_like_mutation_follow_up(normalized: str) -> bool:
         return True
     return any(
         keyword in normalized
-        for keyword in (
-            'item',
-            'items',
-            'qty',
-            'quantity',
-            'supplier',
-            'customer',
-            'product',
-            'sku',
-            'style',
-            'color',
-            'size',
-            'same supplier',
-            'same customer',
-        )
+        for keyword in MUTATION_FOLLOW_UP_KEYWORDS
     )
 
 
@@ -850,9 +820,8 @@ def _extract_contact_create_entities(text: str) -> dict[str, Any]:
 
     # ── labelled fields (field : value  or  field = value) ────────────────────
     # Allow optional stray punctuation after the separator, e.g. "name:; raghu" or "name:, raghu".
-    _CONTACT_FIELDS = ('name', 'email', 'phone', 'address', 'status')
     _FIELD_BOUNDARY = r'(?=\s*(?:$|,|;|\b(?:name|email|phone|address|status)\b))'
-    for field in _CONTACT_FIELDS:
+    for field in CONTACT_FIELDS:
         if field in extracted:
             continue
         if field == 'address':
@@ -885,27 +854,17 @@ def _extract_contact_create_entities(text: str) -> dict[str, Any]:
 
     # ── bare name fallback ─────────────────────────────────────────────────────
     if 'name' not in extracted:
-        _COMMAND_WORDS = r'\b(create|add|new|onboard|register|supplier|customer|vendor|client|named|called)\b'
+        _COMMAND_WORDS = rf'\b{CONTACT_COMMAND_WORDS_PATTERN}\b'
         # Also strip any remaining "field:;" style label artifacts before extracting the bare name.
         _LABEL_ARTIFACTS = r'\b(?:name|email|phone|address|status)\b\s*[:=][;,]?\s*'
         candidate = re.sub(_COMMAND_WORDS, '', working, flags=re.IGNORECASE)
         candidate = re.sub(_LABEL_ARTIFACTS, '', candidate, flags=re.IGNORECASE).strip(' ,;:')
         normalized_candidate = _normalize(candidate)
-        if candidate and normalized_candidate not in {
-            'yes',
-            'yeah',
-            'yep',
-            'ok',
-            'okay',
-            'sure',
-            'same',
-            'same one',
-            'same details',
-            'same as before',
-            'use same',
-            'use same details',
-            'again',
-        } and not re.search(r'\b(?:phone|email|address|status)\b', candidate, re.IGNORECASE):
+        if (
+            candidate
+            and normalized_candidate not in {*GENERIC_CONFIRMATION_PHRASES, *REUSE_REFERENCE_PHRASES}
+            and not re.search(r'\b(?:phone|email|address|status)\b', candidate, re.IGNORECASE)
+        ):
             extracted['name'] = candidate
 
     return extracted
@@ -913,4 +872,4 @@ def _extract_contact_create_entities(text: str) -> dict[str, Any]:
 
 def _looks_like_location_creation_request(value: str) -> bool:
     normalized = _normalize(value)
-    return bool(re.search(rf'\b{_MASTER_CREATE_VERBS}\b.*\b{_LOCATION_NOUNS}\b', normalized))
+    return bool(re.search(rf'\b{MASTER_CREATE_VERBS_PATTERN}\b.*\b{LOCATION_NOUNS_PATTERN}\b', normalized))

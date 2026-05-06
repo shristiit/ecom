@@ -1,10 +1,11 @@
 import { Link } from 'expo-router';
-import { ScrollView, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 import {
   AppBadge,
   AppButton,
   AppCard,
   PageShell,
+  PageScrollView,
   AppTable,
   AppTableCell,
   AppTableHeaderCell,
@@ -20,8 +21,8 @@ export default function UsersScreen() {
 
   return (
     <PermissionGate permission="admin.roles.read">
-      <PageShell variant="users">
-        <ScrollView className="px-6 py-6">
+      <PageShell>
+        <PageScrollView>
           <PageHeader
             title="Users & Access"
             subtitle="Users, role definitions, and permission policies."
@@ -81,7 +82,7 @@ export default function UsersScreen() {
               </AppTable>
             ) : null}
           </AppCard>
-        </ScrollView>
+        </PageScrollView>
       </PageShell>
     </PermissionGate>
   );

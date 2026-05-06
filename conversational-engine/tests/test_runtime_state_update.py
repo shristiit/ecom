@@ -146,6 +146,52 @@ async def test_state_update_extracts_supplier_phone_and_address_without_overwrit
     assert state.extracted_entities['address'] == '45 Textile Lane, Liverpool.'
 
 
+async def test_state_update_does_not_treat_small_talk_as_pending_mutation_follow_up():
+    state = await resolve_state_update(
+        user_message='hello',
+        extracted_entities={
+            'taskContext': {
+                'primaryRoute': 'mutation',
+                'primaryIntent': 'purchasing.receive_po',
+                'entities': {'poId': 'po-1'},
+                'missingFields': ['location_id'],
+                'postActions': [],
+                'clarificationCount': 1,
+                'status': 'drafting',
+            }
+        },
+        recent_messages=[],
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+        state_updater=None,
+    )
+
+    assert state.is_workflow_edit is False
+    assert state.primary_intent == 'inventory.stock_on_hand'
+
+
+async def test_state_update_does_not_invent_location_name_from_confirmation_phrase():
+    state = await resolve_state_update(
+        user_message='yes correct',
+        extracted_entities={
+            'taskContext': {
+                'primaryRoute': 'mutation',
+                'primaryIntent': 'master.create_location',
+                'entities': {'code': 'new-12', 'type': 'store'},
+                'missingFields': ['name'],
+                'postActions': [],
+                'clarificationCount': 1,
+                'status': 'drafting',
+            }
+        },
+        recent_messages=[],
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+        state_updater=None,
+    )
+
+    assert state.is_workflow_edit is True
+    assert 'name' not in state.extracted_entities
+
+
 def test_state_update_formats_preview_entities_into_recent_message_context():
     formatted = _format_recent_messages(
         [

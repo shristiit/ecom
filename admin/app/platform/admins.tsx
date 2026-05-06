@@ -1,5 +1,5 @@
-import { ScrollView, Text, View } from 'react-native';
-import { AppCard, PageHeader, PageShell } from '@admin/components/ui';
+import { Text, View } from 'react-native';
+import { AppCard, PageHeader, PageShell, PageScrollView } from '@admin/components/ui';
 import { queryKeys, useQuery } from '@admin/lib/query';
 import { platformService } from '@admin/features/platform/services/platform.service';
 
@@ -11,7 +11,7 @@ export default function PlatformAdminsScreen() {
 
   return (
     <PageShell>
-      <ScrollView className="px-6 py-6">
+      <PageScrollView>
         <PageHeader title="Platform Admins" subtitle="Global operators with cross-tenant control over SaaS billing, limits, and restrictions." />
         <AppCard title="Admin accounts">
           <View className="gap-3">
@@ -24,7 +24,7 @@ export default function PlatformAdminsScreen() {
             {(query.data ?? []).length === 0 ? <Text className="text-small text-muted">No platform admins found.</Text> : null}
           </View>
         </AppCard>
-      </ScrollView>
+      </PageScrollView>
     </PageShell>
   );
 }

@@ -81,7 +81,13 @@ async def match_customer(
     target = normalize_text(message)
     for customer in customers:
         name = str(customer.get('name') or '')
-        if normalize_text(name) in target:
+        email = str(customer.get('email') or '')
+        code = str(customer.get('code') or '')
+        if (
+            normalize_text(name) in target
+            or (email and email.lower() in message.lower())
+            or (code and normalize_text(code) in target)
+        ):
             return {'id': str(customer['id']), 'label': name}
     return None
 

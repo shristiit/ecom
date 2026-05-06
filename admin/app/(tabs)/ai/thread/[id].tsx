@@ -8,7 +8,7 @@ export default function AiThreadScreen() {
   const conversationId = Array.isArray(rawId) ? rawId[0] : rawId;
 
   return (
-    <PageShell variant="ai">
+    <PageShell>
       <AssistantChatShell key={`assistant-thread-${conversationId ?? 'unknown'}`} mode="thread" conversationId={conversationId} />
     </PageShell>
   );

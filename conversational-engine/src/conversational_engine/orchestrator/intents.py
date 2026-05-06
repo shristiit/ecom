@@ -3,6 +3,15 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 from conversational_engine.contracts.common import PendingActionType
+from conversational_engine.keyword_sets import (
+    NAVIGATION_HELP_PHRASES,
+    ORCHESTRATOR_DOMAIN_KEYWORDS,
+    PURCHASE_ORDER_REPORTING_PHRASES,
+    REPORTING_PHRASES,
+    STOCK_ADJUSTMENT_PHRASES,
+    STOCK_QUERY_PHRASES,
+    STOCK_RECEIPT_PHRASES,
+)
 
 from .parsing import matches_intent_pattern, normalize_text
 
@@ -13,28 +22,6 @@ WRITE_PENDING_ACTIONS = [
     PendingActionType.EDIT.value,
     PendingActionType.SUBMIT_FOR_APPROVAL.value,
 ]
-INVENTORY_KEYWORDS = (
-    'stock',
-    'inventory',
-    'product',
-    'sku',
-    'purchase order',
-    'po',
-    'supplier',
-    'customer',
-    'invoice',
-    'sales order',
-    'warehouse',
-    'location',
-    'report',
-    'movement',
-    'receipt',
-    'transfer',
-    'adjust',
-    'category',
-    'brand',
-    'price',
-)
 PENDING_TASK_TTL = timedelta(minutes=30)
 
 
@@ -118,17 +105,17 @@ def classify_intent(message: str, memory: dict[str, object]) -> str:
         return 'product_update'
     if 'transfer' in normalized:
         return 'stock_transfer'
-    if any(phrase in normalized for phrase in ['write off', 'damaged', 'adjust', 'cycle count']):
+    if any(phrase in normalized for phrase in STOCK_ADJUSTMENT_PHRASES):
         return 'stock_adjustment'
-    if 'receive stock' in normalized or 'stock receipt' in normalized:
+    if any(phrase in normalized for phrase in STOCK_RECEIPT_PHRASES):
         return 'stock_receipt'
-    if any(phrase in normalized for phrase in ['report', 'summary', 'movement', 'receipts', 'receipt summary']):
+    if any(phrase in normalized for phrase in REPORTING_PHRASES):
         return 'reporting_query'
-    if any(phrase in normalized for phrase in ['help', 'where is', 'how do i', 'how to', 'screen', 'navigate']):
+    if any(phrase in normalized for phrase in NAVIGATION_HELP_PHRASES):
         return 'navigation_help'
-    if any(phrase in normalized for phrase in ['stock', 'inventory', 'sku']):
+    if any(phrase in normalized for phrase in STOCK_QUERY_PHRASES):
         return 'stock_query'
-    if any(phrase in normalized for phrase in ['purchase order', 'po ']):
+    if any(phrase in normalized for phrase in PURCHASE_ORDER_REPORTING_PHRASES):
         return 'reporting_query'
     if pending_task:
         return str(pending_task['intent'])
@@ -138,7 +125,7 @@ def classify_intent(message: str, memory: dict[str, object]) -> str:
 
 
 def _is_off_topic(normalized: str) -> bool:
-    if any(keyword in normalized for keyword in INVENTORY_KEYWORDS):
+    if any(keyword in normalized for keyword in ORCHESTRATOR_DOMAIN_KEYWORDS):
         return False
     tokens = normalized.split()
     return len(tokens) > 3

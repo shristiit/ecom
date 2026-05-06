@@ -8,7 +8,7 @@ export default function AiHomeScreen() {
   const shouldAutostart = (Array.isArray(params.autostart) ? params.autostart[0] : params.autostart) === '1';
 
   return (
-    <PageShell variant="ai">
+    <PageShell>
       <AssistantChatShell
         key={`assistant-new-${incomingPrompt}-${shouldAutostart ? 'autostart' : 'manual'}`}
         mode="new"

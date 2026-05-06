@@ -118,6 +118,7 @@ function getPageTitle(pathname: string) {
   return match?.title ?? 'Inventory Management';
 }
 
+// Full sidebar item (desktop ≥1024px) — icon + label
 function SidebarItem({ item, pathname }: { item: NavItem; pathname: string }) {
   const active = isActivePath(pathname, item.href, item.activePrefixes);
   const Icon = item.icon;
@@ -133,6 +134,26 @@ function SidebarItem({ item, pathname }: { item: NavItem; pathname: string }) {
       >
         <Icon size={18} color={active ? '#1F3A5F' : '#64748B'} />
         <Text className={`text-small font-medium ${active ? 'text-primary' : 'text-muted'}`}>{item.label}</Text>
+      </Pressable>
+    </Link>
+  );
+}
+
+// Icon-only sidebar item for tablet rail (768–1023px)
+function SidebarRailItem({ item, pathname }: { item: NavItem; pathname: string }) {
+  const active = isActivePath(pathname, item.href, item.activePrefixes);
+  const Icon = item.icon;
+
+  return (
+    <Link href={item.href} asChild>
+      <Pressable
+        accessibilityRole="link"
+        accessibilityLabel={item.label}
+        accessibilityHint={`Opens the ${item.label} page.`}
+        accessibilityState={{ selected: active }}
+        className={`mb-1 h-10 w-10 items-center justify-center rounded-md ${active ? 'bg-primary-tint' : 'bg-transparent'}`}
+      >
+        <Icon size={20} color={active ? '#1F3A5F' : '#64748B'} />
       </Pressable>
     </Link>
   );
@@ -191,6 +212,7 @@ function TopNav({
   title,
   showMenuButton = false,
   showInlineSearch = true,
+  isNarrow = false,
   onOpenMenu,
   onOpenNotifications,
   onOpenQuickView,
@@ -198,6 +220,8 @@ function TopNav({
   title: string;
   showMenuButton?: boolean;
   showInlineSearch?: boolean;
+  /** True when viewport width < 640px — hides secondary text actions */
+  isNarrow?: boolean;
   onOpenMenu: () => void;
   onOpenNotifications: () => void;
   onOpenQuickView: () => void;
@@ -218,7 +242,8 @@ function TopNav({
   return (
     <View className="relative z-50 border-b border-border bg-surface px-4 py-3">
       <View className="flex-row items-center justify-between gap-3">
-        <View className="flex-row items-center gap-3">
+        {/* Left: hamburger + title */}
+        <View className="flex-row items-center gap-3 shrink-0">
           {showMenuButton ? (
             <Pressable
               accessibilityRole="button"
@@ -230,12 +255,14 @@ function TopNav({
               <Menu size={20} color="#334155" />
             </Pressable>
           ) : null}
-          <Text className="text-section font-semibold text-text">{title}</Text>
+          <Text className="text-section font-semibold text-text" numberOfLines={1}>{title}</Text>
         </View>
 
-        {showInlineSearch ? <AssistantSearchBar /> : <View className="flex-1" />}
+        {/* Centre: search bar (hidden on narrow) */}
+        {showInlineSearch && !isNarrow ? <AssistantSearchBar /> : <View className="flex-1" />}
 
-        <View className="flex-row items-center gap-2">
+        {/* Right: action buttons */}
+        <View className="flex-row items-center gap-2 shrink-0">
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Open notifications"
@@ -245,15 +272,21 @@ function TopNav({
           >
             <Bell size={16} color="#334155" />
           </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Open quick view"
-            accessibilityHint="Shows the quick view panel."
-            className="rounded-md border border-border bg-surface-2 px-3 py-2"
-            onPress={onOpenQuickView}
-          >
-            <Text className="text-small font-medium text-text">Quick view</Text>
-          </Pressable>
+
+          {/* "Quick view" text button — hidden on narrow screens to save space */}
+          {!isNarrow ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Open quick view"
+              accessibilityHint="Shows the quick view panel."
+              className="rounded-md border border-border bg-surface-2 px-3 py-2"
+              onPress={onOpenQuickView}
+            >
+              <Text className="text-small font-medium text-text">Quick view</Text>
+            </Pressable>
+          ) : null}
+
+          {/* Profile avatar + dropdown */}
           <View className="relative z-50">
             <Pressable
               accessibilityRole="button"
@@ -268,11 +301,12 @@ function TopNav({
 
             {profileMenuOpen ? (
               <View
-                className="absolute right-0 top-11 z-50 w-64 rounded-md border border-border bg-surface shadow-sm"
-                style={{ elevation: 24 }}
+                className="absolute right-0 top-11 z-50 rounded-md border border-border bg-surface shadow-sm"
+                // Clamp dropdown width: 256px max, but never wider than viewport minus 16px margin
+                style={{ width: 256, elevation: 24 }}
               >
                 <View className="border-b border-border px-3 py-2">
-                  <Text className="text-caption text-muted">{userEmail}</Text>
+                  <Text className="text-caption text-muted" numberOfLines={1}>{userEmail}</Text>
                 </View>
 
                 <Pressable
@@ -349,13 +383,24 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   const isPlatformUser = user?.principalType === 'platform_admin';
   const isWeb = Platform.OS === 'web';
+
+  // Three layout tiers:
+  //   Desktop  ≥1024px → full 256px labelled sidebar
+  //   Tablet   768–1023px → narrow 56px icon-only rail
+  //   Mobile   <768px → no sidebar (hamburger drawer or native bottom tabs)
   const isDesktop = isWeb && width >= 1024;
-  const showWebBurgerMenu = isWeb && !isDesktop;
+  const isTablet = isWeb && width >= 768 && width < 1024;
+  const showWebBurgerMenu = isWeb && !isDesktop && !isTablet;
   const showNativeBottomTabs = !isWeb;
+
+  // TopNav is "narrow" when the viewport is under 640px on web
+  const isNarrowNav = isWeb && width < 640;
+
   const currentTitle = getPageTitle(pathname);
   const hideSearch = pathname === '/ai' || pathname.startsWith('/ai/');
-  const showCompactSearchCard = !isDesktop && !hideSearch;
+  const showCompactSearchCard = !isDesktop && !isTablet && !hideSearch;
   const showInlineSearch = !hideSearch && !showCompactSearchCard;
+
   const navItems = useMemo(
     () =>
       (isPlatformUser ? PLATFORM_NAV_ITEMS : NAV_ITEMS).filter((item) => {
@@ -387,12 +432,12 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <SafeAreaView className="flex-1 bg-bgPrimary" edges={['top', 'left', 'right']}>
       <View className="flex-1 flex-row">
+        {/* Full labelled sidebar — desktop ≥1024px */}
         {isDesktop ? (
           <View className="w-64 border-r border-border bg-surface px-3 py-4">
             <View className="mb-6 items-center px-2 py-2">
               <AppLogo showWordmark width={180} height={56} />
             </View>
-
             <View>
               {navItems.map((item) => (
                 <SidebarItem key={item.href} item={item} pathname={pathname} />
@@ -401,11 +446,24 @@ export function AppShell({ children }: { children: ReactNode }) {
           </View>
         ) : null}
 
+        {/* Icon-only rail sidebar — tablet 768–1023px */}
+        {isTablet ? (
+          <View className="w-14 border-r border-border bg-surface items-center py-4 gap-1">
+            <View className="mb-4">
+              <AppLogo size={32} />
+            </View>
+            {navItems.map((item) => (
+              <SidebarRailItem key={item.href} item={item} pathname={pathname} />
+            ))}
+          </View>
+        ) : null}
+
         <View className="flex-1">
           <TopNav
             title={currentTitle}
             showMenuButton={showWebBurgerMenu}
             showInlineSearch={showInlineSearch}
+            isNarrow={isNarrowNav}
             onOpenMenu={() => setMobileMenuOpen(true)}
             onOpenNotifications={() => setNotificationsOpen(true)}
             onOpenQuickView={() => setQuickViewOpen(true)}
@@ -437,6 +495,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </View>
       </View>
 
+      {/* Hamburger drawer — mobile web only (<768px) */}
       <AppDrawer
         isOpen={showWebBurgerMenu && mobileMenuOpen}
         onClose={() => setMobileMenuOpen(false)}

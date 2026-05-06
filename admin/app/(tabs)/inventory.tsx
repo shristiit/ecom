@@ -1,6 +1,6 @@
 import { Link } from 'expo-router';
-import { Pressable, ScrollView, Text, View } from 'react-native';
-import { AppCard, PageHeader, PageShell } from '@admin/components/ui';
+import { Pressable, Text, View } from 'react-native';
+import { AppCard, PageHeader, PageShell, PageScrollView } from '@admin/components/ui';
 
 const inventoryModules = [
   {
@@ -42,8 +42,8 @@ const inventoryModules = [
 
 export default function InventoryHubScreen() {
   return (
-    <PageShell variant="inventory">
-      <ScrollView className="px-6 py-6">
+    <PageShell>
+      <PageScrollView>
         <PageHeader title="Inventory" subtitle="Operations across stock, movement, and control workflows." />
 
         <View className="gap-4">
@@ -61,7 +61,7 @@ export default function InventoryHubScreen() {
             </Link>
           ))}
         </View>
-      </ScrollView>
+      </PageScrollView>
     </PageShell>
   );
 }

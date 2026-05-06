@@ -1,6 +1,6 @@
 import { X } from 'lucide-react-native';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
-import { Animated, Easing, Modal as NativeModal, Pressable, ScrollView, Text, View } from 'react-native';
+import { Animated, Easing, Modal as NativeModal, Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
 
 type AppDrawerProps = {
   isOpen: boolean;
@@ -23,13 +23,16 @@ export function AppDrawer({
   footer,
   children,
 }: AppDrawerProps) {
+  const { width: windowWidth } = useWindowDimensions();
+  // Use the actual drawable width: capped at 420px but never more than the screen width
+  const drawerWidth = Math.min(420, windowWidth);
+  const closedOffset = side === 'left' ? -drawerWidth : drawerWidth;
+
   const [visible, setVisible] = useState(isOpen);
   const overlayOpacity = useRef(new Animated.Value(0)).current;
-  const translateX = useRef(new Animated.Value(side === 'left' ? -360 : 360)).current;
+  const translateX = useRef(new Animated.Value(closedOffset)).current;
 
   useEffect(() => {
-    const closedOffset = side === 'left' ? -360 : 360;
-
     if (isOpen) {
       setVisible(true);
       translateX.setValue(closedOffset);
@@ -68,7 +71,7 @@ export function AppDrawer({
         setVisible(false);
       }
     });
-  }, [isOpen, overlayOpacity, side, translateX]);
+  }, [isOpen, overlayOpacity, closedOffset, translateX]);
 
   if (!visible) {
     return null;

@@ -6,6 +6,14 @@ from typing import Any
 
 from conversational_engine.clients.backend import BackendClient
 from conversational_engine.contracts.auth import AuthContext
+from conversational_engine.keyword_sets import (
+    LATEST_INVOICE_TERMS,
+    LATEST_PURCHASE_ORDER_TERMS,
+    RELATIVE_CUSTOMER_TERMS,
+    RELATIVE_INVOICE_TERMS,
+    RELATIVE_PURCHASE_ORDER_TERMS,
+    RELATIVE_SUPPLIER_TERMS,
+)
 
 from .utils import is_uuid
 
@@ -73,7 +81,7 @@ class EntityResolver:
             return name_or_id
         relative = self._relative_context_value(
             name_or_id,
-            terms=('same supplier', 'this supplier', 'that supplier', 'supplier we just created'),
+            terms=RELATIVE_SUPPLIER_TERMS,
             value_keys=('supplierId',),
         )
         if relative is not None:
@@ -95,7 +103,7 @@ class EntityResolver:
             return name_or_id
         relative = self._relative_context_value(
             name_or_id,
-            terms=('same customer', 'this customer', 'that customer', 'customer we just created'),
+            terms=RELATIVE_CUSTOMER_TERMS,
             value_keys=('customerId',),
         )
         if relative is not None:
@@ -149,14 +157,14 @@ class EntityResolver:
             return self._require_resolved(latest_for_party)
         relative = self._relative_context_value(
             number_or_id,
-            terms=('this purchase order', 'that purchase order', 'this po', 'that po'),
+            terms=RELATIVE_PURCHASE_ORDER_TERMS,
             value_keys=('poId',),
         )
         if relative is not None:
             return self._require_resolved(relative)
         latest = self._latest_list_reference(
             number_or_id,
-            terms=('last purchase order', 'my last purchase order', 'last po', 'my last po', 'latest po'),
+            terms=LATEST_PURCHASE_ORDER_TERMS,
             rows=rows,
             label_fields=('number', 'supplierName', 'supplier_name'),
             singular='purchase order',
@@ -196,14 +204,14 @@ class EntityResolver:
             return self._require_resolved(latest_for_party)
         relative = self._relative_context_value(
             number_or_id,
-            terms=('this sales order', 'that sales order', 'this invoice', 'that invoice', 'this so', 'that so'),
+            terms=RELATIVE_INVOICE_TERMS,
             value_keys=('invoiceId',),
         )
         if relative is not None:
             return self._require_resolved(relative)
         latest = self._latest_list_reference(
             number_or_id,
-            terms=('last sales order', 'my last sales order', 'last invoice', 'my last invoice', 'latest sales order'),
+            terms=LATEST_INVOICE_TERMS,
             rows=rows,
             label_fields=('number', 'customerName', 'customer_name'),
             singular='sales order',
@@ -283,8 +291,12 @@ class EntityResolver:
                 sku for sku in skus if str(sku.get('sku_code') or '').strip().upper() == requested_sku_code
             ]
             if not sku_matches:
-                raise ValueError(f'SKU "{requested_sku_code}" was not found for "{product_label}".')
-            candidate_skus = sku_matches
+                style_code = str(product.get('styleCode') or product.get('style_code') or '').strip().upper()
+                if style_code != requested_sku_code:
+                    raise ValueError(f'SKU "{requested_sku_code}" was not found for "{product_label}".')
+                candidate_skus = skus
+            else:
+                candidate_skus = sku_matches
         else:
             candidate_skus = skus
 

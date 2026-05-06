@@ -1,7 +1,7 @@
 import { Link } from 'expo-router';
 import { useEffect } from 'react';
-import { ScrollView, Text, View } from 'react-native';
-import { AppButton, AppCard, PageHeader, PageShell } from '@admin/components/ui';
+import { Text, View } from 'react-native';
+import { AppButton, AppCard, PageHeader, PageShell, PageScrollView } from '@admin/components/ui';
 import { useQuery, queryKeys } from '@admin/lib/query';
 import { platformService } from '@admin/features/platform/services/platform.service';
 
@@ -32,7 +32,7 @@ export default function PlatformOverviewScreen() {
 
   return (
     <PageShell>
-      <ScrollView className="px-6 py-6">
+      <PageScrollView>
         <PageHeader
           title="Platform Overview"
           subtitle="Cross-business SaaS controls for billing, access, quotas, and restrictions."
@@ -81,7 +81,7 @@ export default function PlatformOverviewScreen() {
             </View>
           </AppCard>
         </View>
-      </ScrollView>
+      </PageScrollView>
     </PageShell>
   );
 }

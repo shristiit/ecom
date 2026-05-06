@@ -17,6 +17,12 @@ from conversational_engine.audit.service import AuditService
 from conversational_engine.clients.backend import BackendClient, BackendValidationError
 from conversational_engine.contracts.auth import AuthContext
 from conversational_engine.contracts.common import PendingActionType, TextBlock, WorkflowStatus
+from conversational_engine.keyword_sets import (
+    COMPOUND_SEQUENCE_VERBS,
+    GENERIC_CONFIRMATION_PHRASES,
+    REUSE_REFERENCE_PHRASES,
+    SIZE_LABEL_ALIASES,
+)
 from conversational_engine.memory.layered import LayeredMemoryService
 from conversational_engine.retrieval.service import RetrievalService
 from conversational_engine.runtime.contracts import RuntimeOutcome
@@ -37,6 +43,8 @@ from conversational_engine.runtime.renderer import (
 from conversational_engine.runtime.state_update import (
     ROUTE_NAVIGATION,
     RuntimeStateUpdate,
+    _extract_contact_create_entities,
+    _extract_location_create_entities,
     apply_task_context,
     build_post_action_blocks,
     increment_clarification_count,
@@ -81,37 +89,14 @@ _WRITE_TOOL_REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
     'sales.dispatch_invoice': ('invoiceId', 'locationId'),
     'sales.update_invoice': ('invoiceId',),
 }
-_COMPOUND_SEQUENCE_VERBS = (
-    'create',
-    'add',
-    'new',
-    'onboard',
-    'register',
-    'update',
-    'edit',
-    'change',
-    'rename',
-    'delete',
-    'remove',
-    'dispatch',
-    'ship',
-    'cancel',
-    'receive',
-    'book in',
-    'close',
-    'show',
-    'find',
-    'search',
-    'list',
-)
 _COMPOUND_SEQUENCE_SPLIT_PATTERN = re.compile(
     r'\s*(?:,\s*)?(?:then|and then)\s+|\s*,?\s+and\s+(?=(?:'
-    + '|'.join(re.escape(verb) for verb in _COMPOUND_SEQUENCE_VERBS)
+    + '|'.join(re.escape(verb) for verb in COMPOUND_SEQUENCE_VERBS)
     + r')\b)',
     re.IGNORECASE,
 )
 _COMPOUND_SEQUENCE_ACTION_PATTERN = re.compile(
-    r'^(?:' + '|'.join(re.escape(verb) for verb in _COMPOUND_SEQUENCE_VERBS) + r')\b',
+    r'^(?:' + '|'.join(re.escape(verb) for verb in COMPOUND_SEQUENCE_VERBS) + r')\b',
     re.IGNORECASE,
 )
 
@@ -274,19 +259,9 @@ def _extract_invoice_reference(message: str) -> str | None:
 
 def _message_requests_same_details(message: str) -> bool:
     normalized = ' '.join(message.strip().lower().split())
-    if normalized in {'yes', 'yeah', 'yep', 'same', 'again'}:
+    if normalized in {*GENERIC_CONFIRMATION_PHRASES, 'same', 'again'}:
         return True
-    return any(
-        phrase in normalized
-        for phrase in (
-            'same details',
-            'use same',
-            'same as previous',
-            'same as before',
-            'same as last order',
-            'same as previous order',
-        )
-    )
+    return any(phrase in normalized for phrase in REUSE_REFERENCE_PHRASES + ('same as last order', 'same as previous order'))
 
 
 def _extract_order_product_reference(message: str) -> str | None:
@@ -323,28 +298,6 @@ _ORDINAL_LINE_INDEX: dict[str, int] = {
     'last': -1,
 }
 
-_SIZE_LABEL_ALIASES: tuple[tuple[str, str], ...] = (
-    ('extra extra small', 'XXS'),
-    ('xxs', 'XXS'),
-    ('extra small', 'XS'),
-    ('xs', 'XS'),
-    ('s', 'S'),
-    ('small', 'S'),
-    ('sm', 'S'),
-    ('m', 'M'),
-    ('medium', 'M'),
-    ('med', 'M'),
-    ('md', 'M'),
-    ('l', 'L'),
-    ('large', 'L'),
-    ('lg', 'L'),
-    ('extra large', 'XL'),
-    ('xl', 'XL'),
-    ('extra extra large', 'XXL'),
-    ('xxl', 'XXL'),
-)
-
-
 def _extract_ordinal_line_quantity_change(message: str) -> tuple[int, int] | None:
     patterns = (
         re.compile(
@@ -380,7 +333,7 @@ def _extract_line_size_label_reference(message: str) -> str | None:
     lowered = message.lower()
     if 'line' not in lowered:
         return None
-    for alias, label in _SIZE_LABEL_ALIASES:
+    for alias, label in SIZE_LABEL_ALIASES:
         if re.search(rf'\b{re.escape(alias)}\b', lowered, re.IGNORECASE):
             return label
     return None
@@ -430,7 +383,7 @@ def _normalize_size_label(value: object) -> str | None:
     if not raw:
         return None
     lowered = raw.lower()
-    for alias, label in _SIZE_LABEL_ALIASES:
+    for alias, label in SIZE_LABEL_ALIASES:
         if lowered == alias:
             return label
     return raw.upper()
@@ -468,7 +421,7 @@ def _extract_follow_up_unit_value(message: str) -> int | None:
 def _extract_follow_up_size_label(message: str, available_sizes: list[str]) -> str | None:
     lowered = message.lower()
     normalized_available = {_normalize_size_label(size) for size in available_sizes}
-    for alias, label in _SIZE_LABEL_ALIASES:
+    for alias, label in SIZE_LABEL_ALIASES:
         if label not in normalized_available:
             continue
         if re.search(rf'\b{re.escape(alias)}\b', lowered, re.IGNORECASE):
@@ -525,7 +478,7 @@ def _extract_grouped_variant_lines(
 
         matched_sizes: list[str] = []
         lowered = clause.lower()
-        for alias, label in _SIZE_LABEL_ALIASES:
+        for alias, label in SIZE_LABEL_ALIASES:
             if label not in normalized_sizes:
                 continue
             if re.search(rf'\b{re.escape(alias)}\b', lowered, re.IGNORECASE) and label not in matched_sizes:
@@ -1924,6 +1877,73 @@ class AgentRuntimeService:
         next_payload['lines'] = merged_lines
         return next_payload
 
+    async def _merge_create_invoice_line_follow_up(
+        self,
+        *,
+        auth: AuthContext,
+        user_message: str,
+        merged_payload: dict[str, object],
+    ) -> dict[str, object]:
+        raw_lines = merged_payload.get('lines')
+        lines = [dict(line) for line in raw_lines if isinstance(line, dict)] if isinstance(raw_lines, list) else []
+        if len(lines) != 1:
+            return merged_payload
+
+        line = dict(lines[0])
+        reference = str(line.get('productName') or line.get('styleCode') or line.get('skuCode') or '').strip()
+        if not reference:
+            return merged_payload
+
+        detail = await self._product_detail_for_reference(auth=auth, reference=reference)
+        if not isinstance(detail, dict):
+            return merged_payload
+
+        skus = detail.get('skus')
+        sizes = detail.get('sizes')
+        if not isinstance(skus, list) or not isinstance(sizes, list):
+            return merged_payload
+
+        available_colors = [
+            str(sku.get('color_name') or '').strip()
+            for sku in skus
+            if isinstance(sku, dict) and str(sku.get('color_name') or '').strip()
+        ]
+        available_sizes = [
+            str(size.get('size_label') or '').strip()
+            for size in sizes
+            if isinstance(size, dict) and str(size.get('size_label') or '').strip()
+        ]
+
+        line_patch: dict[str, object] = {}
+        color_name = _extract_follow_up_color_name(user_message, available_colors)
+        if color_name:
+            line_patch['colorName'] = color_name
+
+        size_label = _extract_follow_up_size_label(user_message, available_sizes)
+        if size_label:
+            line_patch['sizeLabel'] = size_label
+
+        quantity = _extract_follow_up_quantity(user_message)
+        if quantity is not None:
+            if 'qty' in line:
+                line_patch['qty'] = quantity
+            else:
+                line_patch['quantity'] = quantity
+
+        unit_price = _extract_follow_up_unit_value(user_message)
+        if unit_price is not None:
+            has_qty = _has_meaningful_value(line.get('qty')) or _has_meaningful_value(line.get('quantity'))
+            has_price = _has_meaningful_value(line.get('unitPrice'))
+            if not has_price or not quantity or not has_qty:
+                line_patch['unitPrice'] = unit_price
+
+        merged_lines = _merge_single_line_patch(lines, line_patch)
+        if merged_lines is None:
+            return merged_payload
+        next_payload = dict(merged_payload)
+        next_payload['lines'] = merged_lines
+        return next_payload
+
     async def _variant_rows_for_clarification(
         self,
         *,
@@ -1996,7 +2016,12 @@ class AgentRuntimeService:
             )
             if lines:
                 merged_payload['lines'] = lines
-            return merged_payload
+                return merged_payload
+            return await self._merge_create_invoice_line_follow_up(
+                auth=auth,
+                user_message=user_message,
+                merged_payload=merged_payload,
+            )
 
         if tool_name == 'purchasing.update_po':
             date_value = _parse_iso_date_from_message(user_message)
@@ -2137,18 +2162,18 @@ class AgentRuntimeService:
         current_entities: dict[str, object],
     ) -> tuple[str, dict[str, object]] | None:
         recovered: dict[str, object] = {}
+        task_context = task_context_from_entities(current_entities)
+        task_entities = task_context.get('entities')
+        task_entities = task_entities if isinstance(task_entities, dict) else {}
 
         if primary_intent == 'purchasing.create_po':
             supplier = await match_supplier(self._backend_client, auth, user_message)
             if supplier:
                 recovered['supplierId'] = supplier['id']
             else:
-                task_context = task_context_from_entities(current_entities)
-                task_entities = task_context.get('entities')
-                if isinstance(task_entities, dict):
-                    supplier_id = str(task_entities.get('supplierId') or '').strip()
-                    if supplier_id:
-                        recovered['supplierId'] = supplier_id
+                supplier_id = str(task_entities.get('supplierId') or '').strip()
+                if supplier_id:
+                    recovered['supplierId'] = supplier_id
 
             lines = await parse_po_lines(
                 self._backend_client,
@@ -2169,6 +2194,71 @@ class AgentRuntimeService:
                 recovered['expectedDate'] = date_value
 
             if recovered.get('supplierId') and recovered.get('lines'):
+                return primary_intent, recovered
+            return None
+
+        if primary_intent == 'sales.create_invoice':
+            customer = await match_customer(self._backend_client, auth, user_message)
+            if customer:
+                recovered['customerId'] = customer['id']
+            else:
+                customer_id = str(task_entities.get('customerId') or '').strip()
+                if customer_id:
+                    recovered['customerId'] = customer_id
+
+            lines = await parse_sales_lines(
+                self._backend_client,
+                auth,
+                user_message,
+                invoice_id='',
+            )
+            if lines:
+                recovered['lines'] = lines
+            else:
+                product_reference = _extract_order_product_reference(user_message)
+                if product_reference:
+                    recovered['lines'] = [{'productName': product_reference}]
+
+            if recovered.get('customerId') and recovered.get('lines'):
+                return primary_intent, recovered
+            return None
+
+        if primary_intent == 'master.create_supplier':
+            recovered.update(
+                {
+                    key: value
+                    for key, value in task_entities.items()
+                    if key in {'name', 'email', 'phone', 'address', 'status'} and value is not None
+                }
+            )
+            recovered.update(_extract_contact_create_entities(user_message))
+            if str(recovered.get('name') or '').strip():
+                return primary_intent, recovered
+            return None
+
+        if primary_intent == 'master.create_customer':
+            recovered.update(
+                {
+                    key: value
+                    for key, value in task_entities.items()
+                    if key in {'name', 'email', 'phone', 'address', 'status'} and value is not None
+                }
+            )
+            recovered.update(_extract_contact_create_entities(user_message))
+            if str(recovered.get('name') or '').strip():
+                return primary_intent, recovered
+            return None
+
+        if primary_intent == 'master.create_location':
+            recovered.update(
+                {
+                    key: value
+                    for key, value in task_entities.items()
+                    if key in {'name', 'code', 'type', 'address', 'status'} and value is not None
+                }
+            )
+            recovered.update(_extract_location_create_entities(user_message))
+            if all(str(recovered.get(field) or '').strip() for field in ('name', 'code', 'type')):
                 return primary_intent, recovered
             return None
 
@@ -2238,9 +2328,13 @@ class AgentRuntimeService:
             po_ref = _extract_purchase_order_reference(user_message)
             if po_ref:
                 recovered['poId'] = po_ref
+            elif str(task_entities.get('poId') or '').strip():
+                recovered['poId'] = str(task_entities['poId']).strip()
             location = await match_location(self._backend_client, auth, user_message)
             if location:
                 recovered['locationId'] = location['id']
+            elif str(task_entities.get('locationId') or '').strip():
+                recovered['locationId'] = str(task_entities['locationId']).strip()
             lines = await parse_po_lines(
                 self._backend_client,
                 auth,
@@ -2311,9 +2405,13 @@ class AgentRuntimeService:
             invoice_ref = _extract_invoice_reference(user_message)
             if invoice_ref:
                 recovered['invoiceId'] = invoice_ref
+            elif str(task_entities.get('invoiceId') or '').strip():
+                recovered['invoiceId'] = str(task_entities['invoiceId']).strip()
             location = await match_location(self._backend_client, auth, user_message)
             if location:
                 recovered['locationId'] = location['id']
+            elif str(task_entities.get('locationId') or '').strip():
+                recovered['locationId'] = str(task_entities['locationId']).strip()
             if 'invoiceId' in recovered and 'locationId' in recovered:
                 recovered['confirm'] = True
                 return primary_intent, recovered

@@ -1,5 +1,5 @@
-import { ScrollView, Text, View } from 'react-native';
-import { AppCard, PageHeader, PageShell } from '@admin/components/ui';
+import { Text, View } from 'react-native';
+import { AppCard, PageHeader, PageShell, PageScrollView } from '@admin/components/ui';
 import { queryKeys, useQuery } from '@admin/lib/query';
 import { platformService } from '@admin/features/platform/services/platform.service';
 
@@ -11,7 +11,7 @@ export default function PlatformAuditScreen() {
 
   return (
     <PageShell>
-      <ScrollView className="px-6 py-6">
+      <PageScrollView>
         <PageHeader title="Platform Audit" subtitle="Recent lifecycle, entitlement, quota, and billing actions performed at the SaaS platform level." />
         <AppCard title="Latest events">
           <View className="gap-3">
@@ -26,7 +26,7 @@ export default function PlatformAuditScreen() {
             {(query.data ?? []).length === 0 ? <Text className="text-small text-muted">No audit events found.</Text> : null}
           </View>
         </AppCard>
-      </ScrollView>
+      </PageScrollView>
     </PageShell>
   );
 }

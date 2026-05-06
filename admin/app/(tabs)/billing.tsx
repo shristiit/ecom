@@ -1,4 +1,4 @@
-import { ScrollView, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 import {
   AppBadge,
   AppButton,
@@ -7,6 +7,7 @@ import {
   AppSelect,
   PageHeader,
   PageShell,
+  PageScrollView,
 } from '@admin/components/ui';
 import { resolvePlan } from '@admin/features/billing/plan-catalog';
 import { useEffect, useState } from 'react';
@@ -77,8 +78,8 @@ export default function BillingPaymentsScreen() {
   ];
 
   return (
-    <PageShell variant="settings">
-      <ScrollView className="px-6 py-6">
+    <PageShell>
+      <PageScrollView>
         <PageHeader
           title="Billing & Payments"
           subtitle="Business-admin controls for the current plan, trial state, billing contacts, and payment method details."
@@ -190,7 +191,7 @@ export default function BillingPaymentsScreen() {
             </View>
           </AppCard>
         </View>
-      </ScrollView>
+      </PageScrollView>
     </PageShell>
   );
 }

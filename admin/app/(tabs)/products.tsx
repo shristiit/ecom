@@ -1,11 +1,12 @@
 import { Link } from 'expo-router';
-import { ScrollView, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 import {
   AppBadge,
   AppButton,
   AppCard,
   AppInput,
   PageShell,
+  PageScrollView,
   AppTable,
   AppTableCell,
   AppTableHeaderCell,
@@ -23,8 +24,8 @@ export default function ProductsListScreen() {
   const { nameFilter, setNameFilter, filteredRows, hasActiveFilter } = useDebouncedNameFilter(products);
 
   return (
-    <PageShell variant="products">
-      <ScrollView className="px-6 py-6">
+    <PageShell>
+      <PageScrollView>
         <PageHeader
           title="Products"
           subtitle="Manage catalog records, variants, and sellable statuses."
@@ -96,7 +97,7 @@ export default function ProductsListScreen() {
             </View>
           ) : null}
         </AppCard>
-      </ScrollView>
+      </PageScrollView>
     </PageShell>
   );
 }

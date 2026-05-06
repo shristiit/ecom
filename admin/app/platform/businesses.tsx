@@ -1,7 +1,7 @@
 import { Link } from 'expo-router';
 import { useEffect } from 'react';
-import { ScrollView, Text, View } from 'react-native';
-import { AppBadge, AppCard, AppTable, AppTableCell, AppTableHeaderCell, AppTableRow, PageHeader, PageShell } from '@admin/components/ui';
+import { Text, View } from 'react-native';
+import { AppBadge, AppCard, AppTable, AppTableCell, AppTableHeaderCell, AppTableRow, PageHeader, PageShell, PageScrollView } from '@admin/components/ui';
 import { queryKeys, useQuery } from '@admin/lib/query';
 import { platformService } from '@admin/features/platform/services/platform.service';
 
@@ -22,7 +22,7 @@ export default function PlatformBusinessesScreen() {
 
   return (
     <PageShell>
-      <ScrollView className="px-6 py-6">
+      <PageScrollView>
         <PageHeader
           title="Businesses"
           subtitle="Manage tenant lifecycle status, limits, features, billing references, and restrictions."
@@ -60,7 +60,7 @@ export default function PlatformBusinessesScreen() {
           </AppTable>
           {rows.length === 0 ? <Text className="mt-4 text-small text-muted">No businesses found.</Text> : null}
         </AppCard>
-      </ScrollView>
+      </PageScrollView>
     </PageShell>
   );
 }
