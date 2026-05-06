@@ -547,6 +547,31 @@ class HarborVariantBackendClient(FakeBackendClient):
         return self.product_detail
 
 
+class NorthlineVariantBackendClient(FakeBackendClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self.products = [{'id': 'prod-northline', 'name': 'Northline Handcrafted Short', 'styleCode': 'NHS-001'}]
+        self.product_detail = {
+            'product': {'id': 'prod-northline', 'base_price': 25, 'styleCode': 'NHS-001'},
+            'skus': [
+                {'id': 'sku-cloud', 'color_name': 'Cloud', 'price_override': None},
+                {'id': 'sku-navy', 'color_name': 'Navy', 'price_override': None},
+            ],
+            'sizes': [
+                {'id': 'size-cloud-xs', 'sku_id': 'sku-cloud', 'size_label': 'XS', 'price_override': None},
+                {'id': 'size-cloud-s', 'sku_id': 'sku-cloud', 'size_label': 'S', 'price_override': None},
+                {'id': 'size-cloud-xl', 'sku_id': 'sku-cloud', 'size_label': 'XL', 'price_override': None},
+                {'id': 'size-navy-xs', 'sku_id': 'sku-navy', 'size_label': 'XS', 'price_override': None},
+                {'id': 'size-navy-xl', 'sku_id': 'sku-navy', 'size_label': 'XL', 'price_override': None},
+            ],
+        }
+
+    async def get_product(self, access_token: str, tenant_id: str | None, product_id: str):
+        del access_token, tenant_id
+        assert product_id == 'prod-northline'
+        return self.product_detail
+
+
 class FakeAuditService:
     def __init__(self) -> None:
         self.events: list[dict[str, object]] = []
@@ -1604,6 +1629,62 @@ async def test_runtime_service_applies_location_clarification_reply_without_repl
     assert any(block.type == BlockType.CONFIRMATION_REQUIRED for block in outcome.blocks)
 
 
+async def test_runtime_service_does_not_turn_location_confirmation_phrase_into_name():
+    service = AgentRuntimeService(
+        backend_client=FakeBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeExecutor('inventory.stock_on_hand', {'sku': 'unused'}),
+        reviewer=FakeReviewer(),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        state_updater=FakeStateUpdater(
+            {
+                'yes correct': {
+                    'useActiveWorkflow': True,
+                    'primaryRoute': 'mutation',
+                    'primaryIntent': 'master.create_location',
+                    'confidence': 0.96,
+                    'rationale': 'The user is responding to the active location draft.',
+                    'entityPatches': {},
+                    'navigationQuery': None,
+                    'postActionQuery': None,
+                }
+            }
+        ),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='yes correct',
+        extracted_entities={
+            '_workflowEngine': 'runtime',
+            'toolName': 'master.create_location',
+            'executionPayload': {'code': 'new-12', 'type': 'store'},
+            'taskContext': {
+                'primaryRoute': 'mutation',
+                'primaryIntent': 'master.create_location',
+                'entities': {'code': 'new-12', 'type': 'store'},
+                'missingFields': ['name'],
+                'postActions': [],
+                'clarificationCount': 1,
+                'status': 'drafting',
+            },
+        },
+        recent_messages=[],
+        workflow_status=WorkflowStatus.NEEDS_INPUT,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.NEEDS_INPUT
+    assert 'name' not in outcome.extracted_entities.get('executionPayload', {})
+    assert 'yes correct' not in str(outcome.extracted_entities.get('taskContext', {}).get('entities', {}).get('name', ''))
+
+
 async def test_runtime_service_applies_po_clarification_reply_with_product_price_lookup():
     service = AgentRuntimeService(
         backend_client=FakeBackendClient(),  # type: ignore[arg-type]
@@ -2002,6 +2083,103 @@ async def test_runtime_service_clarification_reply_preserves_latest_po_lines_ove
         {'sizeId': 'size-sand-m', 'qty': 20, 'unitCost': 42}
     ]
     assert any(block.type == BlockType.CONFIRMATION_REQUIRED for block in outcome.blocks)
+
+
+async def test_runtime_service_recovers_supplier_clarification_without_tool_draft():
+    service = AgentRuntimeService(
+        backend_client=FakeApprovalBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeInvalidExecutor(),  # type: ignore[arg-type]
+        reviewer=FakeReviewer(),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        state_updater=FakeStateUpdater(),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='gimmi, gimmi@gm.com',
+        extracted_entities={
+            'taskContext': {
+                'primaryRoute': 'mutation',
+                'primaryIntent': 'master.create_supplier',
+                'entities': {},
+                'missingFields': ['name'],
+                'postActions': [],
+                'clarificationCount': 1,
+                'status': 'drafting',
+            }
+        },
+        recent_messages=[],
+        workflow_status=WorkflowStatus.NEEDS_INPUT,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.AWAITING_CONFIRMATION
+    assert outcome.extracted_entities['executionPayload'] == {
+        'name': 'gimmi',
+        'email': 'gimmi@gm.com',
+    }
+
+
+async def test_runtime_service_applies_sales_variant_correction_without_repeating_stale_error():
+    service = AgentRuntimeService(
+        backend_client=NorthlineVariantBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeExecutor('inventory.stock_on_hand', {'sku': 'unused'}),
+        reviewer=FakeReviewer(),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        state_updater=FakeStateUpdater(),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='Cloud XS',
+        extracted_entities={
+            '_workflowEngine': 'runtime',
+            'toolName': 'sales.create_invoice',
+            'executionPayload': {
+                'customerId': 'cust-1',
+                'lines': [
+                    {
+                        'productName': 'Northline Handcrafted Short',
+                        'colorName': 'red',
+                        'sizeLabel': 'XL',
+                        'quantity': 10,
+                        'unitPrice': 25,
+                    }
+                ],
+            },
+            'taskContext': {
+                'primaryRoute': 'mutation',
+                'primaryIntent': 'sales.create_invoice',
+                'entities': {'customerId': 'cust-1'},
+                'missingFields': ['lines'],
+                'postActions': [],
+                'clarificationCount': 1,
+                'status': 'drafting',
+            },
+        },
+        recent_messages=[],
+        workflow_status=WorkflowStatus.NEEDS_INPUT,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.AWAITING_CONFIRMATION
+    assert outcome.extracted_entities['executionPayload']['lines'] == [
+        {'sizeId': 'size-cloud-xs', 'qty': 10, 'unitPrice': 25}
+    ]
 
 
 async def test_runtime_service_reuses_completed_read_context_for_this_follow_up():
@@ -3622,6 +3800,50 @@ async def test_runtime_service_applies_receive_po_clarification_reply_without_re
     assert outcome.extracted_entities['executionPayload']['lines'] == [
         {'sizeId': 'size-sand-m', 'qty': 5, 'unitCost': 42}
     ]
+    assert outcome.extracted_entities['executionPayload']['confirm'] is True
+
+
+async def test_runtime_service_recovers_receive_po_from_split_follow_up_fields():
+    service = AgentRuntimeService(
+        backend_client=FakeBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeInvalidExecutor(),  # type: ignore[arg-type]
+        reviewer=FakeReviewer(),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        state_updater=FakeStateUpdater(),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='PO-001',
+        extracted_entities={
+            'taskContext': {
+                'primaryRoute': 'mutation',
+                'primaryIntent': 'purchasing.receive_po',
+                'entities': {
+                    'locationId': LOCATION_A,
+                    'locationName': 'Warehouse A',
+                },
+                'missingFields': ['po_id'],
+                'postActions': [],
+                'clarificationCount': 1,
+                'status': 'drafting',
+            }
+        },
+        recent_messages=[],
+        workflow_status=WorkflowStatus.NEEDS_INPUT,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.AWAITING_CONFIRMATION
+    assert outcome.extracted_entities['executionPayload']['poId'] == 'po-1'
+    assert outcome.extracted_entities['executionPayload']['locationId'] == LOCATION_A
     assert outcome.extracted_entities['executionPayload']['confirm'] is True
 
 

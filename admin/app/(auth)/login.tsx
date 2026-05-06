@@ -45,7 +45,7 @@ export default function LoginScreen() {
   return (
     <AuthScreenShell title={portalMode === 'platform' ? 'Platform sign in' : 'Sign in'}>
       <KeyboardAvoidingView behavior={Platform.select({ ios: 'padding', default: undefined })}>
-        <View className="gap-4 w-480">
+        <View className="gap-4 w-full">
           <AppInput
             label="Email"
             keyboardType="email-address"

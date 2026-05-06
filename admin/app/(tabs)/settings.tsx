@@ -1,6 +1,6 @@
 import { Link } from 'expo-router';
-import { Pressable, ScrollView, Text, View } from 'react-native';
-import { AppCard, PageHeader, PageShell } from '@admin/components/ui';
+import { Pressable, Text, View } from 'react-native';
+import { AppCard, PageHeader, PageShell, PageScrollView } from '@admin/components/ui';
 
 const settingsItems = [
   {
@@ -32,8 +32,8 @@ const settingsItems = [
 
 export default function SettingsHubScreen() {
   return (
-    <PageShell variant="settings">
-      <ScrollView className="px-6 py-6">
+    <PageShell>
+      <PageScrollView>
         <PageHeader title="Settings" subtitle="Governance, integrations, and operational defaults." />
 
         <View className="gap-4">
@@ -51,7 +51,7 @@ export default function SettingsHubScreen() {
             </Link>
           ))}
         </View>
-      </ScrollView>
+      </PageScrollView>
     </PageShell>
   );
 }

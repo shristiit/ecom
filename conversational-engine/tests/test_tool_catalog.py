@@ -273,6 +273,37 @@ class PaginatedProductBackendClient(FakeBackendClient):
         return {'items': items, 'pagination': {'page': 1, 'pageSize': 50, 'total': len(items)}}
 
 
+class StyleCodeVariantBackendClient(FakeBackendClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self.products = [{'id': 'prod-harbor', 'name': 'Harbor Intelligent Parka', 'styleCode': 'STK-0013'}]
+        self.product_detail = {
+            'product': {'id': 'prod-harbor', 'base_price': 25, 'styleCode': 'STK-0013'},
+            'skus': [{'id': 'sku-red', 'color_name': 'Red', 'price_override': None}],
+            'sizes': [{'id': 'size-red-xl', 'sku_id': 'sku-red', 'size_label': 'XL', 'price_override': None}],
+        }
+
+    async def search_skus(self, access_token: str, tenant_id: str | None, q: str | None = None):
+        del access_token, tenant_id, q
+        return []
+
+    async def search_products(self, access_token: str, tenant_id: str | None, q: str | None = None, **kwargs):
+        del access_token, tenant_id, kwargs
+        if not q:
+            return self.products
+        lowered = q.lower()
+        return [
+            product
+            for product in self.products
+            if lowered in str(product['name']).lower() or lowered in str(product.get('styleCode') or '').lower()
+        ]
+
+    async def get_product(self, access_token: str, tenant_id: str | None, product_id: str):
+        del access_token, tenant_id
+        assert product_id == 'prod-harbor'
+        return self.product_detail
+
+
 class AmbiguousReferenceBackendClient(FakeBackendClient):
     def __init__(self) -> None:
         super().__init__()
@@ -522,6 +553,35 @@ async def test_purchase_order_create_defaults_missing_unit_cost_from_product_bas
         {
             'supplierId': 'sup-1',
             'lines': [{'sizeId': 'size-sand-l', 'qty': 5, 'unitCost': 42}],
+        }
+    ]
+
+
+async def test_purchase_order_create_accepts_product_style_code_when_sku_code_is_not_a_real_sku():
+    backend = StyleCodeVariantBackendClient()
+    catalog = SemanticToolCatalog(backend=backend, auth=make_auth())  # type: ignore[arg-type]
+
+    result = await catalog.invoke(
+        'purchasing.create_po',
+        {
+            'supplierId': 'Acme Supply',
+            'lines': [
+                {
+                    'skuCode': 'STK-0013',
+                    'colorName': 'Red',
+                    'sizeLabel': 'XL',
+                    'quantity': 10,
+                    'unitCost': 25,
+                }
+            ],
+        },
+    )
+
+    assert result['result']['ok'] is True
+    assert backend.po_payloads == [
+        {
+            'supplierId': 'sup-1',
+            'lines': [{'sizeId': 'size-red-xl', 'qty': 10, 'unitCost': 25}],
         }
     ]
 

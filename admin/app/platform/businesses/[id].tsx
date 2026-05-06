@@ -1,7 +1,7 @@
 import { useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ScrollView, Text, View } from 'react-native';
-import { AppBadge, AppButton, AppCard, AppInput, PageHeader, PageShell } from '@admin/components/ui';
+import { Text, View } from 'react-native';
+import { AppBadge, AppButton, AppCard, AppInput, PageHeader, PageShell, PageScrollView } from '@admin/components/ui';
 import { queryKeys, useMutation, useQuery } from '@admin/lib/query';
 import { platformService } from '@admin/features/platform/services/platform.service';
 
@@ -73,7 +73,7 @@ export default function PlatformBusinessDetailScreen() {
 
   return (
     <PageShell>
-      <ScrollView className="px-6 py-6">
+      <PageScrollView>
         <PageHeader
           title={business?.name ?? 'Business detail'}
           subtitle="Platform-level controls for billing, entitlements, write restrictions, and quotas."
@@ -178,7 +178,7 @@ export default function PlatformBusinessDetailScreen() {
         ) : (
           <Text className="text-small text-muted">Loading business...</Text>
         )}
-      </ScrollView>
+      </PageScrollView>
     </PageShell>
   );
 }

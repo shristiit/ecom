@@ -1,6 +1,6 @@
 import { Link } from 'expo-router';
-import { ScrollView, Text, View, useWindowDimensions } from 'react-native';
-import { AppBadge, AppButton, AppCard, AppTable, AppTableCell, AppTableHeaderCell, AppTableRow, PageHeader, PageShell } from '@admin/components/ui';
+import { Text, View, useWindowDimensions } from 'react-native';
+import { AppBadge, AppButton, AppCard, AppTable, AppTableCell, AppTableHeaderCell, AppTableRow, PageHeader, PageShell, PageScrollView } from '@admin/components/ui';
 import { useDashboardOverviewQuery } from '../hooks/use-dashboard-overview-query';
 import { KpiCard } from '../components/kpi-card';
 
@@ -21,8 +21,8 @@ export function DashboardScreen() {
   const kpiCardWidth = kpiColumns === 1 ? '100%' : (contentWidth - kpiGap * (kpiColumns - 1)) / kpiColumns;
 
   return (
-    <PageShell variant="dashboard">
-      <ScrollView className="px-6 py-6">
+    <PageShell>
+      <PageScrollView>
         <PageHeader
           title="Dashboard"
           subtitle="Operational snapshot across inventory, orders, and AI approvals."
@@ -122,7 +122,7 @@ export function DashboardScreen() {
             </AppCard>
           </View>
         ) : null}
-      </ScrollView>
+      </PageScrollView>
     </PageShell>
   );
 }

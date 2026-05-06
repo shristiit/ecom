@@ -1,6 +1,6 @@
 import { Link } from 'expo-router';
-import { Pressable, ScrollView, Text, View } from 'react-native';
-import { AppCard, PageHeader, PageShell } from '@admin/components/ui';
+import { Pressable, Text, View } from 'react-native';
+import { AppCard, PageHeader, PageShell, PageScrollView } from '@admin/components/ui';
 
 const orderModules = [
   {
@@ -17,8 +17,8 @@ const orderModules = [
 
 export default function OrdersHubScreen() {
   return (
-    <PageShell variant="orders">
-      <ScrollView className="px-6 py-6">
+    <PageShell>
+      <PageScrollView>
         <PageHeader title="Orders" subtitle="Operational order flows for sales and procurement." />
 
         <View className="gap-4">
@@ -36,7 +36,7 @@ export default function OrdersHubScreen() {
             </Link>
           ))}
         </View>
-      </ScrollView>
+      </PageScrollView>
     </PageShell>
   );
 }

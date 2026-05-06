@@ -7,6 +7,7 @@ import {
   Text,
   type GestureResponderEvent,
   View,
+  useWindowDimensions,
 } from 'react-native';
 
 type ModalSize = 'sm' | 'md' | 'lg';
@@ -38,6 +39,10 @@ export function AppModal({
   footer,
   children,
 }: AppModalProps) {
+  const { height: windowHeight } = useWindowDimensions();
+  // Reserve ~120px for modal header (56px) + footer (56px) + safe area
+  const scrollMaxHeight = Math.floor(windowHeight * 0.75) - 120;
+
   const handleBackdropPress = () => {
     if (closeOnBackdropPress) {
       onClose();
@@ -80,7 +85,7 @@ export function AppModal({
             </Pressable>
           </View>
 
-          <ScrollView style={{ maxHeight: 520 }} contentContainerStyle={{ padding: 16 }}>
+          <ScrollView style={{ maxHeight: scrollMaxHeight }} contentContainerStyle={{ padding: 16 }}>
             {children}
           </ScrollView>
 
