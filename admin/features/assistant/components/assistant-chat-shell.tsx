@@ -1,7 +1,8 @@
 import { Link, useRouter } from 'expo-router';
 import { MessageSquarePlus, Mic, Paperclip, PanelRightClose, PanelRightOpen, Square, Sparkles, X } from 'lucide-react-native';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Image, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import type { ChangeEvent, KeyboardEvent } from 'react';
+import { Image, Platform, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { AppButton } from '@admin/components/ui';
 import { ApiError } from '@admin/lib/api';
 import { queryClient, queryKeys } from '@admin/lib/query';
@@ -126,6 +127,16 @@ function getAssistantErrorMessage(error: unknown, fallback: string) {
   return fallback;
 }
 
+function isVoiceSendCommand(transcript: string) {
+  const normalized = transcript
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return ['send', 'send it', 'send message', 'send the message'].includes(normalized);
+}
+
 export function AssistantChatShell({
   mode,
   conversationId,
@@ -147,8 +158,11 @@ export function AssistantChatShell({
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [streamingAssistantState, setStreamingAssistantState] = useState<StreamingAssistantState | null>(null);
   const [isLoadingOlderMessages, setIsLoadingOlderMessages] = useState(false);
+  const [pendingVoiceSend, setPendingVoiceSend] = useState(false);
 
   const scrollRef = useRef<ScrollView | null>(null);
+  const composerInputRef = useRef<TextInput | null>(null);
+  const webComposerRef = useRef<HTMLTextAreaElement | null>(null);
   const lastAutoStartedPromptRef = useRef<string | null>(null);
   const recognitionRef = useRef<WebSpeechRecognitionInstance | null>(null);
   const recognitionCtorRef = useRef<WebSpeechRecognitionConstructor | null>(getSpeechRecognitionConstructor());
@@ -167,6 +181,29 @@ export function AssistantChatShell({
 
   const attachmentsRef = useRef<Attachment[]>([]);
   attachmentsRef.current = attachments;
+
+  const clearComposer = useCallback(() => {
+    setPrompt('');
+
+    if (Platform.OS === 'web') {
+      const composer = webComposerRef.current;
+      if (composer) {
+        composer.value = '';
+        composer.focus();
+        composer.setSelectionRange(0, 0);
+      }
+      requestAnimationFrame(() => {
+        const nextComposer = webComposerRef.current;
+        if (!nextComposer) return;
+        nextComposer.value = '';
+        nextComposer.focus();
+        nextComposer.setSelectionRange(0, 0);
+      });
+      return;
+    }
+
+    composerInputRef.current?.focus();
+  }, []);
 
   const invalidateAssistantDrivenQueries = useCallback(() => {
     [
@@ -402,6 +439,8 @@ export function AssistantChatShell({
       return;
     }
 
+    clearComposer();
+
     if (!isThreadMode || !conversationId) {
       await handleCreateConversation(trimmedPrompt);
       return;
@@ -459,7 +498,6 @@ export function AssistantChatShell({
         },
         { signal: runController.signal },
       );
-      setPrompt('');
       setAttachments([]);
       setStatusMessage('Run completed.');
       await reconcileConversationCache(conversationId);
@@ -491,7 +529,34 @@ export function AssistantChatShell({
       setStreamingAssistantState(null);
       setIsStreamingRun(false);
     }
-  }, [conversationId, ensureUploadedAttachments, handleCreateConversation, invalidateAssistantDrivenQueries, isThreadMode, prompt, reconcileConversationCache]);
+  }, [clearComposer, conversationId, ensureUploadedAttachments, handleCreateConversation, invalidateAssistantDrivenQueries, isThreadMode, prompt, reconcileConversationCache]);
+
+  const handleComposerKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLTextAreaElement>) => {
+      if (Platform.OS !== 'web') return;
+
+      const key = event.key;
+      const isShiftPressed = Boolean(event.shiftKey);
+      if (key !== 'Enter' || isShiftPressed) return;
+
+      event.preventDefault?.();
+      event.stopPropagation?.();
+      if (isSubmitting) return;
+
+      void handleSend();
+    },
+    [handleSend, isSubmitting],
+  );
+
+  const handleComposerChange = useCallback((event: ChangeEvent<HTMLTextAreaElement>) => {
+    setPrompt(event.currentTarget.value);
+  }, []);
+
+  useEffect(() => {
+    if (!pendingVoiceSend) return;
+    setPendingVoiceSend(false);
+    void handleSend();
+  }, [handleSend, pendingVoiceSend]);
 
   const handleDecision = useCallback(async (nextDecision: 'confirm' | 'cancel' | 'edit' | 'submit_for_approval') => {
     const workflowId = activeConversation?.workflow?.id;
@@ -574,6 +639,13 @@ export function AssistantChatShell({
         .trim();
 
       if (!transcript) return;
+
+      if (isVoiceSendCommand(transcript)) {
+        setStatusMessage('Sending...');
+        setPendingVoiceSend(true);
+        recognition.stop();
+        return;
+      }
 
       setPrompt((current) => `${current.trim()} ${transcript}`.trim());
       setStatusMessage('Dictation captured.');
@@ -802,20 +874,50 @@ export function AssistantChatShell({
 
             <View className="border-t border-border bg-surface/95 px-4 py-4 md:px-6">
               <View className="mx-auto w-full max-w-4xl rounded-lg border border-border bg-white px-4 py-4 shadow-sm">
-                <TextInput
-                  nativeID="assistant-chat-composer"
-                  accessibilityLabel="Ask My AI Assistant"
-                  accessibilityHint="Send a message to create or continue an AI workflow."
-                  placeholder="Ask anything"
-                  placeholderTextColor="rgb(var(--text-subtle))"
-                  value={prompt}
-                  onChangeText={setPrompt}
-                  multiline
-                  textAlignVertical="top"
-                  style={{ minHeight: 80 }}
-                  className="text-body text-text"
-                  {...({ id: 'assistant-chat-composer', name: 'assistant-chat-composer' } as unknown as Record<string, string>)}
-                />
+                {Platform.OS === 'web' ? (
+                  <textarea
+                    ref={webComposerRef}
+                    id="assistant-chat-composer"
+                    name="assistant-chat-composer"
+                    aria-label="Ask My AI Assistant"
+                    aria-describedby="assistant-chat-composer-hint"
+                    placeholder="Ask anything"
+                    value={prompt}
+                    onChange={handleComposerChange}
+                    onKeyDown={handleComposerKeyDown}
+                    className="w-full resize-none bg-transparent text-body text-text outline-none"
+                    style={{
+                      minHeight: 80,
+                      boxSizing: 'border-box',
+                      color: '#111827',
+                      caretColor: '#111827',
+                      display: 'block',
+                      lineHeight: '24px',
+                      outline: 'none',
+                      padding: '8px 2px',
+                    }}
+                  />
+                ) : (
+                  <TextInput
+                    ref={composerInputRef}
+                    nativeID="assistant-chat-composer"
+                    accessibilityLabel="Ask My AI Assistant"
+                    accessibilityHint="Send a message to create or continue an AI workflow."
+                    placeholder="Ask anything"
+                    placeholderTextColor="rgb(var(--text-subtle))"
+                    selectionColor="#111827"
+                    value={prompt}
+                    onChangeText={setPrompt}
+                    multiline
+                    textAlignVertical="top"
+                    style={{ minHeight: 80, color: '#111827' }}
+                    className="text-body text-text"
+                    {...({ id: 'assistant-chat-composer', name: 'assistant-chat-composer' } as unknown as Record<string, string>)}
+                  />
+                )}
+                <Text nativeID="assistant-chat-composer-hint" className="sr-only">
+                  Press Enter to send. Press Shift Enter for a new line.
+                </Text>
 
                 {attachments.length > 0 ? (
                   <View className="mt-3 flex-row flex-wrap gap-2">
