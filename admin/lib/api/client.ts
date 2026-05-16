@@ -106,6 +106,17 @@ async function parsePayload(response: Response) {
   }
 }
 
+async function errorFromResponse(response: Response) {
+  const payload = await parsePayload(response);
+  const envelope = (isRecord(payload) ? payload : {}) as ApiErrorEnvelope;
+  return new ApiError(
+    envelope.message ?? response.statusText ?? 'Request failed',
+    response.status,
+    envelope.code,
+    envelope.details,
+  );
+}
+
 async function composeRequestHeaders(
   auth: boolean,
   headers?: Record<string, string>,
@@ -266,25 +277,31 @@ export async function streamRequest<TEvent, TBody = unknown>({
   const resolvedIdempotencyKey = idempotencyKey ?? createIdempotencyKey();
 
   try {
-    const requestHeaders = await composeRequestHeaders(auth, headers, resolvedIdempotencyKey, hasBody, isFormDataBody);
-    requestHeaders.Accept = 'application/x-ndjson';
+    async function fetchStream() {
+      const requestHeaders = await composeRequestHeaders(auth, headers, resolvedIdempotencyKey, hasBody, isFormDataBody);
+      requestHeaders.Accept = 'application/x-ndjson';
 
-    const response = await fetch(buildUrl(path, query, baseUrl), {
-      method,
-      headers: requestHeaders,
-      body: hasBody ? (isFormDataBody ? (body as BodyInit) : JSON.stringify(body)) : undefined,
-      signal: abortContext.signal,
-    });
+      return fetch(buildUrl(path, query, baseUrl), {
+        method,
+        headers: requestHeaders,
+        body: hasBody ? (isFormDataBody ? (body as BodyInit) : JSON.stringify(body)) : undefined,
+        signal: abortContext.signal,
+      });
+    }
+
+    let response = await fetchStream();
+
+    if (auth && response.status === 401) {
+      const unauthorizedHandler = apiContext.onUnauthorized;
+      const handled = unauthorizedHandler ? Boolean(await unauthorizedHandler()) : false;
+
+      if (handled) {
+        response = await fetchStream();
+      }
+    }
 
     if (!response.ok) {
-      const payload = await parsePayload(response);
-      const envelope = (isRecord(payload) ? payload : {}) as ApiErrorEnvelope;
-      throw new ApiError(
-        envelope.message ?? response.statusText ?? 'Request failed',
-        response.status,
-        envelope.code,
-        envelope.details,
-      );
+      throw await errorFromResponse(response);
     }
 
     const reader = response.body?.getReader();
