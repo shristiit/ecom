@@ -632,3 +632,58 @@ class BackendClient:
             json={'entries': entries},
         )
         return result
+
+    async def analytics_low_stock(
+        self, access_token: str, tenant_id: str, params: dict[str, object]
+    ) -> list[dict[str, object]]:
+        return await self._request('GET', '/analytics/low-stock', access_token, tenant_id, params=params)
+
+    async def analytics_top_selling(
+        self, access_token: str, tenant_id: str, params: dict[str, object]
+    ) -> list[dict[str, object]]:
+        return await self._request('GET', '/analytics/top-selling', access_token, tenant_id, params=params)
+
+    async def analytics_slow_moving(
+        self, access_token: str, tenant_id: str, params: dict[str, object]
+    ) -> list[dict[str, object]]:
+        return await self._request('GET', '/analytics/slow-moving', access_token, tenant_id, params=params)
+
+    async def analytics_out_of_stock(
+        self, access_token: str, tenant_id: str, params: dict[str, object]
+    ) -> list[dict[str, object]]:
+        return await self._request('GET', '/analytics/out-of-stock', access_token, tenant_id, params=params)
+
+    async def analytics_reorder_needed(
+        self, access_token: str, tenant_id: str, params: dict[str, object]
+    ) -> list[dict[str, object]]:
+        return await self._request('GET', '/analytics/reorder-needed', access_token, tenant_id, params=params)
+
+    async def analytics_stock_value(
+        self, access_token: str, tenant_id: str, params: dict[str, object]
+    ) -> list[dict[str, object]]:
+        return await self._request('GET', '/analytics/stock-value', access_token, tenant_id, params=params)
+
+    async def analytics_no_recent_sales(
+        self, access_token: str, tenant_id: str, params: dict[str, object]
+    ) -> list[dict[str, object]]:
+        return await self._request('GET', '/analytics/no-recent-sales', access_token, tenant_id, params=params)
+
+    async def analytics_high_demand_low_stock(
+        self, access_token: str, tenant_id: str, params: dict[str, object]
+    ) -> list[dict[str, object]]:
+        return await self._request('GET', '/analytics/high-demand-low-stock', access_token, tenant_id, params=params)
+
+    async def analytics_recently_added(
+        self, access_token: str, tenant_id: str, params: dict[str, object]
+    ) -> list[dict[str, object]]:
+        return await self._request('GET', '/analytics/recently-added', access_token, tenant_id, params=params)
+
+    async def analytics_data_quality(
+        self, access_token: str, tenant_id: str, params: dict[str, object]
+    ) -> list[dict[str, object]]:
+        return await self._request('GET', '/analytics/data-quality', access_token, tenant_id, params=params)
+
+    async def analytics_variant_availability(
+        self, access_token: str, tenant_id: str, params: dict[str, object]
+    ) -> list[dict[str, object]]:
+        return await self._request('GET', '/analytics/variant-availability', access_token, tenant_id, params=params)

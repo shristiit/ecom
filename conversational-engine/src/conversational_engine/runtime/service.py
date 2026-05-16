@@ -8,6 +8,7 @@ import re
 from time import perf_counter
 from uuid import UUID
 
+from conversational_engine.agents.parsing import extract_color_names, parse_size_labels
 from conversational_engine.agents.executor import ExecutorAgent
 from conversational_engine.agents.narrator import NarratorAgent
 from conversational_engine.agents.planner import PlannerAgent
@@ -24,6 +25,7 @@ from conversational_engine.keyword_sets import (
     SIZE_LABEL_ALIASES,
 )
 from conversational_engine.memory.layered import LayeredMemoryService
+from conversational_engine.providers.router import ProviderExhaustedError
 from conversational_engine.retrieval.service import RetrievalService
 from conversational_engine.runtime.contracts import RuntimeOutcome
 from conversational_engine.runtime.commerce_matching import (
@@ -578,21 +580,19 @@ class AgentRuntimeService:
                 user_message=user_message,
                 state_update=state_update,
             ):
-                message = await self._run_phase(
+                message = await self._write_narrator_message(
                     emit=emit,
                     conversation_id=conversation_id,
                     workflow_id=workflow_id,
-                    phase='render',
                     route=state_update.primary_route,
                     intent=state_update.primary_intent,
-                    action=lambda: self._narrator.write_message(
-                        user_message=user_message,
-                        directive=self._conversational_response_directive(user_message),
-                        supporting_context={
-                            'classification': 'ambiguous_conversational_turn',
-                            'confidence': state_update.confidence,
-                        },
-                    ),
+                    user_message=user_message,
+                    directive=self._conversational_response_directive(user_message),
+                    supporting_context={
+                        'classification': 'ambiguous_conversational_turn',
+                        'confidence': state_update.confidence,
+                    },
+                    fallback_message='How can I help?',
                 )
                 emit('assistant.message.delta', {'content': message})
                 return RuntimeOutcome(
@@ -783,22 +783,20 @@ class AgentRuntimeService:
                         suggested_prompt=plan.get('clarificationQuestion'),
                         suggested_required=plan.get('requiredInputs'),
                     )
-                    question = await self._run_phase(
+                    question = await self._write_narrator_message(
                         emit=emit,
                         conversation_id=conversation_id,
                         workflow_id=workflow_id,
-                        phase='render',
                         route=state_update.primary_route,
                         intent=state_update.primary_intent,
-                        action=lambda: self._narrator.write_message(
-                            user_message=state_update.planner_message,
-                            directive=question_prompt,
-                            supporting_context={
-                                'requiredInputs': required,
-                                'goal': plan.get('goal'),
-                            },
-                            trace_callback=record_trace('narrator', iteration),
-                        ),
+                        user_message=state_update.planner_message,
+                        directive=question_prompt,
+                        supporting_context={
+                            'requiredInputs': required,
+                            'goal': plan.get('goal'),
+                        },
+                        fallback_message=question_prompt,
+                        trace_callback=record_trace('narrator', iteration),
                     )
                     emit('assistant.message.delta', {'content': question})
                     emit(
@@ -822,19 +820,18 @@ class AgentRuntimeService:
                     )
 
                 if plan.get('action') == 'respond':
-                    response_text = await self._run_phase(
+                    fallback_message = str(plan.get('goal') or 'The request is complete.')
+                    response_text = await self._write_narrator_message(
                         emit=emit,
                         conversation_id=conversation_id,
                         workflow_id=workflow_id,
-                        phase='render',
                         route=state_update.primary_route,
                         intent=state_update.primary_intent,
-                        action=lambda: self._narrator.write_message(
-                            user_message=state_update.planner_message,
-                            directive=str(plan.get('goal') or 'The request is complete.'),
-                            supporting_context={'reasoning': plan.get('reasoning')},
-                            trace_callback=record_trace('narrator', iteration),
-                        ),
+                        user_message=state_update.planner_message,
+                        directive=fallback_message,
+                        supporting_context={'reasoning': plan.get('reasoning')},
+                        fallback_message=fallback_message,
+                        trace_callback=record_trace('narrator', iteration),
                     )
                     emit('assistant.message.delta', {'content': response_text})
                     return RuntimeOutcome(
@@ -882,22 +879,20 @@ class AgentRuntimeService:
                         suggested_prompt=proposal.get('assistantMessage'),
                         suggested_required=proposal.get('requiredInputs'),
                     )
-                    question = await self._run_phase(
+                    question = await self._write_narrator_message(
                         emit=emit,
                         conversation_id=conversation_id,
                         workflow_id=workflow_id,
-                        phase='render',
                         route=state_update.primary_route,
                         intent=state_update.primary_intent,
-                        action=lambda: self._narrator.write_message(
-                            user_message=state_update.planner_message,
-                            directive=question_prompt,
-                            supporting_context={
-                                'requiredInputs': required,
-                                'plan': plan,
-                            },
-                            trace_callback=record_trace('narrator', iteration),
-                        ),
+                        user_message=state_update.planner_message,
+                        directive=question_prompt,
+                        supporting_context={
+                            'requiredInputs': required,
+                            'plan': plan,
+                        },
+                        fallback_message=question_prompt,
+                        trace_callback=record_trace('narrator', iteration),
                     )
                     emit('assistant.message.delta', {'content': question})
                     emit(
@@ -921,19 +916,18 @@ class AgentRuntimeService:
                     )
 
                 if proposal.get('action') == 'respond':
-                    response_text = await self._run_phase(
+                    fallback_message = str(proposal.get('assistantMessage') or 'The request is complete.')
+                    response_text = await self._write_narrator_message(
                         emit=emit,
                         conversation_id=conversation_id,
                         workflow_id=workflow_id,
-                        phase='render',
                         route=state_update.primary_route,
                         intent=state_update.primary_intent,
-                        action=lambda: self._narrator.write_message(
-                            user_message=state_update.planner_message,
-                            directive=str(proposal.get('assistantMessage') or 'The request is complete.'),
-                            supporting_context={'plan': plan},
-                            trace_callback=record_trace('narrator', iteration),
-                        ),
+                        user_message=state_update.planner_message,
+                        directive=fallback_message,
+                        supporting_context={'plan': plan},
+                        fallback_message=fallback_message,
+                        trace_callback=record_trace('narrator', iteration),
                     )
                     emit('assistant.message.delta', {'content': response_text})
                     return RuntimeOutcome(
@@ -1147,19 +1141,17 @@ class AgentRuntimeService:
                         suggested_prompt=review.get('assistantMessage'),
                         suggested_required=review.get('requiredInputs'),
                     )
-                    question = await self._run_phase(
+                    question = await self._write_narrator_message(
                         emit=emit,
                         conversation_id=conversation_id,
                         workflow_id=workflow_id,
-                        phase='render',
                         route=state_update.primary_route,
                         intent=state_update.primary_intent,
-                        action=lambda: self._narrator.write_message(
-                            user_message=state_update.planner_message,
-                            directive=question_prompt,
-                            supporting_context={'requiredInputs': required},
-                            trace_callback=record_trace('narrator', iteration),
-                        ),
+                        user_message=state_update.planner_message,
+                        directive=question_prompt,
+                        supporting_context={'requiredInputs': required},
+                        fallback_message=question_prompt,
+                        trace_callback=record_trace('narrator', iteration),
                     )
                     emit('assistant.message.delta', {'content': question})
                     emit(
@@ -1197,23 +1189,22 @@ class AgentRuntimeService:
                                 clear_post_actions=True,
                             ),
                         )
-                    message = await self._run_phase(
+                    fallback_message = str(review.get('assistantMessage') or proposal.get('assistantMessage') or 'Done.')
+                    message = await self._write_narrator_message(
                         emit=emit,
                         conversation_id=conversation_id,
                         workflow_id=workflow_id,
-                        phase='render',
                         route=state_update.primary_route,
                         intent=state_update.primary_intent,
                         tool_name=tool_name,
-                        action=lambda: self._narrator.write_message(
-                            user_message=state_update.planner_message,
-                            directive=str(review.get('assistantMessage') or proposal.get('assistantMessage') or 'Done.'),
-                            supporting_context={
-                                'toolName': tool_name,
-                                'toolResult': tool_result,
-                            },
-                            trace_callback=record_trace('narrator', iteration),
-                        ),
+                        user_message=state_update.planner_message,
+                        directive=fallback_message,
+                        supporting_context={
+                            'toolName': tool_name,
+                            'toolResult': tool_result,
+                        },
+                        fallback_message=fallback_message,
+                        trace_callback=record_trace('narrator', iteration),
                     )
                     emit('assistant.message.delta', {'content': message})
                     post_action_blocks = render_navigation_blocks(
@@ -1392,6 +1383,7 @@ class AgentRuntimeService:
                     'allColors',
                     'allSizes',
                     'colorNames',
+                    'color',
                     'quantity',
                     'fromLocationId',
                     'toLocationId',
@@ -1399,7 +1391,17 @@ class AgentRuntimeService:
                     'locationId',
                     'productName',
                     'colorName',
+                    'availability',
+                    'threshold',
+                    'groupBy',
+                    'matchAllSizes',
+                    'excludeSize',
+                    'minColorCount',
+                    'maxColorCount',
+                    'maxInStockSizeCount',
                     'sizeLabel',
+                    'size',
+                    'sizes',
                     'sizeLabels',
                     'sku',
                     'reason',
@@ -2151,6 +2153,90 @@ class AgentRuntimeService:
                 merged_payload['locationId'] = location['id']
             return merged_payload
 
+        if tool_name.startswith('analytics.'):
+            normalized = user_message.strip().lower()
+            if tool_name in {'analytics.low_stock', 'analytics.reorder_needed', 'analytics.high_demand_low_stock'}:
+                threshold_match = re.search(
+                    r'\b(?:below|less than|under|fewer than)\s+(\d+)\b|\bthreshold\s*(?:of|is|=)?\s*(\d+)\b',
+                    normalized,
+                )
+                if threshold_match:
+                    merged_payload['threshold'] = int(
+                        next(group for group in threshold_match.groups() if group is not None)
+                    )
+                elif normalized.isdigit():
+                    merged_payload['threshold'] = int(normalized)
+            days_match = re.search(r'\b(?:last|past)\s+(\d+)\s+days?\b', normalized)
+            if days_match:
+                merged_payload['days'] = int(days_match.group(1))
+            elif 'this month' in normalized:
+                merged_payload['period'] = 'this_month'
+            elif 'this week' in normalized:
+                merged_payload['period'] = 'this_week'
+            top_match = re.search(r'\btop\s+(\d+)\b', normalized)
+            if top_match:
+                merged_payload['limit'] = int(top_match.group(1))
+            if 'highest' in normalized:
+                merged_payload['sort'] = 'desc'
+            elif 'lowest' in normalized:
+                merged_payload['sort'] = 'asc'
+            if re.search(r'\bacross\s+all\s+locations?\b|\ball\s+locations?\b', normalized):
+                merged_payload.pop('locationId', None)
+            else:
+                location = await match_location(self._backend_client, auth, user_message)
+                if location:
+                    merged_payload['locationId'] = location['id']
+            return merged_payload
+
+        if tool_name == 'inventory.variant_availability':
+            normalized = user_message.strip().lower()
+            sizes = parse_size_labels(user_message)
+            if sizes:
+                if len(sizes) == 1:
+                    merged_payload['size'] = sizes[0]
+                    merged_payload.pop('sizes', None)
+                else:
+                    merged_payload['sizes'] = sizes
+                    merged_payload['matchAllSizes'] = not bool(re.search(r'\b(?:or|either)\b', normalized))
+                    merged_payload.pop('size', None)
+            colors = extract_color_names(user_message)
+            if colors:
+                merged_payload['color'] = colors[0]
+            if re.search(r'\bout\s+of\s+stock\b', normalized):
+                merged_payload['availability'] = 'out_of_stock'
+            elif re.search(r'\blow\s+(?:in\s+)?stock\b|\blow\s+stock\b', normalized):
+                merged_payload['availability'] = 'low_stock'
+            elif re.search(r'\bavailable\b|\bin\s+stock\b', normalized):
+                merged_payload['availability'] = 'in_stock'
+            if re.search(r'\bwhat\s+sizes?\b|\bwhich\s+sizes?\b', normalized):
+                merged_payload['groupBy'] = 'size'
+            elif re.search(r'\bwhat\s+colors?\b|\bwhich\s+colors?\b', normalized):
+                merged_payload['groupBy'] = 'color'
+            if 'multiple colors' in normalized:
+                merged_payload['minColorCount'] = 2
+            if 'only one color' in normalized:
+                merged_payload['maxColorCount'] = 1
+                merged_payload['availability'] = 'in_stock'
+            if 'only one size left in stock' in normalized:
+                merged_payload['maxInStockSizeCount'] = 1
+                merged_payload['availability'] = 'in_stock'
+            exclude_size_match = re.search(r'\bnot\s+([a-z0-9]+)\s+size\b', normalized, re.IGNORECASE)
+            if exclude_size_match:
+                merged_payload['excludeSize'] = exclude_size_match.group(1).upper()
+            threshold_match = re.search(
+                r'\b(?:below|less than|under|fewer than)\s+(\d+)\b|\bthreshold\s*(?:of|is|=)?\s*(\d+)\b',
+                normalized,
+            )
+            if threshold_match:
+                merged_payload['threshold'] = int(next(group for group in threshold_match.groups() if group is not None))
+            if re.search(r'\bacross\s+all\s+locations?\b|\ball\s+locations?\b', normalized):
+                merged_payload.pop('locationId', None)
+            else:
+                location = await match_location(self._backend_client, auth, user_message)
+                if location:
+                    merged_payload['locationId'] = location['id']
+            return merged_payload
+
         return merged_payload
 
     async def _recover_sparse_mutation_payload(
@@ -2746,6 +2832,47 @@ class AgentRuntimeService:
         )
         return result
 
+    async def _write_narrator_message(
+        self,
+        *,
+        emit: EventSink,
+        conversation_id: UUID,
+        workflow_id: UUID,
+        route: str,
+        intent: str,
+        user_message: str,
+        directive: str,
+        supporting_context: dict[str, object],
+        fallback_message: str,
+        trace_callback=None,
+        tool_name: str | None = None,
+    ) -> str:
+        try:
+            return await self._run_phase(
+                emit=emit,
+                conversation_id=conversation_id,
+                workflow_id=workflow_id,
+                phase='render',
+                route=route,
+                intent=intent,
+                tool_name=tool_name,
+                action=lambda: self._narrator.write_message(
+                    user_message=user_message,
+                    directive=directive,
+                    supporting_context=supporting_context,
+                    fallback_message=fallback_message,
+                    trace_callback=trace_callback,
+                ),
+            )
+        except ProviderExhaustedError:
+            logger.warning(
+                'Narrator providers exhausted for conversation %s workflow %s; using fallback message.',
+                conversation_id,
+                workflow_id,
+                exc_info=True,
+            )
+            return fallback_message
+
     async def _record_audit_event(
         self,
         *,
@@ -2996,6 +3123,36 @@ class AgentRuntimeService:
                 'Which product, SKU, or location would you like stock details for?',
                 ['productName'],
             )
+        if primary_intent == 'inventory.variant_availability':
+            return (
+                'Which product, size, color, or stock condition should I search for?',
+                ['productName'],
+            )
+        if primary_intent == 'analytics.low_stock':
+            return (
+                'What stock quantity threshold should I use for low stock?',
+                ['threshold'],
+            )
+        if primary_intent == 'analytics.out_of_stock':
+            return (
+                'I can check out-of-stock products across all products. If you want to narrow it, reply with an optional location, SKU, or product name.',
+                [],
+            )
+        if primary_intent == 'analytics.top_selling':
+            return (
+                'I can show top-selling products across all products. If you want to narrow it, reply with an optional timeframe or location.',
+                [],
+            )
+        if primary_intent == 'analytics.no_recent_sales':
+            return (
+                'I can check products with no recent sales across all locations. If you want a different timeframe, reply with the number of days.',
+                [],
+            )
+        if primary_intent == 'analytics.reorder_needed':
+            return (
+                'I can check products that need reorder across all products. If you want to narrow it, reply with an optional location or threshold.',
+                [],
+            )
 
         # Suppliers
         if primary_intent == 'master.create_supplier':
@@ -3121,6 +3278,64 @@ class AgentRuntimeService:
                 if size_labels:
                     entities['sizeLabels'] = size_labels
                     entities['sizeLabel'] = size_labels[0]
+
+        if tool_name.startswith('analytics.'):
+            for key in ('threshold', 'days', 'period', 'limit', 'sort', 'category', 'color', 'size'):
+                value = tool_arguments.get(key)
+                if value is not None:
+                    entities[key] = value
+            if isinstance(tool_arguments.get('locationId'), str) and tool_arguments.get('locationId'):
+                entities['locationId'] = str(tool_arguments['locationId'])
+        if tool_name == 'inventory.variant_availability':
+            for key in (
+                'productName',
+                'sku',
+                'color',
+                'size',
+                'sizes',
+                'availability',
+                'threshold',
+                'groupBy',
+                'matchAllSizes',
+                'excludeSize',
+                'minColorCount',
+                'maxColorCount',
+                'maxInStockSizeCount',
+            ):
+                value = tool_arguments.get(key)
+                if value is not None:
+                    entities[key] = value
+            if isinstance(tool_arguments.get('locationId'), str) and tool_arguments.get('locationId'):
+                entities['locationId'] = str(tool_arguments['locationId'])
+            rows = result_payload.get('rows')
+            if isinstance(rows, list):
+                product_names = sorted(
+                    {
+                        str(row.get('product_name')).strip()
+                        for row in rows
+                        if isinstance(row, dict) and row.get('product_name')
+                    }
+                )
+                color_names = sorted(
+                    {
+                        str(row.get('color_name') or row.get('colors') or '').strip()
+                        for row in rows
+                        if isinstance(row, dict) and (row.get('color_name') or row.get('colors'))
+                    }
+                )
+                size_labels = sorted(
+                    {
+                        str(row.get('size_label') or row.get('sizes') or '').strip()
+                        for row in rows
+                        if isinstance(row, dict) and (row.get('size_label') or row.get('sizes'))
+                    }
+                )
+                if len(product_names) == 1:
+                    entities['productName'] = product_names[0]
+                if color_names:
+                    entities['colorNames'] = color_names
+                if size_labels:
+                    entities['sizeLabels'] = size_labels
 
         if tool_name == 'master.create_customer':
             customer_name = str(tool_arguments.get('name') or result_payload.get('name') or '').strip()

@@ -235,6 +235,112 @@ def build_inventory_tools(
         rows = await backend.reporting_stock_summary(token, tenant, resolved)
         return {'rows': rows}
 
+    async def prepare_analytics(payload: dict[str, Any]) -> dict[str, Any]:
+        resolved = {key: value for key, value in payload.items() if value is not None}
+        if resolved.pop('allLocations', False):
+            resolved.pop('locationId', None)
+        if loc := str(resolved.get('locationId') or '').strip():
+            if loc.lower() in {'table', 'tables', 'grid', 'list', 'results', 'csv', 'excel', 'file'}:
+                resolved.pop('locationId', None)
+            else:
+                resolved['locationId'] = await resolver.location(loc)
+        else:
+            resolved.pop('locationId', None)
+        return resolved
+
+    async def prepare_low_stock(payload: dict[str, Any]) -> dict[str, Any]:
+        resolved = await prepare_analytics(payload)
+        if resolved.get('threshold') is None:
+            raise ToolPreparationError('What stock quantity threshold should I use for low stock?', ['threshold'])
+        return resolved
+
+    async def prepare_no_recent_sales(payload: dict[str, Any]) -> dict[str, Any]:
+        resolved = await prepare_analytics(payload)
+        resolved.setdefault('days', 30)
+        return resolved
+
+    async def prepare_reorder_needed(payload: dict[str, Any]) -> dict[str, Any]:
+        return await prepare_analytics(payload)
+
+    async def prepare_variant_availability(payload: dict[str, Any]) -> dict[str, Any]:
+        resolved = await prepare_analytics(payload)
+        if not resolved.get('color') and isinstance(resolved.get('colorName'), str):
+            resolved['color'] = str(resolved['colorName']).strip() or None
+        if not resolved.get('size') and isinstance(resolved.get('sizeLabel'), str):
+            resolved['size'] = str(resolved['sizeLabel']).strip().upper() or None
+        if not resolved.get('sizes') and isinstance(resolved.get('sizeLabels'), list):
+            size_labels = [str(label).strip().upper() for label in resolved['sizeLabels'] if str(label).strip()]
+            if size_labels:
+                resolved['sizes'] = size_labels
+        if resolved.get('size') and not resolved.get('sizes'):
+            resolved['size'] = str(resolved['size']).strip().upper()
+        if isinstance(resolved.get('sizes'), list):
+            resolved['sizes'] = [str(label).strip().upper() for label in resolved['sizes'] if str(label).strip()]
+            if len(resolved['sizes']) == 1 and not resolved.get('size'):
+                resolved['size'] = resolved['sizes'][0]
+        meaningful = (
+            resolved.get('productName'),
+            resolved.get('sku'),
+            resolved.get('color'),
+            resolved.get('size'),
+            resolved.get('sizes'),
+            resolved.get('availability'),
+            resolved.get('excludeSize'),
+            resolved.get('minColorCount'),
+            resolved.get('maxColorCount'),
+            resolved.get('maxInStockSizeCount'),
+        )
+        if not any(value not in (None, '', [], False) for value in meaningful):
+            raise ToolPreparationError(
+                'Which product, size, color, or stock condition should I search for?',
+                ['productName'],
+            )
+        return resolved
+
+    async def analytics_low_stock(payload: dict[str, Any]) -> dict[str, Any]:
+        rows = await backend.analytics_low_stock(token, tenant, payload)
+        return {'rows': rows}
+
+    async def analytics_out_of_stock(payload: dict[str, Any]) -> dict[str, Any]:
+        rows = await backend.analytics_out_of_stock(token, tenant, payload)
+        return {'rows': rows}
+
+    async def analytics_top_selling(payload: dict[str, Any]) -> dict[str, Any]:
+        rows = await backend.analytics_top_selling(token, tenant, payload)
+        return {'rows': rows}
+
+    async def analytics_slow_moving(payload: dict[str, Any]) -> dict[str, Any]:
+        rows = await backend.analytics_slow_moving(token, tenant, payload)
+        return {'rows': rows}
+
+    async def analytics_no_recent_sales(payload: dict[str, Any]) -> dict[str, Any]:
+        rows = await backend.analytics_no_recent_sales(token, tenant, payload)
+        return {'rows': rows}
+
+    async def analytics_reorder_needed(payload: dict[str, Any]) -> dict[str, Any]:
+        rows = await backend.analytics_reorder_needed(token, tenant, payload)
+        return {'rows': rows}
+
+    async def analytics_stock_value(payload: dict[str, Any]) -> dict[str, Any]:
+        rows = await backend.analytics_stock_value(token, tenant, payload)
+        return {'rows': rows}
+
+    async def analytics_high_demand_low_stock(payload: dict[str, Any]) -> dict[str, Any]:
+        rows = await backend.analytics_high_demand_low_stock(token, tenant, payload)
+        return {'rows': rows}
+
+    async def analytics_recently_added(payload: dict[str, Any]) -> dict[str, Any]:
+        rows = await backend.analytics_recently_added(token, tenant, payload)
+        return {'rows': rows}
+
+    async def analytics_data_quality(payload: dict[str, Any]) -> dict[str, Any]:
+        rows = await backend.analytics_data_quality(token, tenant, payload)
+        return {'rows': rows}
+
+    async def analytics_variant_availability(payload: dict[str, Any]) -> dict[str, Any]:
+        rows = await backend.analytics_variant_availability(token, tenant, payload)
+        return {'rows': rows}
+
     return {
         'inventory.stock_on_hand': SemanticTool(
             name='inventory.stock_on_hand',
@@ -260,6 +366,45 @@ def build_inventory_tools(
             side_effect=False,
             output_mode='table',
             executor=stock_on_hand,
+        ),
+        'inventory.variant_availability': SemanticTool(
+            name='inventory.variant_availability',
+            description=(
+                'Read product variant availability across the catalog. '
+                'Use this for questions about sizes, colors, products with a given size/color, '
+                'variant availability, low stock by size/color, out-of-stock sizes/colors, '
+                'or products that have or do not have specific size combinations.'
+            ),
+            input_schema=object_schema(
+                {
+                    'productName': {'type': ['string', 'null'], 'description': 'Optional product or style reference.'},
+                    'sku': {'type': ['string', 'null'], 'description': 'Optional SKU code filter.'},
+                    'locationId': {'type': ['string', 'null'], 'description': 'Optional location name, code, or UUID.'},
+                    'size': {'type': ['string', 'null'], 'description': 'Single size filter such as M, XL, 10.'},
+                    'sizes': {'type': ['array', 'null'], 'items': {'type': 'string'}},
+                    'color': {'type': ['string', 'null'], 'description': 'Single color filter such as Red or Black.'},
+                    'availability': {
+                        'type': ['string', 'null'],
+                        'description': 'Use one of any, in_stock, low_stock, out_of_stock.',
+                    },
+                    'threshold': {'type': ['integer', 'null'], 'description': 'Threshold used for low_stock queries.'},
+                    'groupBy': {
+                        'type': ['string', 'null'],
+                        'description': 'Use product, size, color, or variant depending on the user question.',
+                    },
+                    'matchAllSizes': {'type': ['boolean', 'null']},
+                    'excludeSize': {'type': ['string', 'null']},
+                    'minColorCount': {'type': ['integer', 'null']},
+                    'maxColorCount': {'type': ['integer', 'null']},
+                    'maxInStockSizeCount': {'type': ['integer', 'null']},
+                    'limit': {'type': ['integer', 'null']},
+                },
+            ),
+            risk_level='low',
+            side_effect=False,
+            output_mode='table',
+            executor=analytics_variant_availability,
+            preparer=prepare_variant_availability,
         ),
         'inventory.transfer_stock': SemanticTool(
             name='inventory.transfer_stock',
@@ -366,5 +511,178 @@ def build_inventory_tools(
             side_effect=False,
             output_mode='table',
             executor=stock_summary,
+        ),
+        'analytics.low_stock': SemanticTool(
+            name='analytics.low_stock',
+            description='Read low-stock products across all products, optionally filtered by location or product attributes.',
+            input_schema=object_schema(
+                {
+                    'threshold': {'type': ['integer', 'null'], 'description': 'Maximum on-hand quantity to treat as low stock.'},
+                    'locationId': {'type': ['string', 'null'], 'description': 'Optional location name, code, or UUID.'},
+                    'productName': {'type': ['string', 'null']},
+                    'sku': {'type': ['string', 'null']},
+                    'category': {'type': ['string', 'null']},
+                    'color': {'type': ['string', 'null']},
+                    'size': {'type': ['string', 'null']},
+                    'sort': {'type': ['string', 'null']},
+                    'limit': {'type': ['integer', 'null']},
+                },
+                ['threshold'],
+            ),
+            risk_level='low',
+            side_effect=False,
+            output_mode='table',
+            executor=analytics_low_stock,
+            preparer=prepare_low_stock,
+        ),
+        'analytics.out_of_stock': SemanticTool(
+            name='analytics.out_of_stock',
+            description='Read out-of-stock products across all products, optionally filtered by location or product attributes.',
+            input_schema=object_schema({
+                'locationId': {'type': ['string', 'null'], 'description': 'Optional location name, code, or UUID.'},
+                'productName': {'type': ['string', 'null']},
+                'sku': {'type': ['string', 'null']},
+                'category': {'type': ['string', 'null']},
+                'color': {'type': ['string', 'null']},
+                'size': {'type': ['string', 'null']},
+                'limit': {'type': ['integer', 'null']},
+            }),
+            risk_level='low',
+            side_effect=False,
+            output_mode='table',
+            executor=analytics_out_of_stock,
+            preparer=prepare_analytics,
+        ),
+        'analytics.top_selling': SemanticTool(
+            name='analytics.top_selling',
+            description='Read top-selling products across all products, with optional time period or location filters.',
+            input_schema=object_schema({
+                'locationId': {'type': ['string', 'null'], 'description': 'Optional location name, code, or UUID.'},
+                'days': {'type': ['integer', 'null']},
+                'period': {'type': ['string', 'null']},
+                'limit': {'type': ['integer', 'null']},
+                'category': {'type': ['string', 'null']},
+                'color': {'type': ['string', 'null']},
+                'size': {'type': ['string', 'null']},
+                'sort': {'type': ['string', 'null']},
+            }),
+            risk_level='low',
+            side_effect=False,
+            output_mode='table',
+            executor=analytics_top_selling,
+            preparer=prepare_analytics,
+        ),
+        'analytics.slow_moving': SemanticTool(
+            name='analytics.slow_moving',
+            description='Read slow-moving products across all products, optionally filtered by timeframe or location.',
+            input_schema=object_schema({
+                'locationId': {'type': ['string', 'null'], 'description': 'Optional location name, code, or UUID.'},
+                'days': {'type': ['integer', 'null']},
+                'category': {'type': ['string', 'null']},
+                'color': {'type': ['string', 'null']},
+                'size': {'type': ['string', 'null']},
+                'limit': {'type': ['integer', 'null']},
+            }),
+            risk_level='low',
+            side_effect=False,
+            output_mode='table',
+            executor=analytics_slow_moving,
+            preparer=prepare_analytics,
+        ),
+        'analytics.no_recent_sales': SemanticTool(
+            name='analytics.no_recent_sales',
+            description='Read products with no recent sales across all products. Defaults to the last 30 days.',
+            input_schema=object_schema({
+                'locationId': {'type': ['string', 'null'], 'description': 'Optional location name, code, or UUID.'},
+                'days': {'type': ['integer', 'null']},
+                'category': {'type': ['string', 'null']},
+                'color': {'type': ['string', 'null']},
+                'size': {'type': ['string', 'null']},
+                'limit': {'type': ['integer', 'null']},
+            }),
+            risk_level='low',
+            side_effect=False,
+            output_mode='table',
+            executor=analytics_no_recent_sales,
+            preparer=prepare_no_recent_sales,
+        ),
+        'analytics.reorder_needed': SemanticTool(
+            name='analytics.reorder_needed',
+            description='Read products that need to be reordered soon across all products, optionally filtered by location.',
+            input_schema=object_schema({
+                'locationId': {'type': ['string', 'null'], 'description': 'Optional location name, code, or UUID.'},
+                'threshold': {'type': ['integer', 'null'], 'description': 'Optional reorder threshold override.'},
+                'category': {'type': ['string', 'null']},
+                'color': {'type': ['string', 'null']},
+                'size': {'type': ['string', 'null']},
+                'limit': {'type': ['integer', 'null']},
+            }),
+            risk_level='low',
+            side_effect=False,
+            output_mode='table',
+            executor=analytics_reorder_needed,
+            preparer=prepare_reorder_needed,
+        ),
+        'analytics.stock_value': SemanticTool(
+            name='analytics.stock_value',
+            description='Read stock value analytics across all products, optionally filtered by location or sorted by value.',
+            input_schema=object_schema({
+                'locationId': {'type': ['string', 'null'], 'description': 'Optional location name, code, or UUID.'},
+                'sort': {'type': ['string', 'null']},
+                'limit': {'type': ['integer', 'null']},
+                'category': {'type': ['string', 'null']},
+            }),
+            risk_level='low',
+            side_effect=False,
+            output_mode='table',
+            executor=analytics_stock_value,
+            preparer=prepare_analytics,
+        ),
+        'analytics.high_demand_low_stock': SemanticTool(
+            name='analytics.high_demand_low_stock',
+            description='Read high-demand products with low stock across all products, optionally filtered by location.',
+            input_schema=object_schema({
+                'locationId': {'type': ['string', 'null'], 'description': 'Optional location name, code, or UUID.'},
+                'threshold': {'type': ['integer', 'null']},
+                'days': {'type': ['integer', 'null']},
+                'limit': {'type': ['integer', 'null']},
+            }),
+            risk_level='low',
+            side_effect=False,
+            output_mode='table',
+            executor=analytics_high_demand_low_stock,
+            preparer=prepare_analytics,
+        ),
+        'analytics.recently_added': SemanticTool(
+            name='analytics.recently_added',
+            description='Read recently added products across all products, optionally filtered by location or timeframe.',
+            input_schema=object_schema({
+                'locationId': {'type': ['string', 'null'], 'description': 'Optional location name, code, or UUID.'},
+                'days': {'type': ['integer', 'null']},
+                'limit': {'type': ['integer', 'null']},
+                'category': {'type': ['string', 'null']},
+            }),
+            risk_level='low',
+            side_effect=False,
+            output_mode='table',
+            executor=analytics_recently_added,
+            preparer=prepare_analytics,
+        ),
+        'analytics.data_quality': SemanticTool(
+            name='analytics.data_quality',
+            description='Read data-quality issues across all products. A check type is required.',
+            input_schema=object_schema(
+                {
+                    'check': {'type': ['string', 'null']},
+                    'locationId': {'type': ['string', 'null'], 'description': 'Optional location name, code, or UUID.'},
+                    'limit': {'type': ['integer', 'null']},
+                },
+                ['check'],
+            ),
+            risk_level='low',
+            side_effect=False,
+            output_mode='table',
+            executor=analytics_data_quality,
+            preparer=prepare_analytics,
         ),
     }

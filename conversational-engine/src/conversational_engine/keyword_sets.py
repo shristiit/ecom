@@ -172,7 +172,6 @@ SIZE_LABEL_ALIASES: tuple[tuple[str, str], ...] = (
     ('xxl', 'XXL'),
 )
 
-
 def regex_union(terms: tuple[str, ...]) -> str:
     return '(?:' + '|'.join(re.escape(term) for term in terms) + ')'
 
@@ -184,3 +183,26 @@ LOCATION_NOUNS_PATTERN = regex_union(LOCATION_NOUNS)
 SUPPLIER_NOUNS_PATTERN = regex_union(SUPPLIER_NOUNS)
 CUSTOMER_NOUNS_PATTERN = regex_union(CUSTOMER_NOUNS)
 CONTACT_COMMAND_WORDS_PATTERN = regex_union(CONTACT_COMMAND_WORDS)
+
+ANALYTICS_QUERY_PHRASES = (
+    'low stock', 'out of stock', 'top selling', 'best selling', 'best-selling',
+    'slow moving', 'slow-moving', 'not sold', 'no sales', 'no recent sales',
+    'stock value', 'reorder', 'restock', 'negative stock', 'duplicate sku',
+    'data quality', 'missing price', 'zero price', 'missing fields',
+    'inactive stock', 'stock mismatch', 'anomal', 'expired', 'returns not',
+    'pending po overstocked', 'transfer not received', 'reserved stock',
+    'unapproved adjustment', 'multiple cost', 'sold before', 'high demand',
+    'below 10', 'below 5', 'below threshold', 'selling faster',
+    'stock summary report', 'recently added', 'new products',
+)
+
+ANALYTICS_MORE_PHRASES = (
+    'show more', 'more results', 'next page', 'see more', 'give me more',
+    'load more', 'continue', 'next 10', 'next batch', 'more products',
+    'show all', 'give me all', 'show the rest',
+)
+
+ANALYTICS_DOWNLOAD_PHRASES = (
+    'download', 'export', 'save as csv', 'export to excel',
+    'download csv', 'export file', 'download file', 'get file',
+)

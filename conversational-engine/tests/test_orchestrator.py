@@ -6,6 +6,7 @@ from uuid import uuid4
 import pytest
 
 from conversational_engine.agents.entity_resolver import EntityResolver
+from conversational_engine.agents.analytics import AnalyticsAgent
 from conversational_engine.agents.help import HelpAgent
 from conversational_engine.agents.inventory import InventoryAgent
 from conversational_engine.agents.products import ProductsAgent
@@ -163,6 +164,7 @@ def make_service() -> OrchestratorService:
             PurchasingAgent(backend=backend, resolver=resolver, chat_provider=chat, routing=routing),  # type: ignore[arg-type]
             SalesAgent(backend=backend, resolver=resolver, chat_provider=chat, routing=routing),  # type: ignore[arg-type]
             ReportingAgent(backend=backend, resolver=resolver, chat_provider=chat, routing=routing),  # type: ignore[arg-type]
+            AnalyticsAgent(backend=backend, routing=routing),  # type: ignore[arg-type]
             HelpAgent(retrieval=retrieval, chat_provider=chat, routing=routing),
         ]
     )

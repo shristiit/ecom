@@ -4,6 +4,9 @@ from datetime import UTC, datetime, timedelta
 
 from conversational_engine.contracts.common import PendingActionType
 from conversational_engine.keyword_sets import (
+    ANALYTICS_DOWNLOAD_PHRASES,
+    ANALYTICS_MORE_PHRASES,
+    ANALYTICS_QUERY_PHRASES,
     NAVIGATION_HELP_PHRASES,
     ORCHESTRATOR_DOMAIN_KEYWORDS,
     PURCHASE_ORDER_REPORTING_PHRASES,
@@ -15,7 +18,7 @@ from conversational_engine.keyword_sets import (
 
 from .parsing import matches_intent_pattern, normalize_text
 
-READ_ONLY_INTENTS = {'stock_query', 'reporting_query', 'navigation_help'}
+READ_ONLY_INTENTS = {'stock_query', 'reporting_query', 'navigation_help', 'analytics_query', 'analytics_download'}
 WRITE_PENDING_ACTIONS = [
     PendingActionType.CONFIRM.value,
     PendingActionType.CANCEL.value,
@@ -90,6 +93,35 @@ def classify_intent(message: str, memory: dict[str, object]) -> str:
         return 'so_cancel'
     if matches_intent_pattern(
         message,
+        r'\blow\s+stock\b',
+        r'\bout\s+of\s+stock\b',
+        r'\btop[- ]sell(?:ing)?\b',
+        r'\bbest[- ]sell(?:ing)?\b',
+        r'\bslow[- ]mov(?:ing)?\b',
+        r'\bnot\s+sold\b',
+        r'\bno\s+(?:recent\s+)?sales\b',
+        r'\bstock\s+value\b',
+        r'\breorder\s+(?:soon|needed|first|level)\b',
+        r'\bnegative\s+stock\b',
+        r'\bduplicate\s+sku\b',
+        r'\bdata\s+quality\b',
+        r'\bstock\s+mismatch\b',
+        r'\banomal(?:ous|ies|y)\b',
+        r'\bexpired?\s+(?:products?|stock|items?)\b',
+        r'\bunapproved\s+adjust',
+        r'\bmissing\s+(?:price|cost|sku|size|color|category|fields?)\b',
+        r'\bactive\s+(?:products?\s+)?(?:with\s+)?zero\s+price\b',
+        r'\breserved\s+(?:stock\s+)?(?:greater|more)\b',
+        r'\bpending\s+po.*overstock',
+        r'\btransfer.*not\s+received\b',
+        r'\bstock.*no\s+(?:location|warehouse)\b',
+        r'\brecently\s+added\b',
+        r'\bhigh\s+(?:sales|demand).*low\s+stock\b',
+        r'\bbelow\s+\d+\s+units?\b',
+    ):
+        return 'analytics_query'
+    if matches_intent_pattern(
+        message,
         r'\bcreate\s+(?:a\s+|an\s+)?product\b',
         r'\bnew\s+product\b',
         r'\badd\s+(?:a\s+|new\s+)?product\b',
@@ -109,6 +141,12 @@ def classify_intent(message: str, memory: dict[str, object]) -> str:
         return 'stock_adjustment'
     if any(phrase in normalized for phrase in STOCK_RECEIPT_PHRASES):
         return 'stock_receipt'
+    if any(phrase in normalized for phrase in ANALYTICS_QUERY_PHRASES):
+        return 'analytics_query'
+    if any(phrase in normalized for phrase in ANALYTICS_MORE_PHRASES):
+        return memory.get('lastAnalyticsIntent') or 'analytics_query'
+    if any(phrase in normalized for phrase in ANALYTICS_DOWNLOAD_PHRASES):
+        return 'analytics_download'
     if any(phrase in normalized for phrase in REPORTING_PHRASES):
         return 'reporting_query'
     if any(phrase in normalized for phrase in NAVIGATION_HELP_PHRASES):

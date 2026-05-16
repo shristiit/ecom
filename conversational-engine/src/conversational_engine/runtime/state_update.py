@@ -5,6 +5,7 @@ import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from conversational_engine.agents.parsing import extract_color_names, parse_size_labels
 from conversational_engine.keyword_sets import (
     CONTACT_COMMAND_WORDS_PATTERN,
     CONTACT_FIELDS,
@@ -96,6 +97,56 @@ _MUTATION_PATTERNS: tuple[tuple[str, str], ...] = (
     ),
 )
 _READ_PATTERNS: tuple[tuple[str, str], ...] = (
+    (
+        'master.search_locations',
+        r'\b(list|show|search|find)\b.*\b(locations?|warehouses?)\b',
+    ),
+    (
+        'inventory.variant_availability',
+        r'\b(?:what|which|show|find)\b.*\b(?:sizes?|colors?)\b.*\b(?:available|have|has|stock|product|products)\b'
+        r'|\b(?:products?|product)\b.*\b(?:sizes?|colors?)\b'
+        r'|\b(?:sizes?|colors?)\b.*\b(?:low\s+stock|out\s+of\s+stock|available)\b',
+    ),
+    (
+        'analytics.top_selling',
+        r'\b(top|best)[- ]sell(?:ing)?\b|\btop\s+\d+\b.*\bproducts?\b|\bhighest\s+sales\b',
+    ),
+    (
+        'analytics.out_of_stock',
+        r'\bout\s+of\s+stock\b|\bzero\s+stock\b|\bno\s+stock\b',
+    ),
+    (
+        'analytics.reorder_needed',
+        r'\breorder(?:ed)?\s+(?:soon|needed|first|level)\b|\bneed(?:s)?\s+to\s+be\s+reorder(?:ed)?\b|\brestock\b',
+    ),
+    (
+        'analytics.no_recent_sales',
+        r'\bnot\s+sold\b|\bno\s+(?:recent\s+)?sales\b',
+    ),
+    (
+        'analytics.slow_moving',
+        r'\bslow[- ]mov(?:ing)?\b',
+    ),
+    (
+        'analytics.stock_value',
+        r'\bstock\s+value\b',
+    ),
+    (
+        'analytics.high_demand_low_stock',
+        r'\bhigh\s+(?:sales|demand).*low\s+stock\b',
+    ),
+    (
+        'analytics.recently_added',
+        r'\brecently\s+added\b|\bnew\s+products?\b',
+    ),
+    (
+        'analytics.data_quality',
+        r'\bnegative\s+stock\b|\bduplicate\s+sku\b|\bdata\s+quality\b|\bstock\s+mismatch\b|\bmissing\s+fields?\b|\bzero\s+price\b',
+    ),
+    (
+        'analytics.low_stock',
+        r'\blow\s+stock\b|\bbelow\s+\d+\s+(?:units?|quantity)\b|\bless\s+than\s+\d+\b.*\b(?:units?|quantity)\b|\bbelow\s+threshold\b',
+    ),
     (
         'purchasing.list_pos',
         r'\b(list|show|search|find)\b.*\b(open\s+)?(purchase orders|purchase order|pos|po)\b',
@@ -310,6 +361,15 @@ async def resolve_state_update(
         or active_intent in {'master.create_supplier', 'master.create_customer'}
     ):
         merged_entities.update(_extract_contact_create_entities(action_text or text))
+    analytics_intent = ''
+    if primary_intent.startswith('analytics.'):
+        analytics_intent = primary_intent
+    elif active_intent.startswith('analytics.'):
+        analytics_intent = active_intent
+    if analytics_intent:
+        merged_entities.update(_extract_analytics_entities(action_text or text, analytics_intent=analytics_intent))
+    if primary_intent == 'inventory.variant_availability' or active_intent == 'inventory.variant_availability':
+        merged_entities.update(_extract_variant_query_entities(action_text or text))
 
     if not is_workflow_edit and _should_continue_pending_task(
         text=action_text or text,
@@ -503,6 +563,169 @@ def _build_planner_message(
         if isinstance(route, dict):
             message += f' After success, navigate to {route.get("label") or route.get("href")}.'
     return message
+
+
+def _extract_analytics_entities(text: str, *, analytics_intent: str) -> dict[str, Any]:
+    normalized = _normalize(text)
+    extracted: dict[str, Any] = {}
+
+    threshold_match = re.search(
+        r'\b(?:below|less than|under|fewer than)\s+(\d+)\b|\b(?:threshold|reorder threshold)\s*(?:of|is|=)?\s*(\d+)\b',
+        normalized,
+    )
+    if threshold_match:
+        extracted['threshold'] = int(next(group for group in threshold_match.groups() if group is not None))
+    elif analytics_intent in {'analytics.low_stock', 'analytics.reorder_needed', 'analytics.high_demand_low_stock'} and normalized.isdigit():
+        extracted['threshold'] = int(normalized)
+
+    days_match = re.search(r'\b(?:last|past)\s+(\d+)\s+days?\b', normalized)
+    if days_match:
+        extracted['days'] = int(days_match.group(1))
+    elif 'this month' in normalized:
+        extracted['period'] = 'this_month'
+    elif 'this week' in normalized:
+        extracted['period'] = 'this_week'
+    elif normalized == 'today':
+        extracted['period'] = 'today'
+
+    top_match = re.search(r'\btop\s+(\d+)\b', normalized)
+    if top_match:
+        extracted['limit'] = int(top_match.group(1))
+
+    if 'highest' in normalized:
+        extracted['sort'] = 'desc'
+    elif 'lowest' in normalized:
+        extracted['sort'] = 'asc'
+
+    if re.search(r'\bacross\s+all\s+locations?\b|\ball\s+locations?\b', normalized):
+        extracted['allLocations'] = True
+
+    location_match = re.search(r'\b(?:in|at|from)\s+([a-z][a-z0-9 .&\'/-]+)$', text.strip(), re.IGNORECASE)
+    if location_match:
+        location_candidate = location_match.group(1).strip(' .')
+        if _normalize(location_candidate) not in {'table', 'tables', 'grid', 'list', 'results', 'csv', 'excel', 'file'}:
+            extracted['locationId'] = location_candidate
+    elif (
+        analytics_intent.startswith('analytics.')
+        and 'locationId' not in extracted
+        and normalized
+        and normalized not in NON_DOMAIN_SMALL_TALK
+        and normalized not in GENERIC_CONFIRMATION_PHRASES
+        and normalized not in REUSE_REFERENCE_PHRASES
+        and len(re.findall(r"[a-z0-9']+", normalized)) <= 5
+        and not any(char.isdigit() for char in normalized)
+        and not any(
+            keyword in normalized
+            for keyword in (
+                'stock',
+                'product',
+                'products',
+                'sku',
+                'reorder',
+                'sales',
+                'selling',
+                'download',
+                'export',
+                'show',
+                'which',
+            )
+        )
+    ):
+        extracted['locationId'] = text.strip()
+
+    return extracted
+
+
+def _extract_variant_query_entities(text: str) -> dict[str, Any]:
+    normalized = _normalize(text)
+    extracted: dict[str, Any] = {}
+
+    sizes = parse_size_labels(text)
+    if sizes:
+        if len(sizes) == 1:
+            extracted['size'] = sizes[0]
+        else:
+            extracted['sizes'] = sizes
+            extracted['matchAllSizes'] = not bool(re.search(r'\b(?:or|either)\b', normalized))
+
+    colors = extract_color_names(text)
+    if colors:
+        extracted['color'] = colors[0]
+
+    if re.search(r'\bout\s+of\s+stock\b', normalized):
+        extracted['availability'] = 'out_of_stock'
+    elif re.search(r'\blow\s+(?:in\s+)?stock\b|\blow\s+stock\b', normalized):
+        extracted['availability'] = 'low_stock'
+    elif re.search(r'\bavailable\b|\bin\s+stock\b', normalized):
+        extracted['availability'] = 'in_stock'
+    else:
+        extracted['availability'] = 'any'
+
+    threshold_match = re.search(
+        r'\b(?:below|less than|under|fewer than)\s+(\d+)\b|\bthreshold\s*(?:of|is|=)?\s*(\d+)\b',
+        normalized,
+    )
+    if threshold_match:
+        extracted['threshold'] = int(next(group for group in threshold_match.groups() if group is not None))
+    elif extracted.get('availability') == 'low_stock':
+        extracted['threshold'] = 10
+
+    if re.search(r'\bwhat\s+sizes?\b|\bwhich\s+sizes?\b', normalized):
+        extracted['groupBy'] = 'size'
+    elif re.search(r'\bwhat\s+colors?\b|\bwhich\s+colors?\b', normalized):
+        extracted['groupBy'] = 'color'
+    else:
+        extracted['groupBy'] = 'product'
+
+    if 'multiple colors' in normalized:
+        extracted['minColorCount'] = 2
+    if 'only one color' in normalized:
+        extracted['maxColorCount'] = 1
+        extracted['availability'] = 'in_stock'
+    if 'only one size left in stock' in normalized:
+        extracted['maxInStockSizeCount'] = 1
+        extracted['availability'] = 'in_stock'
+        extracted['groupBy'] = 'product'
+
+    exclude_size_match = re.search(r'\bnot\s+([a-z0-9]+)\s+size\b', normalized, re.IGNORECASE)
+    if exclude_size_match:
+        extracted['excludeSize'] = exclude_size_match.group(1).upper()
+
+    product_match = re.search(
+        r'\b(?:for|of)\s+(.+?)(?:\s+product)?(?:\s+(?:at|in)\s+[a-z0-9 .&\'/-]+)?\s*$',
+        text.strip(' ?'),
+        re.IGNORECASE,
+    )
+    if product_match:
+        candidate = product_match.group(1).strip(' "\'')
+        normalized_candidate = _normalize(candidate)
+        if candidate and not any(
+            keyword in normalized_candidate
+            for keyword in (
+                'size',
+                'sizes',
+                'color',
+                'colors',
+                'stock',
+                'available',
+                'products',
+                'product',
+                'low',
+                'out',
+            )
+        ):
+            extracted['productName'] = candidate
+
+    if re.search(r'\bacross\s+all\s+locations?\b|\ball\s+locations?\b', normalized):
+        extracted['allLocations'] = True
+
+    location_match = re.search(r'\b(?:in|at)\s+([a-z][a-z0-9 .&\'/-]+)$', text.strip(), re.IGNORECASE)
+    if location_match and 'productName' not in extracted:
+        location_candidate = location_match.group(1).strip(' .')
+        if _normalize(location_candidate) not in {'table', 'tables', 'grid', 'list', 'results', 'csv', 'excel', 'file'}:
+            extracted['locationId'] = location_candidate
+
+    return extracted
 
 
 def _extract_location_create_entities(text: str) -> dict[str, Any]:
@@ -707,6 +930,24 @@ def _should_continue_pending_task(
         return False
     if not missing_fields:
         normalized = _normalize(text)
+        if (
+            active_route == ROUTE_MUTATION
+            and status in {'drafting', 'awaiting_confirmation', 'awaiting_approval'}
+            and route_fallback != ROUTE_MUTATION
+            and bool(normalized)
+            and not normalized.endswith('?')
+            and _looks_like_mutation_follow_up(normalized)
+        ):
+            return True
+        if (
+            active_route == ROUTE_READ
+            and (active_intent.startswith('analytics.') or active_intent == 'inventory.variant_availability')
+            and status in {'drafting', 'completed'}
+            and bool(normalized)
+            and normalized not in NON_DOMAIN_SMALL_TALK
+            and not normalized.endswith('?')
+        ):
+            return len(re.findall(r"[a-z0-9']+", normalized)) <= 5
         return (
             active_route == ROUTE_MUTATION
             and status in {'drafting', 'awaiting_confirmation', 'awaiting_approval'}
@@ -758,6 +999,8 @@ def _entity_field_aliases(field: str) -> tuple[str, ...]:
         'product_id': ('productId',),
         'supplier_id': ('supplierId',),
         'customer_id': ('customerId',),
+        'threshold': ('threshold',),
+        'days': ('days',),
         'po_id': ('poId',),
         'invoice_id': ('invoiceId',),
         'location_id': ('locationId',),
