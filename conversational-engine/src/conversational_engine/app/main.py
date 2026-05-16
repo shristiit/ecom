@@ -7,10 +7,13 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from redis.asyncio import Redis
+import logging
 
 from conversational_engine.app.dependencies import build_app_services
 from conversational_engine.app.routes import chat_router, router
 from conversational_engine.config.settings import get_settings
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -28,6 +31,13 @@ async def lifespan(app: FastAPI):
         tz_aware=True,
     )
     redis_client = Redis.from_url(settings.redis_url) if settings.redis_url else None
+    if redis_client is not None:
+        try:
+            await redis_client.ping()
+        except Exception as exc:
+            logger.warning('Redis disabled at startup: %s', exc)
+            await redis_client.close()
+            redis_client = None
     s3_client = boto3.client('s3', region_name=settings.aws_region or None)
 
     app.state.settings = settings

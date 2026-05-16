@@ -9,7 +9,7 @@ from conversational_engine.clients.backend import BackendValidationError
 from conversational_engine.contracts.api import ApprovalRequestStatus, GovernanceEvaluationResponse
 from conversational_engine.contracts.auth import AuthContext
 from conversational_engine.contracts.common import BlockType, WorkflowStatus
-from conversational_engine.providers.router import ProviderAttempt, ProviderTrace
+from conversational_engine.providers.router import ProviderAttempt, ProviderExhaustedError, ProviderTrace
 from conversational_engine.providers.runtime import ProviderResponse
 from conversational_engine.runtime.service import AgentRuntimeService
 
@@ -181,6 +181,12 @@ class FakeDirectiveNarrator:
         return str(kwargs.get('directive') or 'Done.')
 
 
+class FailingNarrator:
+    async def write_message(self, **kwargs):
+        del kwargs
+        raise ProviderExhaustedError('All providers failed for role narrator')
+
+
 class FakeMemoryService:
     async def build(self, **kwargs):
         del kwargs
@@ -313,6 +319,50 @@ class FakeBackendClient:
     async def reporting_stock_summary(self, *args, **kwargs):
         del args, kwargs
         return [{'location_code': 'WH-LON', 'on_hand': 12}]
+
+    async def analytics_low_stock(self, *args, **kwargs):
+        del args, kwargs
+        return [{'product_name': 'Field Fresh Short', 'sku_code': 'FFS-001', 'on_hand': 8}]
+
+    async def analytics_out_of_stock(self, *args, **kwargs):
+        del args, kwargs
+        return [{'product_name': 'Monarch Tasty Parka', 'sku_code': 'MTP-001', 'on_hand': 0}]
+
+    async def analytics_top_selling(self, *args, **kwargs):
+        del args, kwargs
+        return [{'product_name': 'Field Fresh Short', 'sku_code': 'FFS-001', 'units_sold': 52}]
+
+    async def analytics_slow_moving(self, *args, **kwargs):
+        del args, kwargs
+        return [{'product_name': 'Field Fresh Short', 'sku_code': 'FFS-001', 'on_hand': 22}]
+
+    async def analytics_no_recent_sales(self, *args, **kwargs):
+        del args, kwargs
+        return [{'product_name': 'Field Fresh Short', 'sku_code': 'FFS-001', 'on_hand': 22}]
+
+    async def analytics_reorder_needed(self, *args, **kwargs):
+        del args, kwargs
+        return [{'product_name': 'Field Fresh Short', 'sku_code': 'FFS-001', 'on_hand': 4}]
+
+    async def analytics_stock_value(self, *args, **kwargs):
+        del args, kwargs
+        return [{'product_name': 'Field Fresh Short', 'sku_code': 'FFS-001', 'total_value': 8400}]
+
+    async def analytics_high_demand_low_stock(self, *args, **kwargs):
+        del args, kwargs
+        return [{'product_name': 'Field Fresh Short', 'sku_code': 'FFS-001', 'days_of_stock_left': 3}]
+
+    async def analytics_recently_added(self, *args, **kwargs):
+        del args, kwargs
+        return [{'product_name': 'Field Fresh Short', 'style_code': 'FFS-001'}]
+
+    async def analytics_data_quality(self, *args, **kwargs):
+        del args, kwargs
+        return [{'sku_code': 'FFS-001', 'count': 2}]
+
+    async def analytics_variant_availability(self, *args, **kwargs):
+        del args, kwargs
+        return [{'product_name': 'Field Fresh Short', 'style_code': 'FFS-001', 'sizes': 'XL', 'colors': 'Red'}]
 
     async def create_po(self, *args, **kwargs):
         del args, kwargs
@@ -630,7 +680,7 @@ async def test_runtime_service_clarifies_invalid_read_tool_payload_before_backen
         executor=FakeExecutor('master.search_locations', {}),
         reviewer=FakeReviewer(),
         narrator=FakeNarrator(),  # type: ignore[arg-type]
-        state_updater=FakeStateUpdater(),  # type: ignore[arg-type]
+        state_updater=None,
         memory_service=FakeMemoryService(),  # type: ignore[arg-type]
         training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
         retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
@@ -750,6 +800,63 @@ async def test_runtime_service_returns_no_matches_without_narrator_hallucination
 
     assert outcome.status == WorkflowStatus.COMPLETED
     assert outcome.blocks[0].content == "I couldn't find any matches."
+
+
+async def test_runtime_service_uses_fallback_message_when_narrator_providers_fail_on_completed_read():
+    service = AgentRuntimeService(
+        backend_client=FakeBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeExecutor('inventory.stock_on_hand', {'sku': 'TSHIRT-BLACK'}),
+        reviewer=FakeReviewer(message='Stock is available in London.', include_table=True),
+        narrator=FailingNarrator(),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='show stock for black t-shirt',
+        extracted_entities={},
+        recent_messages=[],
+        workflow_status=WorkflowStatus.IDLE,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.COMPLETED
+    assert outcome.blocks[0].content == 'Stock is available in London.'
+    assert any(block.type == BlockType.TABLE_RESULT for block in outcome.blocks)
+
+
+async def test_runtime_service_uses_fallback_message_when_narrator_providers_fail_on_clarification():
+    service = AgentRuntimeService(
+        backend_client=FakeBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(action='clarify'),
+        executor=FakeExecutor('inventory.stock_on_hand', {'sku': 'TSHIRT-BLACK'}),
+        reviewer=FakeReviewer(),
+        narrator=FailingNarrator(),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='show stock for black t-shirt',
+        extracted_entities={},
+        recent_messages=[],
+        workflow_status=WorkflowStatus.IDLE,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.NEEDS_INPUT
+    assert outcome.blocks[0].prompt == 'Which product, SKU, or location would you like stock details for?'
 
 
 async def test_runtime_service_includes_table_when_user_requests_full_details():
@@ -1591,7 +1698,7 @@ async def test_runtime_service_applies_location_clarification_reply_without_repl
         executor=FakeExecutor('inventory.stock_on_hand', {'sku': 'TSHIRT-BLACK'}),
         reviewer=FakeReviewer(),
         narrator=FakeNarrator(),  # type: ignore[arg-type]
-        state_updater=FakeStateUpdater(),  # type: ignore[arg-type]
+        state_updater=None,
         memory_service=FakeMemoryService(),  # type: ignore[arg-type]
         training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
         retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
@@ -1692,7 +1799,7 @@ async def test_runtime_service_applies_po_clarification_reply_with_product_price
         executor=FakeExecutor('inventory.stock_on_hand', {'sku': 'TSHIRT-BLACK'}),
         reviewer=FakeReviewer(),
         narrator=FakeNarrator(),  # type: ignore[arg-type]
-        state_updater=FakeStateUpdater(),  # type: ignore[arg-type]
+        state_updater=None,
         memory_service=FakeMemoryService(),  # type: ignore[arg-type]
         training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
         retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
@@ -1758,7 +1865,7 @@ async def test_runtime_service_applies_po_color_correction_follow_up_without_rep
         executor=FakeExecutor('inventory.stock_on_hand', {'sku': 'TSHIRT-BLACK'}),
         reviewer=FakeReviewer(),
         narrator=FakeNarrator(),  # type: ignore[arg-type]
-        state_updater=FakeStateUpdater(),  # type: ignore[arg-type]
+        state_updater=None,
         memory_service=FakeMemoryService(),  # type: ignore[arg-type]
         training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
         retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
@@ -1823,7 +1930,7 @@ async def test_runtime_service_shows_variant_table_for_product_only_po_clarifica
         executor=FakeExecutor('inventory.stock_on_hand', {'sku': 'TSHIRT-BLACK'}),
         reviewer=FakeReviewer(),
         narrator=FakeNarrator(),  # type: ignore[arg-type]
-        state_updater=FakeStateUpdater(),  # type: ignore[arg-type]
+        state_updater=None,
         memory_service=FakeMemoryService(),  # type: ignore[arg-type]
         training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
         retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
@@ -1883,7 +1990,7 @@ async def test_runtime_service_applies_grouped_variant_follow_up_as_multiple_po_
         executor=FakeExecutor('inventory.stock_on_hand', {'sku': 'TSHIRT-BLACK'}),
         reviewer=FakeReviewer(),
         narrator=FakeNarrator(),  # type: ignore[arg-type]
-        state_updater=FakeStateUpdater(),  # type: ignore[arg-type]
+        state_updater=None,
         memory_service=FakeMemoryService(),  # type: ignore[arg-type]
         training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
         retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
@@ -1959,7 +2066,7 @@ async def test_runtime_service_edits_pending_po_in_awaiting_approval_and_request
         executor=FakeExecutor('inventory.stock_on_hand', {'sku': 'TSHIRT-BLACK'}),
         reviewer=FakeReviewer(),
         narrator=FakeNarrator(),  # type: ignore[arg-type]
-        state_updater=FakeStateUpdater(),  # type: ignore[arg-type]
+        state_updater=None,
         memory_service=FakeMemoryService(),  # type: ignore[arg-type]
         training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
         retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
@@ -2026,7 +2133,7 @@ async def test_runtime_service_clarification_reply_preserves_latest_po_lines_ove
         executor=FakeExecutor('inventory.stock_on_hand', {'sku': 'TSHIRT-BLACK'}),
         reviewer=FakeReviewer(),
         narrator=FakeNarrator(),  # type: ignore[arg-type]
-        state_updater=FakeStateUpdater(),  # type: ignore[arg-type]
+        state_updater=None,
         memory_service=FakeMemoryService(),  # type: ignore[arg-type]
         training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
         retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
@@ -4148,3 +4255,111 @@ async def test_runtime_service_persists_focal_product_from_multi_product_summary
 
     assert follow_up.extracted_entities['taskContext']['entities']['productName'] == 'Monarch Fresh Short'
     assert follow_up.status == WorkflowStatus.COMPLETED
+
+
+async def test_runtime_service_routes_out_of_stock_queries_to_analytics_tool():
+    service = AgentRuntimeService(
+        backend_client=FakeBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=RoutedFakeExecutor(
+            {
+                'analytics.out_of_stock': ('analytics.out_of_stock', {}),
+            }
+        ),
+        reviewer=FakeReviewer(include_table=True),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        state_updater=None,
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='Which products are out of stock?',
+        extracted_entities={},
+        recent_messages=[],
+        workflow_status=WorkflowStatus.IDLE,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    block_types = [block.type for block in outcome.blocks]
+    assert outcome.status == WorkflowStatus.COMPLETED
+    assert outcome.extracted_entities['taskContext']['primaryIntent'] == 'analytics.out_of_stock'
+    assert BlockType.TABLE_RESULT in block_types
+
+
+async def test_runtime_service_routes_no_recent_sales_queries_to_analytics_tool():
+    service = AgentRuntimeService(
+        backend_client=FakeBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=RoutedFakeExecutor(
+            {
+                'analytics.no_recent_sales': ('analytics.no_recent_sales', {'days': 30}),
+            }
+        ),
+        reviewer=FakeReviewer(include_table=True),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        state_updater=None,
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='Which products have not sold in the last 30 days?',
+        extracted_entities={},
+        recent_messages=[],
+        workflow_status=WorkflowStatus.IDLE,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    block_types = [block.type for block in outcome.blocks]
+    assert outcome.status == WorkflowStatus.COMPLETED
+    assert outcome.extracted_entities['taskContext']['primaryIntent'] == 'analytics.no_recent_sales'
+    assert BlockType.TABLE_RESULT in block_types
+
+
+async def test_runtime_service_routes_variant_availability_queries_to_variant_tool():
+    service = AgentRuntimeService(
+        backend_client=FakeBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=RoutedFakeExecutor(
+            {
+                'inventory.variant_availability': (
+                    'inventory.variant_availability',
+                    {'size': 'XL', 'color': 'Red', 'availability': 'in_stock', 'groupBy': 'product'},
+                ),
+            }
+        ),
+        reviewer=FakeReviewer(include_table=True),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        state_updater=None,
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='What products are available in red color and XL size?',
+        extracted_entities={},
+        recent_messages=[],
+        workflow_status=WorkflowStatus.IDLE,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    block_types = [block.type for block in outcome.blocks]
+    assert outcome.status == WorkflowStatus.COMPLETED
+    assert outcome.extracted_entities['taskContext']['primaryIntent'] == 'inventory.variant_availability'
+    assert BlockType.TABLE_RESULT in block_types

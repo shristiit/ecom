@@ -128,6 +128,8 @@ class TableResultBlock(ContractModel):
     title: str
     columns: list[TableColumn] = Field(default_factory=list)
     rows: list[dict[str, object]] = Field(default_factory=list)
+    total_count: int | None = None
+    download_token: str | None = None
 
 
 MessageBlock = Annotated[

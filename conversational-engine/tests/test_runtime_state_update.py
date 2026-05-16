@@ -49,6 +49,8 @@ async def test_state_update_detects_master_data_mutation_intents(message: str, e
         ('list all open POs', 'purchasing.list_pos'),
         ("what's the status of SO-0001", 'sales.get_invoice'),
         ('list open sales orders', 'sales.list_invoices'),
+        ('show me warehouse locations', 'master.search_locations'),
+        ('What products are available in red color and XL size?', 'inventory.variant_availability'),
     ],
 )
 async def test_state_update_detects_commerce_read_intents(message: str, expected_intent: str):
@@ -62,6 +64,49 @@ async def test_state_update_detects_commerce_read_intents(message: str, expected
 
     assert state.primary_route == 'read'
     assert state.primary_intent == expected_intent
+
+
+async def test_state_update_extracts_variant_query_entities():
+    state = await resolve_state_update(
+        user_message='Show me products that have L, XL, and XXL sizes.',
+        extracted_entities={},
+        recent_messages=[],
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+        state_updater=None,
+    )
+
+    assert state.primary_route == 'read'
+    assert state.primary_intent == 'inventory.variant_availability'
+    assert state.extracted_entities['sizes'] == ['L', 'XL', 'XXL']
+    assert state.extracted_entities['matchAllSizes'] is True
+
+
+async def test_state_update_extracts_product_specific_variant_query_entities():
+    state = await resolve_state_update(
+        user_message='What sizes are available for Field Fresh Short?',
+        extracted_entities={},
+        recent_messages=[],
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+        state_updater=None,
+    )
+
+    assert state.primary_intent == 'inventory.variant_availability'
+    assert state.extracted_entities['groupBy'] == 'size'
+    assert state.extracted_entities['availability'] == 'in_stock'
+    assert state.extracted_entities['productName'] == 'Field Fresh Short'
+
+
+async def test_state_update_does_not_treat_tables_as_a_location_for_variant_queries():
+    state = await resolve_state_update(
+        user_message='What products are available in red color and XL size in tables?',
+        extracted_entities={},
+        recent_messages=[],
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+        state_updater=None,
+    )
+
+    assert state.primary_intent == 'inventory.variant_availability'
+    assert 'locationId' not in state.extracted_entities
 
 
 async def test_state_update_reuses_pending_location_creation_for_field_reply():
@@ -190,6 +235,52 @@ async def test_state_update_does_not_invent_location_name_from_confirmation_phra
 
     assert state.is_workflow_edit is True
     assert 'name' not in state.extracted_entities
+
+
+@pytest.mark.parametrize(
+    ('message', 'expected_intent'),
+    [
+        ('Which products are out of stock?', 'analytics.out_of_stock'),
+        ('Show me the top-selling products this month.', 'analytics.top_selling'),
+        ('Which products need to be reordered soon?', 'analytics.reorder_needed'),
+        ('Which products have not sold in the last 30 days?', 'analytics.no_recent_sales'),
+    ],
+)
+async def test_state_update_detects_analytics_read_intents(message: str, expected_intent: str):
+    state = await resolve_state_update(
+        user_message=message,
+        extracted_entities={},
+        recent_messages=[],
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+        state_updater=None,
+    )
+
+    assert state.primary_route == 'read'
+    assert state.primary_intent == expected_intent
+
+
+async def test_state_update_preserves_low_stock_threshold_follow_up():
+    state = await resolve_state_update(
+        user_message='100',
+        extracted_entities={
+            'taskContext': {
+                'primaryRoute': 'read',
+                'primaryIntent': 'analytics.low_stock',
+                'entities': {},
+                'missingFields': ['threshold'],
+                'postActions': [],
+                'clarificationCount': 1,
+                'status': 'drafting',
+            }
+        },
+        recent_messages=[],
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+        state_updater=None,
+    )
+
+    assert state.is_workflow_edit is True
+    assert state.primary_intent == 'analytics.low_stock'
+    assert state.extracted_entities['threshold'] == 100
 
 
 def test_state_update_formats_preview_entities_into_recent_message_context():
