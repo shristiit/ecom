@@ -1,9 +1,10 @@
 import { Link, useRouter } from 'expo-router';
-import { MessageSquarePlus, Mic, Paperclip, PanelRightClose, PanelRightOpen, Square, Sparkles, X } from 'lucide-react-native';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { MessageSquarePlus, Mic, Paperclip, Send, Square, Sparkles, X } from 'lucide-react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { ChangeEvent, KeyboardEvent } from 'react';
 import { Image, Platform, Pressable, ScrollView, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { AppButton } from '@admin/components/ui';
+import { useAuthSession } from '@admin/features/auth';
 import { ApiError } from '@admin/lib/api';
 import { queryClient, queryKeys } from '@admin/lib/query';
 import {
@@ -20,6 +21,7 @@ import {
   updateAssistantConversationSummaryCache,
 } from '../services/assistant-cache';
 import { AssistantMessageBlocks } from './assistant-message-blocks';
+import { AssistantPanelShell } from './assistant-panel-shell';
 import type { AssistantConversation, AssistantConversationSummary, AssistantMessage } from '../types/assistant.types';
 
 type Attachment = {
@@ -84,6 +86,17 @@ function renderWorkflowStatus(status?: string | null) {
 
 const ICON_PRIMARY = '#FF5C00';
 const ICON_SUBTLE = '#9CA3AF';
+const HISTORY_RAIL_STORAGE_KEY = 'stockaisle.assistant.historyRailOpen';
+
+function readStoredHistoryRailOpen() {
+  if (Platform.OS !== 'web' || typeof window === 'undefined') return false;
+  return window.localStorage.getItem(HISTORY_RAIL_STORAGE_KEY) === 'true';
+}
+
+function writeStoredHistoryRailOpen(value: boolean) {
+  if (Platform.OS !== 'web' || typeof window === 'undefined') return;
+  window.localStorage.setItem(HISTORY_RAIL_STORAGE_KEY, String(value));
+}
 
 const promptSuggestions = [
   'Show stock on hand for blue denim jackets in London.',
@@ -148,6 +161,8 @@ export function AssistantChatShell({
 }: AssistantChatShellProps) {
   const router = useRouter();
   const { width } = useWindowDimensions();
+  const { user } = useAuthSession();
+  const userInitials = (user?.email ?? 'AD').slice(0, 2).toUpperCase();
   const conversationsQuery = useAssistantConversationsQuery();
   const conversationQuery = useAssistantConversationQuery(conversationId, mode === 'thread' && Boolean(conversationId));
   const decision = useAssistantDecisionMutation();
@@ -156,12 +171,14 @@ export function AssistantChatShell({
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isDictating, setIsDictating] = useState(false);
-  const [isHistoryRailOpen, setIsHistoryRailOpen] = useState(false);
+  const [isHistoryRailOpen, setIsHistoryRailOpen] = useState(readStoredHistoryRailOpen);
   const [isStreamingRun, setIsStreamingRun] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [streamingAssistantState, setStreamingAssistantState] = useState<StreamingAssistantState | null>(null);
   const [isLoadingOlderMessages, setIsLoadingOlderMessages] = useState(false);
   const [pendingVoiceSend, setPendingVoiceSend] = useState(false);
+  /** Text shown immediately in the chat area while a new conversation is being created */
+  const [pendingUserMessage, setPendingUserMessage] = useState<string | null>(null);
 
   const scrollRef = useRef<ScrollView | null>(null);
   const composerInputRef = useRef<TextInput | null>(null);
@@ -358,6 +375,7 @@ export function AssistantChatShell({
     setError(null);
     setStatusMessage(null);
     setIsStreamingRun(true);
+    setPendingUserMessage(trimmedPrompt);
     activeRunAbortRef.current?.abort();
     const runController = new AbortController();
     activeRunAbortRef.current = runController;
@@ -413,7 +431,7 @@ export function AssistantChatShell({
 
       setPrompt('');
       setAttachments([]);
-      setStatusMessage('Run completed.');
+      setStatusMessage(null);
       const resolvedConversationId = targetConversationId ?? result.conversationId;
       if (resolvedConversationId) {
         await reconcileConversationCache(resolvedConversationId);
@@ -430,6 +448,7 @@ export function AssistantChatShell({
         activeRunAbortRef.current = null;
       }
       setIsStreamingRun(false);
+      setPendingUserMessage(null);
     }
   }, [ensureUploadedAttachments, invalidateAssistantDrivenQueries, reconcileConversationCache, router]);
 
@@ -500,7 +519,7 @@ export function AssistantChatShell({
         { signal: runController.signal },
       );
       setAttachments([]);
-      setStatusMessage('Run completed.');
+      setStatusMessage(null);
       await reconcileConversationCache(conversationId);
       invalidateAssistantDrivenQueries();
     } catch (err) {
@@ -605,7 +624,11 @@ export function AssistantChatShell({
   }, [router]);
 
   const toggleHistoryRail = useCallback(() => {
-    setIsHistoryRailOpen((current) => !current);
+    setIsHistoryRailOpen((current) => {
+      const next = !current;
+      writeStoredHistoryRailOpen(next);
+      return next;
+    });
   }, []);
 
   const handleSuggestion = useCallback((value: string) => {
@@ -714,76 +737,279 @@ export function AssistantChatShell({
   }, [conversationId, incomingPrompt, mode]);
 
   return (
-    <View className="theme-command flex-1 bg-bg px-4 py-4 md:px-6 md:py-5">
-      <View className="mx-auto flex-1 w-full max-w-[1600px] gap-4">
-        <View className="gap-3 md:flex-row md:items-start md:justify-between md:gap-4">
-          <View className="gap-1">
-            <Text className="text-[22px] font-semibold leading-[28px] text-text md:text-[30px] md:leading-[36px]">
-              {activeConversation?.conversation.title || 'My AI Assistant'}
-            </Text>
-            <Text className="text-small text-muted">
-              {activeConversation?.workflow
+    <View style={{ flex: 1, flexDirection: isHistoryRailOpen && isDesktop ? 'row' : 'column' }}>
+      <AssistantPanelShell
+            activeTab="chat"
+            isHistoryOpen={isHistoryRailOpen}
+            onToggleHistory={toggleHistoryRail}
+            subtitle={
+              activeConversation?.workflow
                 ? `Workflow status: ${renderWorkflowStatus(activeConversation.workflow.status)}`
-                : 'Ask about inventory, purchasing, products, reporting, or navigation.'}
-            </Text>
-          </View>
+                : 'Ask about inventory, purchasing, products, reporting, or navigation.'
+            }
+            footer={
+              <View
+                style={{
+                  backgroundColor: '#FFFFFF',
+                  borderTopWidth: 0.5,
+                  borderTopColor: 'rgba(0,0,0,0.07)',
+                  paddingHorizontal: 22,
+                  paddingTop: 14,
+                  paddingBottom: 18,
+                }}
+              >
+                {/* Input field */}
+                <View
+                  style={{
+                    width: '100%',
+                    backgroundColor: '#FDF4F0',
+                    borderWidth: 0.5,
+                    borderColor: 'rgba(0,0,0,0.08)',
+                    borderRadius: 11,
+                    paddingHorizontal: 15,
+                    paddingTop: 13,
+                    paddingBottom: 32,
+                  }}
+                >
+                  {Platform.OS === 'web' ? (
+                    <textarea
+                      ref={webComposerRef}
+                      id="assistant-chat-composer"
+                      name="assistant-chat-composer"
+                      aria-label="Ask My AI Assistant"
+                      aria-describedby="assistant-chat-composer-hint"
+                      placeholder="Ask anything"
+                      value={prompt}
+                      onChange={handleComposerChange}
+                      onKeyDown={handleComposerKeyDown}
+                      style={{
+                        width: '100%',
+                        minHeight: 60,
+                        resize: 'none',
+                        backgroundColor: 'transparent',
+                        border: 'none',
+                        outline: 'none',
+                        fontSize: 13.5,
+                        lineHeight: '22px',
+                        color: '#1a1a1a',
+                        caretColor: '#FF5C00',
+                        display: 'block',
+                        padding: 0,
+                        fontFamily: 'inherit',
+                      } as React.CSSProperties}
+                    />
+                  ) : (
+                    <TextInput
+                      ref={composerInputRef}
+                      nativeID="assistant-chat-composer"
+                      accessibilityLabel="Ask My AI Assistant"
+                      accessibilityHint="Send a message to create or continue an AI workflow."
+                      placeholder="Ask anything"
+                      placeholderTextColor="#bbbbbb"
+                      selectionColor="#FF5C00"
+                      value={prompt}
+                      onChangeText={setPrompt}
+                      multiline
+                      textAlignVertical="top"
+                      style={{ minHeight: 60, fontSize: 13.5, color: '#1a1a1a' }}
+                      {...({ id: 'assistant-chat-composer', name: 'assistant-chat-composer' } as unknown as Record<string, string>)}
+                    />
+                  )}
+                </View>
 
-          <View className="flex-row flex-wrap items-center gap-2">
-            <AppButton
-              label={isHistoryRailOpen ? 'Hide history' : 'Show history'}
-              size="sm"
-              variant="secondary"
-              leftIcon={isHistoryRailOpen ? <PanelRightClose size={16} color={ICON_PRIMARY} /> : <PanelRightOpen size={16} color={ICON_PRIMARY} />}
-              onPress={toggleHistoryRail}
-            />
-            <Link href="/ai/approvals" asChild>
-              <AppButton label="Approvals" size="sm" variant="secondary" />
-            </Link>
-            <Link href="/ai/history" asChild>
-              <AppButton label="History" size="sm" variant="secondary" />
-            </Link>
-          </View>
-        </View>
+                <Text
+                  nativeID="assistant-chat-composer-hint"
+                  style={{ fontSize: 11.5, color: '#999999', marginTop: 6 }}
+                >
+                  Press Enter to send. Shift + Enter for a new line.
+                </Text>
 
-        <View className={`flex-1 gap-4 ${isHistoryRailOpen && isDesktop ? 'lg:flex-row' : ''}`}>
-          <View className="min-h-[620px] flex-1 overflow-hidden rounded-xl border border-border bg-surface shadow-sm">
-            <ScrollView ref={scrollRef} className="flex-1">
-              <View className={`px-5 py-6 md:px-8 ${activeConversation ? 'gap-6' : 'flex-1 items-center justify-center gap-8'}`}>
-                {mode === 'new' ? (
-                  <View className="w-full max-w-3xl items-center">
-                    <View
-                      style={{ marginBottom: 32 }}
-                      className={`rounded-full border border-primary/20 bg-primary-tint px-4 py-2 ${Platform.OS === 'web' ? 'ai-badge-pulse' : ''}`}
-                    >
-                      <View className="flex-row items-center gap-2">
-                        <Sparkles size={16} color={ICON_PRIMARY} />
-                        <Text className="text-small font-medium text-primary">Inventory AI</Text>
+                {attachments.length > 0 ? (
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
+                    {attachments.map((a) => (
+                      <View
+                        key={a.id}
+                        style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#f5f5f5', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 6 }}
+                      >
+                        {a.isImage && a.previewUrl ? (
+                          <Image source={{ uri: a.previewUrl }} style={{ width: 24, height: 24, borderRadius: 4 }} accessibilityLabel={a.filename} />
+                        ) : null}
+                        <Text style={{ fontSize: 12, color: '#333', maxWidth: 140 }} numberOfLines={1}>{a.filename}</Text>
+                        <Pressable
+                          accessibilityRole="button"
+                          accessibilityLabel={`Remove ${a.filename}`}
+                          onPress={() => handleRemoveAttachment(a.id)}
+                        >
+                          <X size={12} color={ICON_SUBTLE} />
+                        </Pressable>
                       </View>
+                    ))}
+                  </View>
+                ) : null}
+
+                {/* Footer row: icons + send button */}
+                <View
+                  style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 10 }}
+                >
+                  <View style={{ flexDirection: 'row', gap: 14, alignItems: 'center' }}>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="Start a new conversation"
+                      onPress={handleNewChat}
+                    >
+                      <MessageSquarePlus size={18} color={ICON_PRIMARY} />
+                    </Pressable>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel={isDictating ? 'Stop dictation' : 'Start dictation'}
+                      accessibilityState={{ busy: isDictating, disabled: !recognitionCtorRef.current }}
+                      onPress={handleDictate}
+                    >
+                      {isDictating
+                        ? <Square size={18} color={ICON_PRIMARY} />
+                        : <Mic size={18} color={ICON_PRIMARY} />}
+                    </Pressable>
+                    <Pressable
+                      accessibilityRole="button"
+                      accessibilityLabel="Attach a file"
+                      onPress={handleAttach}
+                    >
+                      <Paperclip size={18} color={ICON_PRIMARY} />
+                    </Pressable>
+                  </View>
+
+                  <Pressable
+                    accessibilityRole="button"
+                    onPress={() => void handleSend()}
+                    style={{
+                      backgroundColor: isSubmitting ? '#FF8C47' : '#FF5C00',
+                      borderRadius: 9,
+                      paddingHorizontal: 20,
+                      paddingVertical: 10,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 7,
+                    }}
+                  >
+                    <Send size={15} color="#FFFFFF" />
+                    <Text style={{ fontSize: 13, fontWeight: '500', color: '#FFFFFF' }}>
+                      {isThreadMode ? 'Send' : 'Start chat'}
+                    </Text>
+                  </Pressable>
+                </View>
+
+                {error ? (
+                  <Text style={{ marginTop: 10, fontSize: 13, color: 'rgb(180,35,24)' }}>{error}</Text>
+                ) : null}
+              </View>
+            }
+          >
+            <ScrollView ref={scrollRef} style={{ flex: 1, backgroundColor: '#FDF4F0' }}>
+              <View
+                style={
+                  activeConversation || pendingUserMessage
+                    ? { paddingHorizontal: 22, paddingTop: 28, gap: 24 }
+                    : { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 22, paddingTop: 28 }
+                }
+              >
+                {mode === 'new' && !pendingUserMessage ? (
+                  <View style={{ width: '100%', maxWidth: 580, alignItems: 'center' }}>
+                    {/* AI pill */}
+                    <View
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 7,
+                        backgroundColor: '#FFFFFF',
+                        borderWidth: 0.5,
+                        borderColor: 'rgba(0,0,0,0.10)',
+                        borderRadius: 999,
+                        paddingHorizontal: 16,
+                        paddingVertical: 6,
+                        marginBottom: 20,
+                      }}
+                    >
+                      <Sparkles size={15} color={ICON_PRIMARY} />
+                      <Text style={{ fontSize: 13, fontWeight: '500', color: '#FF5C00' }}>Inventory AI</Text>
                     </View>
 
-                    <View style={{ marginBottom: 24 }} className="items-center">
-                      <Text style={{ marginBottom: 12 }} className="text-center text-[26px] font-semibold leading-[32px] text-text md:text-[36px] md:leading-[44px]">
-                        What do you need help with today?
-                      </Text>
-                      <Text className="max-w-2xl text-center text-body text-muted">
-                        Start a conversation for stock checks, PO workflows, product updates, reporting, or in-app navigation.
-                      </Text>
-                    </View>
+                    {/* Heading */}
+                    <Text
+                      style={{
+                        fontSize: 17,
+                        fontWeight: '500',
+                        color: '#1a1a1a',
+                        marginBottom: 7,
+                        textAlign: 'center',
+                      }}
+                    >
+                      What do you need help with today?
+                    </Text>
 
-                    <View className="w-full max-w-3xl flex-row flex-wrap justify-center gap-2">
+                    {/* Sub-text */}
+                    <Text
+                      style={{
+                        fontSize: 13,
+                        color: '#999999',
+                        textAlign: 'center',
+                        maxWidth: 400,
+                        lineHeight: 21,
+                        marginBottom: 26,
+                      }}
+                    >
+                      Start a conversation for stock checks, PO workflows, product updates, reporting, or in-app navigation.
+                    </Text>
+
+                    {/* Suggestion chips — horizontal flex-wrap */}
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 9, justifyContent: 'center', width: '100%' }}>
                       {promptSuggestions.map((suggestion) => (
                         <Pressable
                           key={suggestion}
                           accessibilityRole="button"
                           onPress={() => handleSuggestion(suggestion)}
-                          style={{ maxWidth: '48%' }}
-                          className="rounded-lg border border-border bg-surface-2 px-4 py-2.5"
+                          style={{
+                            backgroundColor: '#FFFFFF',
+                            borderWidth: 0.5,
+                            borderColor: 'rgba(0,0,0,0.09)',
+                            borderRadius: 999,
+                            paddingHorizontal: 15,
+                            paddingVertical: 8,
+                          }}
                         >
-                          <Text className="text-small text-text">{suggestion}</Text>
+                          <Text style={{ fontSize: 12.5, color: '#555555' }}>{suggestion}</Text>
                         </Pressable>
                       ))}
                     </View>
                   </View>
+                ) : null}
+
+                {/* Optimistic user message — shown immediately on new-conversation send */}
+                {pendingUserMessage && mode === 'new' ? (
+                  <>
+                    {/* User bubble — right aligned */}
+                    <View style={{ width: '100%', alignItems: 'flex-end' }}>
+                      <View style={{ maxWidth: '72%', alignItems: 'flex-end', gap: 6 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, paddingRight: 2 }}>
+                          <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: '#FF5C00', alignItems: 'center', justifyContent: 'center' }}>
+                            <Text style={{ fontSize: 9, fontWeight: '700', color: '#FFFFFF' }}>{userInitials}</Text>
+                          </View>
+                        </View>
+                        <View style={{ backgroundColor: '#FFF0EA', borderRadius: 14, borderTopRightRadius: 4, borderWidth: 0.5, borderColor: '#F4C4A8', paddingHorizontal: 16, paddingVertical: 12 }}>
+                          <Text style={{ fontSize: 14, lineHeight: 22, color: '#1a1a1a' }}>{pendingUserMessage}</Text>
+                        </View>
+                      </View>
+                    </View>
+                    {/* Thinking indicator — left aligned, same as assistant streaming row */}
+                    <View style={{ gap: 8 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, paddingLeft: 2 }}>
+                        <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: '#FF5C00', alignItems: 'center', justifyContent: 'center' }}>
+                          <Sparkles size={11} color="#FFFFFF" />
+                        </View>
+                        <Text style={{ fontSize: 12, fontWeight: '500', color: '#777777' }}>Assistant</Text>
+                      </View>
+                      <Text style={{ fontSize: 12, color: '#999999', paddingLeft: 2 }}>Thinking…</Text>
+                    </View>
+                  </>
                 ) : null}
 
                 {conversationQuery.isLoading && isThreadMode ? (
@@ -811,28 +1037,63 @@ export function AssistantChatShell({
                   </View>
                 ) : null}
 
-                {activeConversation?.messages.map((turn) => (
-                  <View key={turn.id} className={`w-full ${turn.role === 'user' ? 'items-end' : 'items-start'}`}>
-                    <View className={`gap-2 ${turn.role === 'user' ? 'max-w-[70%] items-end' : 'max-w-3xl items-start'}`}>
-                      <Text className="px-1 text-caption uppercase tracking-[0.16em] text-subtle">
-                        {turn.role === 'assistant' ? 'Assistant' : turn.role === 'user' ? 'You' : turn.role}
-                      </Text>
-                      <View className={`rounded-xl ${turn.role === 'user' ? 'bg-primary-tint px-5 py-4' : 'bg-surface-2 px-5 py-4'}`}>
-                        <AssistantMessageBlocks blocks={turn.blocks} />
-                      </View>
-                      <Text className="px-1 text-caption text-subtle">{formatDate(turn.createdAt)}</Text>
+                {activeConversation?.messages.map((turn) => {
+                  const isUser = turn.role === 'user';
+                  return (
+                    <View key={turn.id} style={{ width: '100%', alignItems: isUser ? 'flex-end' : 'flex-start' }}>
+                      {isUser ? (
+                        /* ── User message ── */
+                        <View style={{ maxWidth: '72%', alignItems: 'flex-end', gap: 6 }}>
+                          {/* Meta row: timestamp + "You" label + avatar */}
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, paddingRight: 2 }}>
+                            <Text style={{ fontSize: 11, color: '#bbbbbb' }}>{formatDate(turn.createdAt)}</Text>
+                              <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: '#FF5C00', alignItems: 'center', justifyContent: 'center' }}>
+                              <Text style={{ fontSize: 9, fontWeight: '700', color: '#FFFFFF' }}>{userInitials}</Text>
+                            </View>
+                          </View>
+                          {/* Bubble */}
+                          <View style={{ backgroundColor: '#FFF0EA', borderRadius: 14, borderTopRightRadius: 4, borderWidth: 0.5, borderColor: '#F4C4A8', paddingHorizontal: 16, paddingVertical: 12 }}>
+                            <AssistantMessageBlocks blocks={turn.blocks} />
+                          </View>
+                        </View>
+                      ) : (
+                        /* ── Assistant message ── */
+                        <View style={{ maxWidth: '88%', gap: 8 }}>
+                          {/* Meta row: AI avatar + label + timestamp */}
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, paddingLeft: 2 }}>
+                            <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: '#FF5C00', alignItems: 'center', justifyContent: 'center' }}>
+                              <Sparkles size={11} color="#FFFFFF" />
+                            </View>
+                            <Text style={{ fontSize: 12, fontWeight: '500', color: '#777777' }}>Assistant</Text>
+                            <Text style={{ fontSize: 11, color: '#bbbbbb' }}>{formatDate(turn.createdAt)}</Text>
+                          </View>
+                          {/* Bubble: white card with orange left accent */}
+                          <View style={{ backgroundColor: '#FFFFFF', borderRadius: 14, borderTopLeftRadius: 4, borderWidth: 1, borderColor: 'rgba(0,0,0,0.07)', borderLeftWidth: 3, borderLeftColor: '#FF5C00', paddingHorizontal: 16, paddingVertical: 14 }}>
+                            <AssistantMessageBlocks blocks={turn.blocks} />
+                          </View>
+                        </View>
+                      )}
                     </View>
-                  </View>
-                ))}
+                  );
+                })}
 
-                {isThreadMode && isStreamingRun && streamingAssistantBlocks.length > 0 ? (
-                  <View className="w-full items-start">
-                    <View className="max-w-3xl items-start gap-2">
-                      <Text className="px-1 text-caption uppercase tracking-[0.16em] text-subtle">Assistant</Text>
-                      <View className="rounded-xl bg-surface-2 px-5 py-4">
+                {isThreadMode && isStreamingRun ? (
+                  <View style={{ gap: 8 }}>
+                    {/* Avatar + label row — always shown while streaming */}
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7, paddingLeft: 2 }}>
+                      <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: '#FF5C00', alignItems: 'center', justifyContent: 'center' }}>
+                        <Sparkles size={11} color="#FFFFFF" />
+                      </View>
+                      <Text style={{ fontSize: 12, fontWeight: '500', color: '#777777' }}>Assistant</Text>
+                    </View>
+                    {/* Show "Thinking…" until actual response text arrives, then show the bubble */}
+                    {streamingAssistantState?.text.trim() ? (
+                      <View style={{ maxWidth: '88%', backgroundColor: '#FFFFFF', borderRadius: 14, borderTopLeftRadius: 4, borderWidth: 1, borderColor: 'rgba(0,0,0,0.07)', borderLeftWidth: 3, borderLeftColor: '#FF5C00', paddingHorizontal: 16, paddingVertical: 14 }}>
                         <AssistantMessageBlocks blocks={streamingAssistantBlocks} />
                       </View>
-                    </View>
+                    ) : (
+                      <Text style={{ fontSize: 12, color: '#999999', paddingLeft: 2 }}>Thinking…</Text>
+                    )}
                   </View>
                 ) : null}
 
@@ -861,119 +1122,7 @@ export function AssistantChatShell({
                 ) : null}
               </View>
             </ScrollView>
-
-            <View className="border-t border-border bg-surface/95 px-4 py-4 md:px-6">
-              <View className="mx-auto w-full max-w-4xl rounded-xl border border-border bg-surface px-4 py-4 shadow-sm">
-                {Platform.OS === 'web' ? (
-                  <textarea
-                    ref={webComposerRef}
-                    id="assistant-chat-composer"
-                    name="assistant-chat-composer"
-                    aria-label="Ask My AI Assistant"
-                    aria-describedby="assistant-chat-composer-hint"
-                    placeholder="Ask anything"
-                    value={prompt}
-                    onChange={handleComposerChange}
-                    onKeyDown={handleComposerKeyDown}
-                    className="w-full resize-none bg-transparent text-body text-text outline-none"
-                    style={{
-                      minHeight: 80,
-                      boxSizing: 'border-box',
-                      color: 'rgb(var(--text))',
-                      caretColor: 'rgb(var(--primary))',
-                      display: 'block',
-                      lineHeight: '24px',
-                      outline: 'none',
-                      padding: '8px 2px',
-                    }}
-                  />
-                ) : (
-                  <TextInput
-                    ref={composerInputRef}
-                    nativeID="assistant-chat-composer"
-                    accessibilityLabel="Ask My AI Assistant"
-                    accessibilityHint="Send a message to create or continue an AI workflow."
-                    placeholder="Ask anything"
-                    placeholderTextColor="rgb(var(--text-subtle))"
-                    selectionColor="#FF5C00"
-                    value={prompt}
-                    onChangeText={setPrompt}
-                    multiline
-                    textAlignVertical="top"
-                    style={{ minHeight: 80, color: '#111827' }}
-                    className="text-body text-text"
-                    {...({ id: 'assistant-chat-composer', name: 'assistant-chat-composer' } as unknown as Record<string, string>)}
-                  />
-                )}
-                <Text nativeID="assistant-chat-composer-hint" className="sr-only">
-                  Press Enter to send. Press Shift Enter for a new line.
-                </Text>
-
-                {attachments.length > 0 ? (
-                  <View className="mt-3 flex-row flex-wrap gap-2">
-                    {attachments.map((a) => (
-                      <View key={a.id} className="flex-row items-center gap-1.5 rounded-lg border border-border bg-surface-2 px-2 py-1.5">
-                        {a.isImage && a.previewUrl ? (
-                          <Image source={{ uri: a.previewUrl }} style={{ width: 28, height: 28, borderRadius: 4 }} accessibilityLabel={a.filename} />
-                        ) : null}
-                        <Text className="max-w-[140px] text-caption text-text" numberOfLines={1}>{a.filename}</Text>
-                        <Pressable
-                          accessibilityRole="button"
-                          accessibilityLabel={`Remove ${a.filename}`}
-                          onPress={() => handleRemoveAttachment(a.id)}
-                          className="ml-0.5 rounded-full p-0.5 active:bg-surface"
-                        >
-                          <X size={12} color={ICON_SUBTLE} />
-                        </Pressable>
-                      </View>
-                    ))}
-                  </View>
-                ) : null}
-
-                <View className="mt-3 flex-row items-center justify-between gap-3">
-                  <View className="flex-row items-center gap-2">
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel="Start a new conversation"
-                      onPress={handleNewChat}
-                      className="h-11 w-11 items-center justify-center rounded-full border border-border bg-surface-2"
-                    >
-                      <MessageSquarePlus size={18} color={ICON_PRIMARY} />
-                    </Pressable>
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel={isDictating ? 'Stop dictation' : 'Start dictation'}
-                      accessibilityState={{ busy: isDictating, disabled: !recognitionCtorRef.current }}
-                      onPress={handleDictate}
-                      className={`h-11 w-11 items-center justify-center rounded-full border ${
-                        isDictating ? 'border-primary bg-primary-tint' : 'border-border bg-surface-2'
-                      }`}
-                    >
-                      {isDictating ? <Square size={18} color={ICON_PRIMARY} /> : <Mic size={18} color={ICON_PRIMARY} />}
-                    </Pressable>
-                    <Pressable
-                      accessibilityRole="button"
-                      accessibilityLabel="Attach a file"
-                      onPress={handleAttach}
-                      className="h-11 w-11 items-center justify-center rounded-full border border-border bg-surface-2"
-                    >
-                      <Paperclip size={18} color={ICON_PRIMARY} />
-                    </Pressable>
-                  </View>
-
-                  <AppButton
-                    label={isThreadMode ? 'Send' : 'Start chat'}
-                    onPress={() => void handleSend()}
-                    loading={isSubmitting}
-                    className="min-w-[112px]"
-                  />
-                </View>
-
-                {error ? <Text className="mt-3 text-small text-error">{error}</Text> : null}
-                {statusMessage ? <Text className="mt-3 text-small text-success">{statusMessage}</Text> : null}
-              </View>
-            </View>
-          </View>
+          </AssistantPanelShell>
 
           {isHistoryRailOpen ? (
             <View className={isDesktop ? 'lg:w-[340px]' : 'w-full'}>
@@ -1039,8 +1188,6 @@ export function AssistantChatShell({
               </View>
             </View>
           ) : null}
-        </View>
-      </View>
     </View>
   );
 }

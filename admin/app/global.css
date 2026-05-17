@@ -200,15 +200,6 @@
   background: #FF5C00;
 }
 
-@keyframes command-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 92, 0, 0.45); }
-  50% { box-shadow: 0 0 0 8px rgba(255, 92, 0, 0); }
-}
-
-.ai-badge-pulse {
-  animation: command-pulse 2.5s ease-in-out infinite;
-}
-
 /* Optional app accent swap */
 .theme-ecommerce {
   --primary: 201 179 126;

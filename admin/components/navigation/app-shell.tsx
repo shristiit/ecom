@@ -3,20 +3,25 @@ import {
   Bot,
   Building2,
   Bell,
+  BellRing,
   Boxes,
   CreditCard,
   CircleHelp,
   LayoutGrid,
   Menu,
+  MoreVertical,
+  ScanSearch,
   Settings,
+  Sparkles,
   Users,
   ShieldCheck,
   ArrowLeftRight,
   Package,
   LogOut,
-  User,
+  UserCog,
 } from 'lucide-react-native';
 import { type LucideIcon } from 'lucide-react-native';
+import { Image } from 'expo-image';
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import { Platform, Pressable, Text, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -88,9 +93,6 @@ const NAV_SECTIONS: NavSection[] = [
   },
 ];
 
-// Flat list derived from sections (for mobile tabs, permission filtering, etc.)
-const NAV_ITEMS: NavItem[] = NAV_SECTIONS.flatMap((s) => s.items);
-
 const PLATFORM_NAV_SECTIONS: NavSection[] = [
   {
     items: [
@@ -106,8 +108,6 @@ const PLATFORM_NAV_SECTIONS: NavSection[] = [
     ],
   },
 ];
-
-const PLATFORM_NAV_ITEMS: NavItem[] = PLATFORM_NAV_SECTIONS.flatMap((s) => s.items);
 
 const PAGE_TITLE_RULES = [
   { prefix: '/', title: 'Dashboard' },
@@ -151,26 +151,24 @@ function getPageTitle(pathname: string) {
 }
 
 const SIDEBAR_BG = '#FF5C00';
-// Active: solid white card with orange text (matches brand mockup)
-const SIDEBAR_ACTIVE_BG = '#FFFFFF';
-const SIDEBAR_ACTIVE_TEXT = '#FF5C00';
-const SIDEBAR_ACTIVE_ICON = '#FF5C00';
-// Hover: subtle white tint
-const SIDEBAR_HOVER_BG = 'rgba(255,255,255,0.12)';
-// Rest: white text/icons at 75% opacity
-const SIDEBAR_ICON_ACTIVE = '#FF5C00';
-const SIDEBAR_ICON_INACTIVE = 'rgba(255,255,255,0.75)';
-// Section label style
-const SIDEBAR_SECTION_COLOR = 'rgba(255,255,255,0.5)';
-// Divider
+// Active: white overlay with white text (spec + reference design)
+const SIDEBAR_ACTIVE_BG = 'rgba(255,255,255,0.20)';
+const SIDEBAR_ACTIVE_TEXT = '#FFFFFF';
+const SIDEBAR_ACTIVE_ICON = '#FFFFFF';
+// Hover: lighter white tint
+const SIDEBAR_HOVER_BG = 'rgba(255,255,255,0.11)';
+// Rest: white text/icons at 72% opacity (matches reference)
+const SIDEBAR_ICON_INACTIVE = 'rgba(255,255,255,0.72)';
+// Section label
+const SIDEBAR_SECTION_COLOR = 'rgba(255,255,255,0.40)';
+// Divider (logo area only)
 const SIDEBAR_DIVIDER = 'rgba(255,255,255,0.13)';
-const SIDEBAR_LOGO_DIVIDER = 'rgba(255,255,255,0.35)';
 
-/** Section label divider for the full sidebar */
+/** Section label for nav groups */
 function SidebarSectionLabel({ label }: { label: string }) {
   return (
-    <View style={{ paddingHorizontal: 12, paddingTop: 16, paddingBottom: 4 }}>
-      <Text style={{ fontSize: 10, fontWeight: '500', letterSpacing: 1.2, textTransform: 'uppercase', color: SIDEBAR_SECTION_COLOR }}>
+    <View style={{ paddingHorizontal: 10, paddingTop: 10, paddingBottom: 3 }}>
+      <Text style={{ fontSize: 10, fontWeight: '500', letterSpacing: 1.4, textTransform: 'uppercase', color: SIDEBAR_SECTION_COLOR }}>
         {label}
       </Text>
     </View>
@@ -196,10 +194,10 @@ function SidebarItem({ item, pathname }: { item: NavItem; pathname: string }) {
         accessibilityState={{ selected: active }}
         onHoverIn={() => setHovered(true)}
         onHoverOut={() => setHovered(false)}
-        style={{ backgroundColor: bg, borderRadius: 8, marginBottom: 2, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, paddingVertical: 10 }}
+        style={{ backgroundColor: bg, borderRadius: 7, marginBottom: 1, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 10, paddingVertical: 8 }}
       >
-        <Icon size={18} color={iconColor} />
-        <Text style={{ fontSize: 14, fontWeight: active ? '500' : '400', color: textColor }}>{item.label}</Text>
+        <Icon size={16} color={iconColor} />
+        <Text style={{ fontSize: 13, fontWeight: active ? '500' : '400', color: textColor }}>{item.label}</Text>
       </Pressable>
     </Link>
   );
@@ -251,10 +249,10 @@ function DrawerSidebarItem({
         accessibilityHint={`Opens the ${item.label} page.`}
         accessibilityState={{ selected: active }}
         onPress={onNavigate}
-        style={{ backgroundColor: active ? SIDEBAR_ACTIVE_BG : 'transparent', borderRadius: 8, marginBottom: 2, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, paddingVertical: 10 }}
+        style={{ backgroundColor: active ? SIDEBAR_ACTIVE_BG : 'transparent', borderRadius: 7, marginBottom: 1, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 10, paddingVertical: 8 }}
       >
-        <Icon size={18} color={active ? SIDEBAR_ACTIVE_ICON : SIDEBAR_ICON_INACTIVE} />
-        <Text style={{ fontSize: 14, fontWeight: active ? '500' : '400', color: active ? SIDEBAR_ACTIVE_TEXT : 'rgba(255,255,255,0.75)' }}>{item.label}</Text>
+        <Icon size={16} color={active ? SIDEBAR_ACTIVE_ICON : SIDEBAR_ICON_INACTIVE} />
+        <Text style={{ fontSize: 13, fontWeight: active ? '500' : '400', color: active ? SIDEBAR_ACTIVE_TEXT : 'rgba(255,255,255,0.72)' }}>{item.label}</Text>
       </Pressable>
     </Link>
   );
@@ -282,6 +280,7 @@ function MobileTabItem({ item, pathname }: { item: NavItem; pathname: string }) 
 
 function TopNav({
   title,
+  pathname,
   showMenuButton = false,
   showInlineSearch = true,
   isNarrow = false,
@@ -290,9 +289,9 @@ function TopNav({
   onOpenQuickView,
 }: {
   title: string;
+  pathname: string;
   showMenuButton?: boolean;
   showInlineSearch?: boolean;
-  /** True when viewport width < 640px — hides secondary text actions */
   isNarrow?: boolean;
   onOpenMenu: () => void;
   onOpenNotifications: () => void;
@@ -303,6 +302,8 @@ function TopNav({
 
   const tenantLabel = selectedTenantId ? `Tenant ${selectedTenantId.slice(0, 6)}` : 'Tenant';
   const userEmail = user?.email ?? 'Admin';
+  const userInitials = userEmail.slice(0, 2).toUpperCase();
+  const isAiPage = pathname === '/ai' || pathname.startsWith('/ai/');
 
   const cycleTenant = () => {
     if (tenants.length <= 1) return;
@@ -312,126 +313,165 @@ function TopNav({
   };
 
   return (
-    <View className="relative z-50 border-b border-border bg-surface px-4 py-3">
-      <View className="flex-row items-center justify-between gap-3">
-        {/* Left: hamburger + title */}
-        <View className="flex-row items-center gap-3 shrink-0">
-          {showMenuButton ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Open navigation menu"
-              accessibilityHint="Opens the main navigation drawer."
-              className="h-9 w-9 items-center justify-center rounded-md border border-border bg-surface-2"
-              onPress={onOpenMenu}
-            >
-              <Menu size={20} color="#334155" />
-            </Pressable>
-          ) : null}
-          <Text className="text-section font-semibold text-text" numberOfLines={1}>{title}</Text>
-        </View>
-
-        {/* Centre: search bar (hidden on narrow) */}
-        {showInlineSearch && !isNarrow ? <AssistantSearchBar /> : <View className="flex-1" />}
-
-        {/* Right: action buttons */}
-        <View className="flex-row items-center gap-2 shrink-0">
+    <View style={{ backgroundColor: '#FFFFFF', borderBottomWidth: 0.5, borderBottomColor: 'rgba(0,0,0,0.08)', height: 54, paddingHorizontal: 22, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', zIndex: 50 }}>
+      {/* Left: hamburger + title + optional AI badge */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flexShrink: 1 }}>
+        {showMenuButton ? (
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Open notifications"
-            accessibilityHint="Shows recent alerts and notifications."
-            className="h-9 w-9 items-center justify-center rounded-md border border-border bg-surface-2"
-            onPress={onOpenNotifications}
+            accessibilityLabel="Open navigation menu"
+            accessibilityHint="Opens the main navigation drawer."
+            style={{ width: 32, height: 32, backgroundColor: '#f5f5f5', borderRadius: 8, alignItems: 'center', justifyContent: 'center' }}
+            onPress={onOpenMenu}
           >
-            <Bell size={16} color="#334155" />
+            <Menu size={18} color="#666" />
           </Pressable>
+        ) : null}
+        <Text style={{ fontSize: 15, fontWeight: '500', color: '#1a1a1a' }} numberOfLines={1}>{title}</Text>
+        {isAiPage ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#FFF0EA', borderWidth: 0.5, borderColor: '#F4C4A8', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 3 }}>
+            <Sparkles size={11} color="#7A2A00" />
+            <Text style={{ fontSize: 11.5, fontWeight: '500', color: '#7A2A00' }}>AI powered</Text>
+          </View>
+        ) : null}
+      </View>
 
-          {/* "Quick view" text button — hidden on narrow screens to save space */}
-          {!isNarrow ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Open quick view"
-              accessibilityHint="Shows the quick view panel."
-              className="rounded-md border border-border bg-surface-2 px-3 py-2"
-              onPress={onOpenQuickView}
-            >
-              <Text className="text-small font-medium text-text">Quick view</Text>
-            </Pressable>
-          ) : null}
+      {/* Centre: search bar */}
+      {showInlineSearch && !isNarrow ? <AssistantSearchBar /> : <View style={{ flex: 1 }} />}
 
-          {/* Profile avatar + dropdown */}
-          <View className="relative z-50">
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Open profile menu"
-              accessibilityHint="Shows account, help, tenant, and logout actions."
-              accessibilityState={{ expanded: profileMenuOpen }}
-              onPress={() => setProfileMenuOpen((current) => !current)}
-              className="h-9 w-9 items-center justify-center rounded-md border border-border bg-surface-2"
-            >
-              <User size={16} color="#334155" />
-            </Pressable>
+      {/* Right: actions */}
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Open notifications"
+          accessibilityHint="Shows recent alerts and notifications."
+          style={{ width: 32, height: 32, backgroundColor: '#f5f5f5', borderRadius: 8, alignItems: 'center', justifyContent: 'center' }}
+          onPress={onOpenNotifications}
+        >
+          <Bell size={16} color="#666" />
+        </Pressable>
+
+        {!isNarrow ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Open quick view"
+            accessibilityHint="Shows a quick overview of key metrics and recent activity."
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 6,
+              backgroundColor: '#FFF0EA',
+              borderWidth: 0.5,
+              borderColor: '#F4C4A8',
+              borderRadius: 8,
+              paddingHorizontal: 14,
+              paddingVertical: 7,
+            }}
+            onPress={onOpenQuickView}
+          >
+            <ScanSearch size={14} color="#FF5C00" />
+            <Text style={{ fontSize: 13, fontWeight: '500', color: '#FF5C00' }}>Quick view</Text>
+          </Pressable>
+        ) : null}
+
+        {/* Profile avatar + dropdown */}
+        <View style={{ position: 'relative', zIndex: 50 }}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Open profile menu"
+            accessibilityHint="Shows account, help, tenant, and logout actions."
+            accessibilityState={{ expanded: profileMenuOpen }}
+            onPress={() => setProfileMenuOpen((current) => !current)}
+            style={{ width: 32, height: 32, backgroundColor: '#FF5C00', borderRadius: 16, alignItems: 'center', justifyContent: 'center' }}
+          >
+            <Text style={{ fontSize: 11, fontWeight: '500', color: '#FFFFFF' }}>{userInitials}</Text>
+          </Pressable>
 
             {profileMenuOpen ? (
               <View
-                className="absolute right-0 top-11 z-50 rounded-md border border-border bg-surface shadow-sm"
-                // Clamp dropdown width: 256px max, but never wider than viewport minus 16px margin
-                style={{ width: 256, elevation: 24 }}
+                className="absolute right-0 top-11 z-50 bg-surface shadow-sm"
+                style={{ width: 260, elevation: 24, borderRadius: 14, borderWidth: 0.5, borderColor: 'rgba(0,0,0,0.10)', overflow: 'hidden' }}
               >
-                <View className="border-b border-border px-3 py-2">
-                  <Text className="text-caption text-muted" numberOfLines={1}>{userEmail}</Text>
-                </View>
-
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Open quick view"
-                  accessibilityHint="Shows the quick view panel."
-                  className="flex-row items-center gap-2 px-3 py-2"
-                  onPress={() => {
-                    setProfileMenuOpen(false);
-                    onOpenQuickView();
+                {/* Header: avatar + email */}
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 10,
+                    paddingHorizontal: 14,
+                    paddingVertical: 12,
+                    borderBottomWidth: 0.5,
+                    borderBottomColor: 'rgba(0,0,0,0.07)',
+                    backgroundColor: '#FDF4F0',
                   }}
                 >
-                  <Text className="text-small text-text">Quick view</Text>
+                  <View style={{ width: 30, height: 30, borderRadius: 15, backgroundColor: '#FF5C00', alignItems: 'center', justifyContent: 'center' }}>
+                    <Text style={{ fontSize: 11, fontWeight: '600', color: '#FFFFFF' }}>{userInitials}</Text>
+                  </View>
+                  <Text style={{ fontSize: 12.5, color: '#555555', flexShrink: 1 }} numberOfLines={1}>{userEmail}</Text>
+                </View>
+
+                {/* Account settings */}
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Account settings"
+                  accessibilityHint="Manage your profile and account details."
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 11 }}
+                  onPress={() => setProfileMenuOpen(false)}
+                >
+                  <View style={{ width: 28, height: 28, borderRadius: 8, backgroundColor: '#FFF0EA', alignItems: 'center', justifyContent: 'center' }}>
+                    <UserCog size={14} color="#FF5C00" />
+                  </View>
+                  <Text style={{ fontSize: 13.5, color: '#1a1a1a' }}>Account settings</Text>
                 </Pressable>
+
+                {/* Notification preferences */}
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Notification preferences"
+                  accessibilityHint="Control which alerts and notifications you receive."
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 11 }}
+                  onPress={() => {
+                    setProfileMenuOpen(false);
+                    onOpenNotifications();
+                  }}
+                >
+                  <View style={{ width: 28, height: 28, borderRadius: 8, backgroundColor: '#FFF0EA', alignItems: 'center', justifyContent: 'center' }}>
+                    <BellRing size={14} color="#FF5C00" />
+                  </View>
+                  <Text style={{ fontSize: 13.5, color: '#1a1a1a' }}>Notification preferences</Text>
+                </Pressable>
+
+                {/* Help */}
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel="Help"
-                  accessibilityHint="Closes the profile menu. Help content is not configured yet."
-                  className="flex-row items-center gap-2 px-3 py-2"
+                  accessibilityHint="Get help and support."
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 11 }}
                   onPress={() => setProfileMenuOpen(false)}
                 >
-                  <CircleHelp size={16} color="#334155" />
-                  <Text className="text-small text-text">Help</Text>
+                  <View style={{ width: 28, height: 28, borderRadius: 8, backgroundColor: '#F5F5F5', alignItems: 'center', justifyContent: 'center' }}>
+                    <CircleHelp size={14} color="#64748B" />
+                  </View>
+                  <Text style={{ fontSize: 13.5, color: '#1a1a1a' }}>Help</Text>
                 </Pressable>
-                {user?.principalType === 'tenant_user' ? (
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel="Switch tenant"
-                    accessibilityHint={`Changes the active tenant. Current tenant: ${tenantLabel}.`}
-                    className="flex-row items-center justify-between gap-2 px-3 py-2"
-                    onPress={() => {
-                      cycleTenant();
-                      setProfileMenuOpen(false);
-                    }}
-                  >
-                    <Text className="text-small text-text">Switch tenant</Text>
-                    <Text className="text-caption text-muted">{tenantLabel}</Text>
-                  </Pressable>
-                ) : null}
 
-                <View className="border-t border-border">
+                {/* Logout */}
+                <View style={{ borderTopWidth: 0.5, borderTopColor: 'rgba(0,0,0,0.07)', marginTop: 2 }}>
                   <Pressable
                     accessibilityRole="button"
                     accessibilityLabel="Logout"
                     accessibilityHint="Signs you out of the admin app."
-                    className="flex-row items-center gap-2 px-3 py-2"
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14, paddingVertical: 11 }}
                     onPress={() => {
                       setProfileMenuOpen(false);
                       signOut();
                     }}
                   >
-                    <LogOut size={16} color="#334155" />
-                    <Text className="text-small text-text">Logout</Text>
+                    <View style={{ width: 28, height: 28, borderRadius: 8, backgroundColor: '#FEF2F2', alignItems: 'center', justifyContent: 'center' }}>
+                      <LogOut size={14} color="#DC2626" />
+                    </View>
+                    <Text style={{ fontSize: 13.5, color: '#DC2626' }}>Logout</Text>
                   </Pressable>
                 </View>
               </View>
@@ -439,7 +479,6 @@ function TopNav({
           </View>
         </View>
       </View>
-    </View>
   );
 }
 
@@ -515,20 +554,22 @@ export function AppShell({ children }: { children: ReactNode }) {
         {/* Full labelled sidebar — desktop ≥1024px */}
         {isDesktop ? (
           <View style={{ width: 256, backgroundColor: SIDEBAR_BG, flexDirection: 'column' }}>
-            {/* Logo */}
-            <View style={{ paddingHorizontal: 10, paddingTop: 18, paddingBottom: 8 }}>
-              <AppLogo showWordmark width={236} height={124} variant="dark" />
+            {/* Logo — white wordmark PNG, clipped to content area */}
+            <View style={{ paddingHorizontal: 18, paddingTop: 16, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: SIDEBAR_DIVIDER }}>
+              <View style={{ overflow: 'hidden', height: 32, width: 176 }}>
+                <Image
+                  source={require('../../assets/images/brand/stockaisle_final_white_transparent_256x256.png')}
+                  style={{ width: 176, height: 118, marginTop: -39 }}
+                  contentFit="fill"
+                  accessibilityLabel="Stockaisle"
+                />
+              </View>
             </View>
-            <View style={{ height: 1, backgroundColor: SIDEBAR_LOGO_DIVIDER, marginHorizontal: 12, marginBottom: 4 }} />
 
-            {/* Nav sections */}
-            <View style={{ flex: 1, paddingHorizontal: 8 }}>
+            {/* Nav sections — no dividers between groups */}
+            <View style={{ flex: 1, paddingHorizontal: 10, paddingTop: 10 }}>
               {navSections.map((section, sectionIndex) => (
                 <View key={section.label ?? `section-${sectionIndex}`}>
-                  {/* Divider before sections that follow another section */}
-                  {sectionIndex > 0 ? (
-                    <View style={{ height: 1, backgroundColor: SIDEBAR_DIVIDER, marginHorizontal: 4, marginTop: 4 }} />
-                  ) : null}
                   {section.label ? <SidebarSectionLabel label={section.label} /> : null}
                   {section.items.map((item) => (
                     <SidebarItem key={item.href} item={item} pathname={pathname} />
@@ -538,19 +579,22 @@ export function AppShell({ children }: { children: ReactNode }) {
             </View>
 
             {/* User profile strip */}
-            <View style={{ borderTopWidth: 1, borderTopColor: SIDEBAR_DIVIDER, paddingHorizontal: 12, paddingVertical: 12 }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: 'rgba(255,255,255,0.22)', alignItems: 'center', justifyContent: 'center' }}>
-                  <User size={16} color="#FFFFFF" />
+            <View style={{ borderTopWidth: 1, borderTopColor: SIDEBAR_DIVIDER, padding: 10 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 10, paddingVertical: 8 }}>
+                <View style={{ width: 30, height: 30, borderRadius: 15, backgroundColor: 'rgba(255,255,255,0.22)', alignItems: 'center', justifyContent: 'center' }}>
+                  <Text style={{ fontSize: 11, fontWeight: '500', color: '#FFFFFF' }}>
+                    {(user?.email ?? 'AD').slice(0, 2).toUpperCase()}
+                  </Text>
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 13, fontWeight: '500', color: '#FFFFFF' }} numberOfLines={1}>
+                  <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.9)' }} numberOfLines={1}>
                     {user?.email ?? 'Admin'}
                   </Text>
-                  <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)' }} numberOfLines={1}>
+                  <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)' }} numberOfLines={1}>
                     {user?.principalType === 'platform_admin' ? 'Platform Admin' : 'Store Manager'}
                   </Text>
                 </View>
+                <MoreVertical size={16} color="rgba(255,255,255,0.45)" />
               </View>
             </View>
           </View>
@@ -559,15 +603,12 @@ export function AppShell({ children }: { children: ReactNode }) {
         {/* Icon-only rail sidebar — tablet 768–1023px */}
         {isTablet ? (
           <View style={{ width: 56, backgroundColor: SIDEBAR_BG, alignItems: 'center', paddingVertical: 16, gap: 4 }}>
-            <View style={{ marginBottom: 8 }}>
-              <AppLogo size={40} variant="dark" />
+            <View style={{ width: 36, height: 36, backgroundColor: 'rgba(255,255,255,0.18)', borderRadius: 8, alignItems: 'center', justifyContent: 'center', marginBottom: 8 }}>
+              <Boxes size={20} color="#FFFFFF" />
             </View>
-            <View style={{ height: 1, width: 32, backgroundColor: SIDEBAR_LOGO_DIVIDER, marginBottom: 4 }} />
+            <View style={{ height: 1, width: 32, backgroundColor: SIDEBAR_DIVIDER, marginBottom: 4 }} />
             {navSections.map((section, sectionIndex) => (
               <View key={section.label ?? `section-${sectionIndex}`} style={{ width: '100%', alignItems: 'center' }}>
-                {sectionIndex > 0 ? (
-                  <View style={{ height: 1, width: 32, backgroundColor: SIDEBAR_DIVIDER, marginVertical: 4 }} />
-                ) : null}
                 {section.items.map((item) => (
                   <SidebarRailItem key={item.href} item={item} pathname={pathname} />
                 ))}
@@ -579,6 +620,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <View className="flex-1">
           <TopNav
             title={currentTitle}
+            pathname={pathname}
             showMenuButton={showWebBurgerMenu}
             showInlineSearch={showInlineSearch}
             isNarrow={isNarrowNav}
@@ -624,18 +666,19 @@ export function AppShell({ children }: { children: ReactNode }) {
         contentStyle={{ backgroundColor: SIDEBAR_BG }}
       >
         {/* Logo */}
-        <View style={{ paddingHorizontal: 8, paddingTop: 8, paddingBottom: 8 }}>
-          <AppLogo showWordmark width={236} height={124} variant="dark" />
+        <View style={{ paddingHorizontal: 18, paddingTop: 20, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: SIDEBAR_DIVIDER }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <View style={{ width: 36, height: 36, backgroundColor: 'rgba(255,255,255,0.18)', borderRadius: 8, alignItems: 'center', justifyContent: 'center' }}>
+              <Boxes size={20} color="#FFFFFF" />
+            </View>
+            <Text style={{ fontSize: 15, fontWeight: '500', color: '#FFFFFF', letterSpacing: 0.1 }}>Stockaisle</Text>
+          </View>
         </View>
-        <View style={{ height: 1, backgroundColor: SIDEBAR_LOGO_DIVIDER, marginHorizontal: 12, marginBottom: 4 }} />
 
         {/* Sectioned nav */}
-        <View style={{ paddingHorizontal: 4 }}>
+        <View style={{ paddingHorizontal: 10, paddingTop: 10 }}>
           {navSections.map((section, sectionIndex) => (
             <View key={section.label ?? `drawer-section-${sectionIndex}`}>
-              {sectionIndex > 0 ? (
-                <View style={{ height: 1, backgroundColor: SIDEBAR_DIVIDER, marginHorizontal: 8, marginTop: 4 }} />
-              ) : null}
               {section.label ? <SidebarSectionLabel label={section.label} /> : null}
               {section.items.map((item) => (
                 <DrawerSidebarItem key={item.href} item={item} pathname={pathname} onNavigate={() => setMobileMenuOpen(false)} />
@@ -645,19 +688,22 @@ export function AppShell({ children }: { children: ReactNode }) {
         </View>
 
         {/* User strip */}
-        <View style={{ borderTopWidth: 1, borderTopColor: SIDEBAR_DIVIDER, marginTop: 16, paddingHorizontal: 12, paddingVertical: 12 }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-            <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: 'rgba(255,255,255,0.22)', alignItems: 'center', justifyContent: 'center' }}>
-              <User size={16} color="#FFFFFF" />
+        <View style={{ borderTopWidth: 1, borderTopColor: SIDEBAR_DIVIDER, marginTop: 8, padding: 10 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 10, paddingVertical: 8 }}>
+            <View style={{ width: 30, height: 30, borderRadius: 15, backgroundColor: 'rgba(255,255,255,0.22)', alignItems: 'center', justifyContent: 'center' }}>
+              <Text style={{ fontSize: 11, fontWeight: '500', color: '#FFFFFF' }}>
+                {(user?.email ?? 'AD').slice(0, 2).toUpperCase()}
+              </Text>
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={{ fontSize: 13, fontWeight: '500', color: '#FFFFFF' }} numberOfLines={1}>
+              <Text style={{ fontSize: 13, color: 'rgba(255,255,255,0.9)' }} numberOfLines={1}>
                 {user?.email ?? 'Admin'}
               </Text>
-              <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)' }} numberOfLines={1}>
+              <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)' }} numberOfLines={1}>
                 {user?.principalType === 'platform_admin' ? 'Platform Admin' : 'Store Manager'}
               </Text>
             </View>
+            <MoreVertical size={16} color="rgba(255,255,255,0.45)" />
           </View>
         </View>
       </AppDrawer>

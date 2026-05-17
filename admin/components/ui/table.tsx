@@ -1,4 +1,5 @@
 import { ScrollView, Text, View, useWindowDimensions } from 'react-native';
+import type { ViewStyle } from 'react-native';
 import type { ReactNode } from 'react';
 
 type TableProps = {
@@ -10,6 +11,7 @@ type TableRowProps = {
   children: ReactNode;
   header?: boolean;
   className?: string;
+  style?: ViewStyle;
 };
 
 type TableCellProps = {
@@ -49,13 +51,14 @@ export function AppTable({ children, className }: TableProps) {
   );
 }
 
-export function AppTableRow({ children, header = false, className }: TableRowProps) {
+export function AppTableRow({ children, header = false, className, style }: TableRowProps) {
   const { width } = useWindowDimensions();
   const isCompact = width < 768;
 
   return (
     <View
       className={`${header ? 'bg-surface-2' : 'bg-surface'} flex-row border-b border-border ${isCompact ? 'px-2.5 py-2.5' : 'px-3 py-3'} ${className ?? ''}`.trim()}
+      style={style}
     >
       {children}
     </View>
