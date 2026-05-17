@@ -12,7 +12,6 @@ import {
   MoreVertical,
   ScanSearch,
   Settings,
-  Sparkles,
   Users,
   ShieldCheck,
   ArrowLeftRight,
@@ -109,45 +108,10 @@ const PLATFORM_NAV_SECTIONS: NavSection[] = [
   },
 ];
 
-const PAGE_TITLE_RULES = [
-  { prefix: '/', title: 'Dashboard' },
-  { prefix: '/dashboard', title: 'Dashboard' },
-  { prefix: '/products', title: 'Products' },
-  { prefix: '/inventory', title: 'Inventory' },
-  { prefix: '/orders/sales', title: 'Sales Orders' },
-  { prefix: '/orders/purchase', title: 'Purchase Orders' },
-  { prefix: '/orders', title: 'Orders' },
-  { prefix: '/billing', title: 'Billing & Payments' },
-  { prefix: '/master', title: 'Master Data' },
-  { prefix: '/users', title: 'Users & Access' },
-  { prefix: '/roles', title: 'Users & Access' },
-  { prefix: '/policies', title: 'Users & Access' },
-  { prefix: '/audit', title: 'Audit' },
-  { prefix: '/ai', title: 'My AI Assistant' },
-  { prefix: '/settings', title: 'Settings' },
-];
-
-const PLATFORM_PAGE_TITLE_RULES = [
-  { prefix: '/platform', title: 'Platform Overview' },
-  { prefix: '/platform/businesses', title: 'Businesses' },
-  { prefix: '/platform/admins', title: 'Platform Admins' },
-  { prefix: '/platform/audit', title: 'Platform Audit' },
-] as const;
-
 function isActivePath(pathname: string, href: string, activePrefixes?: string[]) {
   if (href === '/') return pathname === '/' || pathname === '/dashboard';
   const prefixes = activePrefixes?.length ? activePrefixes : [href];
   return prefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
-}
-
-function getPageTitle(pathname: string) {
-  const platformMatch = PLATFORM_PAGE_TITLE_RULES.find((rule) => pathname === rule.prefix || pathname.startsWith(`${rule.prefix}/`));
-  if (platformMatch) return platformMatch.title;
-
-  if (pathname === '/') return 'Dashboard';
-
-  const match = PAGE_TITLE_RULES.find((rule) => pathname === rule.prefix || pathname.startsWith(`${rule.prefix}/`));
-  return match?.title ?? 'Inventory Management';
 }
 
 const SIDEBAR_BG = '#FF5C00';
@@ -279,8 +243,6 @@ function MobileTabItem({ item, pathname }: { item: NavItem; pathname: string }) 
 }
 
 function TopNav({
-  title,
-  pathname,
   showMenuButton = false,
   showInlineSearch = true,
   isNarrow = false,
@@ -288,8 +250,6 @@ function TopNav({
   onOpenNotifications,
   onOpenQuickView,
 }: {
-  title: string;
-  pathname: string;
   showMenuButton?: boolean;
   showInlineSearch?: boolean;
   isNarrow?: boolean;
@@ -303,7 +263,6 @@ function TopNav({
   const tenantLabel = selectedTenantId ? `Tenant ${selectedTenantId.slice(0, 6)}` : 'Tenant';
   const userEmail = user?.email ?? 'Admin';
   const userInitials = userEmail.slice(0, 2).toUpperCase();
-  const isAiPage = pathname === '/ai' || pathname.startsWith('/ai/');
 
   const cycleTenant = () => {
     if (tenants.length <= 1) return;
@@ -314,9 +273,9 @@ function TopNav({
 
   return (
     <View style={{ backgroundColor: '#FFFFFF', borderBottomWidth: 0.5, borderBottomColor: 'rgba(0,0,0,0.08)', height: 54, paddingHorizontal: 22, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', zIndex: 50 }}>
-      {/* Left: hamburger + title + optional AI badge */}
-      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flexShrink: 1 }}>
-        {showMenuButton ? (
+      {/* Left: hamburger on narrow web */}
+      {showMenuButton ? (
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, flexShrink: 0 }}>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Open navigation menu"
@@ -326,18 +285,17 @@ function TopNav({
           >
             <Menu size={18} color="#666" />
           </Pressable>
-        ) : null}
-        <Text style={{ fontSize: 15, fontWeight: '500', color: '#1a1a1a' }} numberOfLines={1}>{title}</Text>
-        {isAiPage ? (
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#FFF0EA', borderWidth: 0.5, borderColor: '#F4C4A8', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 3 }}>
-            <Sparkles size={11} color="#7A2A00" />
-            <Text style={{ fontSize: 11.5, fontWeight: '500', color: '#7A2A00' }}>AI powered</Text>
-          </View>
-        ) : null}
-      </View>
+        </View>
+      ) : null}
 
       {/* Centre: search bar */}
-      {showInlineSearch && !isNarrow ? <AssistantSearchBar /> : <View style={{ flex: 1 }} />}
+      {showInlineSearch && !isNarrow ? (
+        <View style={{ flex: 1, marginRight: 18 }}>
+          <AssistantSearchBar />
+        </View>
+      ) : (
+        <View style={{ flex: 1 }} />
+      )}
 
       {/* Right: actions */}
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flexShrink: 0 }}>
@@ -507,7 +465,6 @@ export function AppShell({ children }: { children: ReactNode }) {
   // TopNav is "narrow" when the viewport is under 640px on web
   const isNarrowNav = isWeb && width < 640;
 
-  const currentTitle = getPageTitle(pathname);
   const hideSearch = pathname === '/ai' || pathname.startsWith('/ai/');
   const showCompactSearchCard = !isDesktop && !isTablet && !hideSearch;
   const showInlineSearch = !hideSearch && !showCompactSearchCard;
@@ -619,8 +576,6 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         <View className="flex-1">
           <TopNav
-            title={currentTitle}
-            pathname={pathname}
             showMenuButton={showWebBurgerMenu}
             showInlineSearch={showInlineSearch}
             isNarrow={isNarrowNav}
@@ -659,24 +614,23 @@ export function AppShell({ children }: { children: ReactNode }) {
       <AppDrawer
         isOpen={showWebBurgerMenu && mobileMenuOpen}
         onClose={() => setMobileMenuOpen(false)}
-        title="Menu"
-        description="Navigate the admin portal"
+        title="Navigation menu"
         side="left"
         widthClassName="w-full max-w-[320px]"
         contentStyle={{ backgroundColor: SIDEBAR_BG }}
-      >
-        {/* Logo */}
-        <View style={{ paddingHorizontal: 18, paddingTop: 20, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: SIDEBAR_DIVIDER }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-            <View style={{ width: 36, height: 36, backgroundColor: 'rgba(255,255,255,0.18)', borderRadius: 8, alignItems: 'center', justifyContent: 'center' }}>
-              <Boxes size={20} color="#FFFFFF" />
-            </View>
-            <Text style={{ fontSize: 15, fontWeight: '500', color: '#FFFFFF', letterSpacing: 0.1 }}>Stockaisle</Text>
+        headerSlot={
+          <View style={{ overflow: 'hidden', height: 32, width: 176 }}>
+            <Image
+              source={require('../../assets/images/brand/stockaisle_final_white_transparent_256x256.png')}
+              style={{ width: 176, height: 118, marginTop: -39 }}
+              contentFit="fill"
+              accessibilityLabel="Stockaisle"
+            />
           </View>
-        </View>
-
+        }
+      >
         {/* Sectioned nav */}
-        <View style={{ paddingHorizontal: 10, paddingTop: 10 }}>
+        <View style={{ paddingHorizontal: 10, paddingTop: 0 }}>
           {navSections.map((section, sectionIndex) => (
             <View key={section.label ?? `drawer-section-${sectionIndex}`}>
               {section.label ? <SidebarSectionLabel label={section.label} /> : null}

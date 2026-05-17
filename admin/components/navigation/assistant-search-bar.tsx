@@ -81,7 +81,7 @@ export function AssistantSearchBar() {
   };
 
   return (
-    <View className="max-w-[620px] flex-1 flex-row items-center rounded-md border border-border bg-surface-2 px-3 py-2">
+    <View className="flex-1 flex-row items-center rounded-md border border-border bg-surface-2 px-3 py-2">
       <Search size={16} color="#64748B" />
       <TextInput
         nativeID="assistant-search-input"

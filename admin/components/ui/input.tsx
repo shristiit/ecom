@@ -58,7 +58,7 @@ export function AppInput({
           ...(props.accessibilityState ?? {}),
         }}
         placeholderTextColor="rgb(var(--text-subtle))"
-        className={`${hasError ? 'border-error' : 'border-border'} rounded-md border bg-bg px-3 py-2.5 text-body text-text ${inputClassName ?? ''}`.trim()}
+        className={`${hasError ? 'border-error' : 'border-border'} rounded-md border bg-surface px-3 py-2.5 text-body text-text ${inputClassName ?? ''}`.trim()}
         {...webFieldProps}
         {...props}
       />

@@ -14,7 +14,7 @@ export function AppCard({ title, subtitle, rightSlot, children, className }: Car
   const isCompact = width < 768;
 
   return (
-    <View className={`rounded-lg border border-border bg-surface p-4 shadow-soft ${className ?? ''}`.trim()}>
+    <View className={`rounded-md border border-border bg-surface p-5 shadow-soft ${className ?? ''}`.trim()}>
       {title || subtitle || rightSlot ? (
         <View className={`mb-3 gap-3 ${isCompact ? '' : 'flex-row items-start justify-between'}`.trim()}>
           <View className="flex-1 gap-1">

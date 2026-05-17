@@ -10,6 +10,7 @@ type AppDrawerProps = {
   side?: 'left' | 'right';
   widthClassName?: string;
   footer?: ReactNode;
+  headerSlot?: ReactNode;
   children: ReactNode;
   contentStyle?: ViewStyle;
 };
@@ -22,6 +23,7 @@ export function AppDrawer({
   side = 'right',
   widthClassName = 'w-full max-w-[420px]',
   footer,
+  headerSlot,
   children,
   contentStyle,
 }: AppDrawerProps) {
@@ -104,8 +106,12 @@ export function AppDrawer({
               >
                 <View className="flex-row items-start justify-between gap-3 border-b border-border px-4 py-3" style={contentStyle ? { borderBottomColor: 'rgba(255,255,255,0.15)' } : undefined}>
                   <View className="flex-1 gap-1">
-                    {title ? <Text className="text-section font-semibold" style={contentStyle ? { color: '#FFFFFF' } : undefined}>{title}</Text> : null}
-                    {description ? <Text className="text-small" style={contentStyle ? { color: 'rgba(255,255,255,0.7)' } : undefined}>{description}</Text> : null}
+                    {headerSlot ?? (
+                      <>
+                        {title ? <Text className="text-section font-semibold" style={contentStyle ? { color: '#FFFFFF' } : undefined}>{title}</Text> : null}
+                        {description ? <Text className="text-small" style={contentStyle ? { color: 'rgba(255,255,255,0.7)' } : undefined}>{description}</Text> : null}
+                      </>
+                    )}
                   </View>
                   <Pressable
                     accessibilityRole="button"
