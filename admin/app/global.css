@@ -28,17 +28,17 @@
   --ls-tight-2: -0.01em;
 
   /* Shared neutrals */
-  --bg: 247 245 242;
+  --bg: 243 244 246;
   --surface: 255 255 255;
-  --surface-2: 243 241 236;
-  --surface-3: 238 234 226;
+  --surface-2: 249 250 251;
+  --surface-3: 243 244 246;
 
-  --border: 231 225 214;
-  --border-strong: 216 208 195;
+  --border: 229 231 235;
+  --border-strong: 209 213 219;
 
   --text: 17 24 39;
   --text-muted: 71 85 105;
-  --text-subtle: 100 116 139;
+  --text-subtle: 107 114 128;
 
   /* Brand accent — Stockaisle orange */
   --primary: 255 92 0;
@@ -89,13 +89,13 @@
   --space-13: 96px;
 
   /* Radius */
-  --radius-sm: 10px;
-  --radius-md: 14px;
-  --radius-lg: 18px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
 
   /* Shadows */
-  --shadow-soft: 0 10px 30px rgba(0, 0, 0, 0.08);
-  --shadow-lift: 0 14px 40px rgba(0, 0, 0, 0.12);
+  --shadow-soft: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow-lift: 0 12px 30px rgba(15, 23, 42, 0.14);
 
   /* Motion */
   --dur-fast: 150ms;
@@ -202,23 +202,25 @@
 
 /* Optional app accent swap */
 .theme-ecommerce {
-  --primary: 201 179 126;
-  --primary-hover: 184 159 99;
-  --primary-active: 159 132 72;
-  --primary-tint: 245 240 226;
-  --primary-tint-strong: 239 230 204;
-  --on-primary: 11 15 20;
-  --ring: 201 179 126;
+  --primary: 255 92 0;
+  --primary-hover: 255 128 64;
+  --primary-active: 204 73 0;
+  --primary-tint: 255 240 230;
+  --primary-tint-strong: 255 208 179;
+  --primary-text: 122 42 0;
+  --on-primary: 255 255 255;
+  --ring: 255 92 0;
 }
 
 .dark.theme-ecommerce {
-  --primary: 201 179 126;
-  --primary-hover: 184 159 99;
-  --primary-active: 159 132 72;
-  --primary-tint: 29 25 16;
-  --primary-tint-strong: 42 35 22;
-  --on-primary: 11 15 20;
-  --ring: 201 179 126;
+  --primary: 255 128 64;
+  --primary-hover: 255 92 0;
+  --primary-active: 230 70 0;
+  --primary-tint: 50 22 4;
+  --primary-tint-strong: 76 34 6;
+  --primary-text: 255 200 170;
+  --on-primary: 255 255 255;
+  --ring: 255 128 64;
 }
 
 .h-display-1 {
