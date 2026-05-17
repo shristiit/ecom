@@ -923,6 +923,8 @@ def _should_continue_pending_task(
     active_intent = str(task_context.get('primaryIntent') or '')
     missing_fields = [str(item) for item in task_context.get('missingFields') or []]
     status = str(task_context.get('status') or '')
+    if status == 'failed':
+        return False
     if active_route not in {ROUTE_MUTATION, ROUTE_READ} or not active_intent:
         return False
     # A new mutation for a *different* intent starts a fresh workflow.

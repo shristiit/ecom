@@ -1002,7 +1002,7 @@ class AgentRuntimeService:
                         blocks=render_failure(f'Unknown tool selected by AI runtime: {tool_name}'),
                         status=WorkflowStatus.FAILED,
                         current_task='tool_unknown',
-                        extracted_entities=current_entities,
+                        extracted_entities=mark_task_status(current_entities, 'failed'),
                     )
 
                 if tool.side_effect:
@@ -1071,7 +1071,7 @@ class AgentRuntimeService:
                         blocks=render_failure(last_error),
                         status=WorkflowStatus.FAILED,
                         current_task='tool_validation_failed',
-                        extracted_entities=current_entities,
+                        extracted_entities=mark_task_status(current_entities, 'failed'),
                     )
                 except Exception as exc:
                     emit(
@@ -1256,7 +1256,7 @@ class AgentRuntimeService:
                 blocks=render_failure('The AI runtime reached its planning limit before completing the task.'),
                 status=WorkflowStatus.FAILED,
                 current_task='iteration_limit_reached',
-                extracted_entities=current_entities,
+                extracted_entities=mark_task_status(current_entities, 'failed'),
             )
         except Exception:
             logger.exception('AI runtime failed for conversation %s workflow %s', conversation_id, workflow_id)
@@ -1264,7 +1264,7 @@ class AgentRuntimeService:
                 blocks=render_failure('The AI runtime could not complete this request.'),
                 status=WorkflowStatus.FAILED,
                 current_task='runtime_error',
-                extracted_entities=extracted_entities,
+                extracted_entities=mark_task_status(extracted_entities, 'failed'),
             )
         finally:
             if trace_tasks:
