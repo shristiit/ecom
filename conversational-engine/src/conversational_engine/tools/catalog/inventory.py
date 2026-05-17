@@ -49,6 +49,8 @@ def build_inventory_tools(
                 'sku': payload.get('sku'),
                 'locationId': payload.get('locationId'),
                 'productName': payload.get('productName'),
+                'colorName': payload.get('colorName') or payload.get('color'),
+                'sizeLabel': payload.get('sizeLabel') or payload.get('size'),
             }.items() if v
         }
         result = await backend.stock_on_hand(token, tenant, params)
@@ -360,6 +362,30 @@ def build_inventory_tools(
                 'locationId': {
                     'type': ['string', 'null'],
                     'description': 'Location name, code, or UUID.',
+                },
+                'colorName': {
+                    'type': ['string', 'null'],
+                    'description': 'Colour/variant name to narrow results.',
+                },
+                'color': {
+                    'type': ['string', 'null'],
+                    'description': 'Alias for colorName.',
+                },
+                'sizeLabel': {
+                    'type': ['string', 'null'],
+                    'description': 'Size label to narrow results (e.g. "M", "XL").',
+                },
+                'size': {
+                    'type': ['string', 'null'],
+                    'description': 'Alias for sizeLabel.',
+                },
+                'groupBy': {
+                    'type': ['string', 'null'],
+                    'description': 'Ignored — grouping is handled server-side.',
+                },
+                'availability': {
+                    'type': ['string', 'null'],
+                    'description': 'Ignored — use inventory.variant_availability for availability queries.',
                 },
             }),
             risk_level='low',

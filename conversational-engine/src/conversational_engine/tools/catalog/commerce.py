@@ -696,7 +696,7 @@ def build_commerce_tools(
         if not po_ref:
             raise ToolPreparationError('Which purchase order should I receive?', ['po_id'])
 
-        resolved = dict(payload)
+        resolved: dict[str, Any] = {}
         po_id = await resolve_reference(resolver.purchase_order(po_ref), ['po_id'])
         resolved['poId'] = po_id
 
