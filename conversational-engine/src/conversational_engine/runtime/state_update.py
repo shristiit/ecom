@@ -411,6 +411,29 @@ async def resolve_state_update(
                     value = prior_entities.get(key)
                     if value is not None:
                         carryover_entities[key] = value
+            # Carry locationId forward when continuing at the same location
+            # (e.g. receive stock then transfer stock, both at the same warehouse)
+            if (
+                active_intent.startswith('inventory.')
+                and primary_intent.startswith('inventory.')
+                and active_intent != primary_intent
+            ):
+                for key in ('locationId', 'locationName'):
+                    value = prior_entities.get(key)
+                    if value is not None:
+                        carryover_entities[key] = value
+            # Carry supplierId when switching between PO operations for the same supplier
+            if active_intent.startswith('purchasing.') and primary_intent.startswith('purchasing.'):
+                for key in ('supplierId', 'supplierName'):
+                    value = prior_entities.get(key)
+                    if value is not None:
+                        carryover_entities[key] = value
+            # Carry customerId when switching between sales operations for the same customer
+            if active_intent.startswith('sales.') and primary_intent.startswith('sales.'):
+                for key in ('customerId', 'customerName'):
+                    value = prior_entities.get(key)
+                    if value is not None:
+                        carryover_entities[key] = value
         extracted_entities = _clear_runtime_workflow_state(extracted_entities, task_context)
         task_context = fresh_task_context()
         merged_entities = {**carryover_entities, **patches}
