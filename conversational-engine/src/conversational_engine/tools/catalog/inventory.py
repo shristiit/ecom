@@ -343,6 +343,27 @@ def build_inventory_tools(
         rows = await backend.analytics_variant_availability(token, tenant, payload)
         return {'rows': rows}
 
+    async def movement_summary(payload: dict[str, Any]) -> dict[str, Any]:
+        resolved = dict(payload)
+        if loc := str(payload.get('locationId') or '').strip():
+            resolved['locationId'] = await resolver.location(loc)
+        rows = await backend.reporting_movement_summary(token, tenant, resolved)
+        return {'rows': rows}
+
+    async def po_summary(payload: dict[str, Any]) -> dict[str, Any]:
+        resolved = dict(payload)
+        if supplier := str(payload.get('supplierId') or '').strip():
+            resolved['supplierId'] = await resolver.supplier(supplier)
+        rows = await backend.reporting_po_summary(token, tenant, resolved)
+        return {'rows': rows}
+
+    async def receipt_summary(payload: dict[str, Any]) -> dict[str, Any]:
+        resolved = dict(payload)
+        if loc := str(payload.get('locationId') or '').strip():
+            resolved['locationId'] = await resolver.location(loc)
+        rows = await backend.reporting_receipt_summary(token, tenant, resolved)
+        return {'rows': rows}
+
     return {
         'inventory.stock_on_hand': SemanticTool(
             name='inventory.stock_on_hand',
@@ -710,5 +731,59 @@ def build_inventory_tools(
             output_mode='table',
             executor=analytics_data_quality,
             preparer=prepare_analytics,
+        ),
+        'reporting.movement_summary': SemanticTool(
+            name='reporting.movement_summary',
+            description=(
+                'Read stock movement summary report — receipts, transfers, adjustments, and write-offs '
+                'across products and locations. Use this when the user asks about movements, transfers, '
+                'or stock history over a time period.'
+            ),
+            input_schema=object_schema({
+                'locationId': {'type': ['string', 'null'], 'description': 'Location name, code, or UUID'},
+                'from': {'type': ['string', 'null'], 'description': 'Start date (YYYY-MM-DD)'},
+                'to': {'type': ['string', 'null'], 'description': 'End date (YYYY-MM-DD)'},
+                'type': {'type': ['string', 'null'], 'description': 'Movement type filter (e.g. receipt, transfer, adjust)'},
+                'limit': {'type': ['integer', 'null']},
+            }),
+            risk_level='low',
+            side_effect=False,
+            output_mode='table',
+            executor=movement_summary,
+        ),
+        'reporting.po_summary': SemanticTool(
+            name='reporting.po_summary',
+            description=(
+                'Read purchase order summary report — open, received, and closed POs with totals. '
+                'Use this when the user asks for a PO report, purchase summary, or supplier orders overview.'
+            ),
+            input_schema=object_schema({
+                'supplierId': {'type': ['string', 'null'], 'description': 'Supplier name or UUID'},
+                'status': {'type': ['string', 'null'], 'description': 'PO status filter (open, received, closed)'},
+                'from': {'type': ['string', 'null'], 'description': 'Start date (YYYY-MM-DD)'},
+                'to': {'type': ['string', 'null'], 'description': 'End date (YYYY-MM-DD)'},
+                'limit': {'type': ['integer', 'null']},
+            }),
+            risk_level='low',
+            side_effect=False,
+            output_mode='table',
+            executor=po_summary,
+        ),
+        'reporting.receipt_summary': SemanticTool(
+            name='reporting.receipt_summary',
+            description=(
+                'Read stock receipt summary report — what stock was received, when, and into which location. '
+                'Use this when the user asks about receipt history, what was booked in, or inbound stock.'
+            ),
+            input_schema=object_schema({
+                'locationId': {'type': ['string', 'null'], 'description': 'Location name, code, or UUID'},
+                'from': {'type': ['string', 'null'], 'description': 'Start date (YYYY-MM-DD)'},
+                'to': {'type': ['string', 'null'], 'description': 'End date (YYYY-MM-DD)'},
+                'limit': {'type': ['integer', 'null']},
+            }),
+            risk_level='low',
+            side_effect=False,
+            output_mode='table',
+            executor=receipt_summary,
         ),
     }

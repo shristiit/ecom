@@ -170,9 +170,12 @@ _READ_PATTERNS: tuple[tuple[str, str], ...] = (
         'analytics.top_selling',
         r'\b(?:how\s+many\s+(?:sold|units|were\s+sold)|units?\s+sold|qty\s+sold|quantity\s+sold|total\s+sold|sales\s+count)\b',
     ),
+    ('reporting.movement_summary', r'\b(movement|movements|movement\s+summary|stock\s+history|transfer\s+report|receipt\s+report|inbound\s+report)\b'),
+    ('reporting.po_summary', r'\b(po\s+summary|po\s+report|purchase\s+order\s+summary|purchase\s+order\s+report|supplier\s+orders\s+report)\b'),
+    ('reporting.receipt_summary', r'\b(receipt\s+summary|receipt\s+report|booked\s+in\s+report|inbound\s+stock\s+report)\b'),
     ('inventory.stock_on_hand', r'\b(stock|stock on hand|available)\b'),
     ('inventory.stock_on_hand', r'\b(size|sizes|variant|variants|color|colors)\b'),
-    ('reporting.stock_summary', r'\b(summary|report)\b'),
+    ('reporting.stock_summary', r'\b(stock\s+summary|stock\s+report|summary|report)\b'),
 )
 
 
