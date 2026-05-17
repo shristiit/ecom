@@ -4,7 +4,7 @@
     "slug": "stockaisle-admin",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/stockaisle_inventory_primary_whitebg.png",
+    "icon": "./assets/images/brand/stockaisle_final_orange_transparent_1024x1024.png",
     "scheme": "stockaisle-admin",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
@@ -20,29 +20,29 @@
       "package": "com.stockaisle.admin",
       "versionCode": 1,
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/stockaisle_inventory_primary_transparent.png",
-        "backgroundImage": "./assets/images/stockaisle_inventory_primary_badge_light.png",
-        "monochromeImage": "./assets/images/stockaisle_inventory_primary_badge_dark.png"
+        "backgroundColor": "#FF5C00",
+        "foregroundImage": "./assets/images/brand/stockaisle_final_white_transparent_512x512.png",
+        "monochromeImage": "./assets/images/brand/stockaisle_final_white_transparent_512x512.png"
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false
     },
     "web": {
       "output": "static",
-      "favicon": "./assets/images/stockaisle_inventory_primary_badge_light.png"
+      "favicon": "./assets/images/brand/stockaisle_final_orange_transparent_32x32.png"
     },
     "plugins": [
       "expo-router",
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/stockaisle_inventory_primary_whitebg.png",
-          "imageWidth": 200,
+          "image": "./assets/images/splash/splash_stockaisle_final_white_transparent_iphone_portrait_1242x2688.png",
+          "imageWidth": 400,
           "resizeMode": "contain",
-          "backgroundColor": "#ffffff",
+          "backgroundColor": "#FFFFFF",
           "dark": {
-            "backgroundColor": "#000000"
+            "image": "./assets/images/splash/splash_stockaisle_final_orange_transparent_iphone_portrait_1242x2688.png",
+            "backgroundColor": "#FF5C00"
           }
         }
       ],

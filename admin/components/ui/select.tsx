@@ -113,7 +113,7 @@ export function AppSelect({
                       <Text className="text-caption text-muted">{option.description}</Text>
                     ) : null}
                   </View>
-                  {isSelected ? <Check size={16} color="#1F3A5F" /> : null}
+                  {isSelected ? <Check size={16} color="#FF5C00" /> : null}
                 </View>
               </Pressable>
             );

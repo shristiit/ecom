@@ -33,7 +33,7 @@ const textVariantClass: Record<ButtonVariant, string> = {
 const spinnerColorByVariant: Record<ButtonVariant, string> = {
   primary: '#FFFFFF',
   secondary: '#111827',
-  tertiary: '#1F3A5F',
+  tertiary: '#FF5C00',
   danger: '#FFFFFF',
 };
 

@@ -1,6 +1,6 @@
 import { Text, View } from 'react-native';
 
-type BadgeTone = 'default' | 'success' | 'warning' | 'error' | 'info';
+type BadgeTone = 'default' | 'brand' | 'success' | 'warning' | 'error' | 'info';
 
 type BadgeProps = {
   label: string;
@@ -10,6 +10,7 @@ type BadgeProps = {
 
 const toneClass: Record<BadgeTone, string> = {
   default: 'bg-surface-2 border-border text-text',
+  brand: 'bg-primary-tint border-primary-tint-strong text-[#7A2A00]',
   success: 'bg-success-tint border-success/30 text-success',
   warning: 'bg-warning-tint border-warning/30 text-warning',
   error: 'bg-error-tint border-error/30 text-error',

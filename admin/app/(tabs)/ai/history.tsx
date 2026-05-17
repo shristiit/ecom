@@ -1,7 +1,7 @@
 import { Link } from 'expo-router';
 import { ScrollView, Text, View, useWindowDimensions } from 'react-native';
-import { AppButton, AppCard, AppTable, AppTableCell, AppTableHeaderCell, AppTableRow, PageHeader } from '@admin/components/ui';
-import { useAssistantHistoryQuery } from '@admin/features/assistant';
+import { AppButton, AppCard, AppTable, AppTableCell, AppTableHeaderCell, AppTableRow } from '@admin/components/ui';
+import { AssistantPanelShell, useAssistantHistoryQuery } from '@admin/features/assistant';
 
 function formatDate(value: string) {
   const date = new Date(value);
@@ -16,21 +16,21 @@ export default function AiHistoryScreen() {
   const rows = query.data ?? [];
 
   return (
-    <ScrollView className="bg-bg px-4 py-4">
-      <PageHeader title="AI History" subtitle="Approval requests, approval decisions, and executed AI actions." />
+    <View style={{ flex: 1 }}>
+        <AssistantPanelShell activeTab="history">
+          <ScrollView style={{ flex: 1, backgroundColor: '#FDF4F0' }} contentContainerStyle={{ padding: 22 }}>
+            <AppCard>
+              {query.isLoading ? <Text className="text-small text-muted">Loading AI history...</Text> : null}
+              {query.error ? (
+                <View className="gap-3">
+                  <Text className="text-small text-error">{query.error.message}</Text>
+                  <AppButton label="Retry" size="sm" variant="secondary" onPress={() => void query.refetch()} />
+                </View>
+              ) : null}
 
-      <AppCard>
-        {query.isLoading ? <Text className="text-small text-muted">Loading AI history...</Text> : null}
-        {query.error ? (
-          <View className="gap-3">
-            <Text className="text-small text-error">{query.error.message}</Text>
-            <AppButton label="Retry" size="sm" variant="secondary" onPress={() => void query.refetch()} />
-          </View>
-        ) : null}
-
-        {!query.isLoading && !query.error ? (
-          isMobile ? (
-            <View className="gap-3">
+              {!query.isLoading && !query.error ? (
+                isMobile ? (
+                  <View className="gap-3">
               {rows.length === 0 ? (
                 <Text className="text-small text-muted">No executed AI actions found.</Text>
               ) : null}
@@ -77,9 +77,9 @@ export default function AiHistoryScreen() {
                   </View>
                 </View>
               ))}
-            </View>
-          ) : (
-            <AppTable>
+                  </View>
+                ) : (
+                  <AppTable>
               <AppTableRow header>
                 <AppTableHeaderCell>ID</AppTableHeaderCell>
                 <AppTableHeaderCell>Request</AppTableHeaderCell>
@@ -133,10 +133,12 @@ export default function AiHistoryScreen() {
                   </AppTableCell>
                 </AppTableRow>
               ) : null}
-            </AppTable>
-          )
-        ) : null}
-      </AppCard>
-    </ScrollView>
+                  </AppTable>
+                )
+              ) : null}
+            </AppCard>
+          </ScrollView>
+        </AssistantPanelShell>
+    </View>
   );
 }

@@ -1,6 +1,6 @@
 import { X } from 'lucide-react-native';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
-import { Animated, Easing, Modal as NativeModal, Pressable, ScrollView, Text, View, useWindowDimensions } from 'react-native';
+import { Animated, Easing, Modal as NativeModal, Pressable, ScrollView, Text, View, type ViewStyle, useWindowDimensions } from 'react-native';
 
 type AppDrawerProps = {
   isOpen: boolean;
@@ -11,6 +11,7 @@ type AppDrawerProps = {
   widthClassName?: string;
   footer?: ReactNode;
   children: ReactNode;
+  contentStyle?: ViewStyle;
 };
 
 export function AppDrawer({
@@ -22,6 +23,7 @@ export function AppDrawer({
   widthClassName = 'w-full max-w-[420px]',
   footer,
   children,
+  contentStyle,
 }: AppDrawerProps) {
   const { width: windowWidth } = useWindowDimensions();
   // Use the actual drawable width: capped at 420px but never more than the screen width
@@ -97,12 +99,13 @@ export function AppDrawer({
                 accessibilityLabel={title ?? 'Side panel'}
                 accessibilityHint={description}
                 className="h-full bg-surface"
+                style={contentStyle}
                 onPress={(event) => event.stopPropagation()}
               >
-                <View className="flex-row items-start justify-between gap-3 border-b border-border px-4 py-3">
+                <View className="flex-row items-start justify-between gap-3 border-b border-border px-4 py-3" style={contentStyle ? { borderBottomColor: 'rgba(255,255,255,0.15)' } : undefined}>
                   <View className="flex-1 gap-1">
-                    {title ? <Text className="text-section font-semibold text-text">{title}</Text> : null}
-                    {description ? <Text className="text-small text-muted">{description}</Text> : null}
+                    {title ? <Text className="text-section font-semibold" style={contentStyle ? { color: '#FFFFFF' } : undefined}>{title}</Text> : null}
+                    {description ? <Text className="text-small" style={contentStyle ? { color: 'rgba(255,255,255,0.7)' } : undefined}>{description}</Text> : null}
                   </View>
                   <Pressable
                     accessibilityRole="button"
@@ -112,7 +115,7 @@ export function AppDrawer({
                     onPress={onClose}
                     hitSlop={8}
                   >
-                    <X size={18} color="#64748B" />
+                    <X size={18} color={contentStyle ? 'rgba(255,255,255,0.75)' : '#64748B'} />
                   </Pressable>
                 </View>
 
