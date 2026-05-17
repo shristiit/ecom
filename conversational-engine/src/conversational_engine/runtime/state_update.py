@@ -56,8 +56,11 @@ _MUTATION_PATTERNS: tuple[tuple[str, str], ...] = (
     ('inventory.receive_stock', r'\b(receive|receipt)\b'),
     ('inventory.adjust_stock', r'\b(adjust)\b'),
     ('inventory.write_off_stock', r'\bwrite[ -]?off\b'),
-    ('purchasing.create_po', r'\b(purchase order|create po|create a po|draft po)\b'),
-    ('sales.create_invoice', r'\b(invoice|sales order|create so|create invoice)\b'),
+    ('purchasing.create_po', r'\b(purchase order|create po|create a po|draft po|new po)\b'),
+    (
+        'sales.create_invoice',
+        r'\b(invoice|sales order|create so|create invoice|create order|new order|place order|raise order|raise invoice|make a sale)\b',
+    ),
     ('products.create_product', r'\b(create product|create a product|new product)\b'),
     (
         'master.create_location',
@@ -162,6 +165,10 @@ _READ_PATTERNS: tuple[tuple[str, str], ...] = (
     (
         'sales.get_invoice',
         r'\b(status of|what(?:s| is) the status of|lines in|details of|inspect)\b.*\b(sales order|invoice|so)\b',
+    ),
+    (
+        'analytics.top_selling',
+        r'\b(?:how\s+many\s+(?:sold|units|were\s+sold)|units?\s+sold|qty\s+sold|quantity\s+sold|total\s+sold|sales\s+count)\b',
     ),
     ('inventory.stock_on_hand', r'\b(stock|stock on hand|available)\b'),
     ('inventory.stock_on_hand', r'\b(size|sizes|variant|variants|color|colors)\b'),
