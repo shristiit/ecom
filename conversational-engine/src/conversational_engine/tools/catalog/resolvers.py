@@ -402,13 +402,18 @@ class EntityResolver:
         if size_id and is_uuid(size_id):
             return size_id
         product_name = str(payload.get('productName') or '').strip()
+        sku_code = str(payload.get('skuCode') or payload.get('sku') or '').strip() or None
         size_label = str(payload.get('sizeLabel') or size_id).strip()
         color_name = str(payload.get('colorName') or '').strip() or None
-        if not product_name or not size_label:
+        if not product_name and not sku_code:
             raise ValueError(
                 'Provide either a sizeId UUID, or productName + sizeLabel (and optionally colorName).'
             )
-        details = await self.sku_size_details(product_name, size_label, color_name)
+        if not size_label and not sku_code:
+            raise ValueError(
+                'Provide either a sizeId UUID, or productName + sizeLabel (and optionally colorName).'
+            )
+        details = await self.sku_size_details(product_name, size_label, color_name, sku_code=sku_code)
         return str(details['sizeId'])
 
     async def _cached_rows(
@@ -533,6 +538,12 @@ class EntityResolver:
                 return await self._backend.get_product(self._token, self._tenant, str(candidate['product_id']))
 
         products = self._product_rows(await self._backend.search_products(self._token, self._tenant, q=product_name))
+        if not products and product_name:
+            # productName may actually be a SKU code — try SKU search as fallback
+            sku_matches = await self._backend.search_skus(self._token, self._tenant, product_name)
+            for candidate in sku_matches:
+                if candidate.get('product_id'):
+                    return await self._backend.get_product(self._token, self._tenant, str(candidate['product_id']))
         if not products:
             label = requested_sku_code or product_name
             raise ValueError(f'Product "{label}" not found.')
