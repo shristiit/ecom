@@ -112,7 +112,7 @@ export function AssistantSearchBar() {
             isDictating ? 'bg-primary-tint' : 'bg-transparent'
           } ${!recognitionCtor ? 'opacity-40' : ''}`}
         >
-          {isDictating ? <Square size={14} color="#1F3A5F" /> : <Mic size={14} color="#64748B" />}
+          {isDictating ? <Square size={14} color="#FF5C00" /> : <Mic size={14} color="#64748B" />}
         </Pressable>
         <Pressable
           accessibilityRole="button"

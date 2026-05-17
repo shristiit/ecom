@@ -28,7 +28,7 @@
   --ls-tight-2: -0.01em;
 
   /* Shared neutrals */
-  --bg: 250 248 244;
+  --bg: 247 245 242;
   --surface: 255 255 255;
   --surface-2: 243 241 236;
   --surface-3: 238 234 226;
@@ -40,14 +40,15 @@
   --text-muted: 71 85 105;
   --text-subtle: 100 116 139;
 
-  /* Inventory accent (default for admin app) */
-  --primary: 31 58 95;
-  --primary-hover: 22 44 73;
-  --primary-active: 15 33 55;
-  --primary-tint: 232 238 246;
-  --primary-tint-strong: 215 226 240;
+  /* Brand accent — Stockaisle orange */
+  --primary: 255 92 0;
+  --primary-hover: 255 128 64;
+  --primary-active: 204 73 0;
+  --primary-tint: 255 240 230;
+  --primary-tint-strong: 255 208 179;
+  --primary-text: 122 42 0;
   --on-primary: 255 255 255;
-  --ring: 31 58 95;
+  --ring: 255 92 0;
 
   /* Status */
   --success: 21 128 61;
@@ -60,7 +61,7 @@
   --info-tint: 234 240 255;
 
   /* Charts */
-  --chart-1: 31 58 95;
+  --chart-1: 255 92 0;
   --chart-2: 46 94 170;
   --chart-3: 15 118 110;
   --chart-4: 109 40 217;
@@ -126,14 +127,15 @@
   --text-muted: 185 192 204;
   --text-subtle: 141 151 168;
 
-  /* Inventory accent (dark) */
-  --primary: 59 106 166;
-  --primary-hover: 52 94 147;
-  --primary-active: 46 82 127;
-  --primary-tint: 14 26 43;
-  --primary-tint-strong: 18 36 58;
+  /* Brand accent — dark mode */
+  --primary: 255 128 64;
+  --primary-hover: 255 92 0;
+  --primary-active: 230 70 0;
+  --primary-tint: 50 22 4;
+  --primary-tint-strong: 76 34 6;
+  --primary-text: 255 200 170;
   --on-primary: 255 255 255;
-  --ring: 59 106 166;
+  --ring: 255 128 64;
 
   --success: 34 197 94;
   --success-tint: 15 37 27;
@@ -144,7 +146,7 @@
   --info: 96 165 250;
   --info-tint: 15 30 51;
 
-  --chart-1: 109 127 151;
+  --chart-1: 255 128 64;
   --chart-2: 119 150 200;
   --chart-3: 99 166 161;
   --chart-4: 160 115 230;
@@ -157,6 +159,54 @@
 
   --shadow-soft: 0 10px 30px rgba(0, 0, 0, 0.25);
   --shadow-lift: 0 14px 40px rgba(0, 0, 0, 0.35);
+}
+
+/* AI Assistant theme — light grey content, white cards, indigo sidebar */
+.theme-command {
+  --bg: 243 244 246;
+  --surface: 255 255 255;
+  --surface-2: 249 250 251;
+  --surface-3: 243 244 246;
+
+  --border: 229 231 235;
+  --border-strong: 209 213 219;
+
+  --text: 17 24 39;
+  --text-muted: 71 85 105;
+  --text-subtle: 107 114 128;
+
+  --primary: 255 92 0;
+  --primary-hover: 255 128 64;
+  --primary-active: 204 73 0;
+  --primary-tint: 255 240 230;
+  --primary-tint-strong: 255 208 179;
+  --primary-text: 122 42 0;
+  --on-primary: 255 255 255;
+  --ring: 255 92 0;
+
+  --success: 21 128 61;
+  --success-tint: 234 246 238;
+  --warning: 180 83 9;
+  --warning-tint: 251 241 230;
+  --error: 180 35 24;
+  --error-tint: 251 234 234;
+  --info: 29 78 216;
+  --info-tint: 234 240 255;
+
+  color-scheme: light;
+}
+
+.ai-sidebar {
+  background: #FF5C00;
+}
+
+@keyframes command-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 92, 0, 0.45); }
+  50% { box-shadow: 0 0 0 8px rgba(255, 92, 0, 0); }
+}
+
+.ai-badge-pulse {
+  animation: command-pulse 2.5s ease-in-out infinite;
 }
 
 /* Optional app accent swap */

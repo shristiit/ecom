@@ -50,32 +50,64 @@ type NavItem = {
   permissions?: string[];
 };
 
-const NAV_ITEMS: NavItem[] = [
-  { href: '/ai', label: 'My AI Assistant', icon: Bot, activePrefixes: ['/ai'], permissions: ['chat.use', 'chat.approve'] },
-  { href: '/dashboard', label: 'Dashboard', icon: LayoutGrid },
-  { href: '/products', label: 'Products', icon: Boxes, permissions: ['products.read', 'products.write'] },
-  { href: '/inventory', label: 'Inventory', icon: ArrowLeftRight, permissions: ['inventory.read', 'inventory.write'] },
-  { href: '/orders/sales', label: 'Sales Orders', icon: Package, activePrefixes: ['/orders/sales'], permissions: ['sales.write'] },
+type NavSection = {
+  label?: string; // undefined = no section header (top group)
+  items: NavItem[];
+};
+
+const NAV_SECTIONS: NavSection[] = [
   {
-    href: '/orders/purchase',
-    label: 'Purchase Orders',
-    icon: Package,
-    activePrefixes: ['/orders/purchase'],
-    permissions: ['purchasing.read'],
+    items: [
+      { href: '/ai', label: 'My AI Assistant', icon: Bot, activePrefixes: ['/ai'], permissions: ['chat.use', 'chat.approve'] },
+      { href: '/dashboard', label: 'Dashboard', icon: LayoutGrid },
+    ],
   },
-  { href: '/billing', label: 'Billing & Payments', icon: CreditCard },
-  { href: '/master/locations', label: 'Master Data', icon: Building2, activePrefixes: ['/master'], permissions: ['master.read', 'master.write'] },
-  { href: '/users', label: 'Users & Access', icon: Users, activePrefixes: ['/users', '/roles', '/policies'], permissions: ['admin.roles.read', 'admin.policies.read'] },
-  { href: '/audit', label: 'Audit', icon: ShieldCheck, activePrefixes: ['/audit'], permissions: ['audit.read'] },
-  { href: '/settings', label: 'Settings', icon: Settings },
+  {
+    label: 'Catalogue',
+    items: [
+      { href: '/products', label: 'Products', icon: Boxes, permissions: ['products.read', 'products.write'] },
+      { href: '/inventory', label: 'Inventory', icon: ArrowLeftRight, permissions: ['inventory.read', 'inventory.write'] },
+    ],
+  },
+  {
+    label: 'Commerce',
+    items: [
+      { href: '/orders/sales', label: 'Sales Orders', icon: Package, activePrefixes: ['/orders/sales'], permissions: ['sales.write'] },
+      { href: '/orders/purchase', label: 'Purchase Orders', icon: Package, activePrefixes: ['/orders/purchase'], permissions: ['purchasing.read'] },
+      { href: '/billing', label: 'Billing & Payments', icon: CreditCard },
+    ],
+  },
+  {
+    label: 'Admin',
+    items: [
+      { href: '/master/locations', label: 'Master Data', icon: Building2, activePrefixes: ['/master'], permissions: ['master.read', 'master.write'] },
+      { href: '/users', label: 'Users & Access', icon: Users, activePrefixes: ['/users', '/roles', '/policies'], permissions: ['admin.roles.read', 'admin.policies.read'] },
+      { href: '/audit', label: 'Audit', icon: ShieldCheck, activePrefixes: ['/audit'], permissions: ['audit.read'] },
+      { href: '/settings', label: 'Settings', icon: Settings },
+    ],
+  },
 ];
 
-const PLATFORM_NAV_ITEMS: NavItem[] = [
-  { href: '/platform', label: 'Overview', icon: LayoutGrid, activePrefixes: ['/platform'] },
-  { href: '/platform/businesses', label: 'Businesses', icon: Building2, activePrefixes: ['/platform/businesses'] },
-  { href: '/platform/admins', label: 'Platform Admins', icon: Users, activePrefixes: ['/platform/admins'] },
-  { href: '/platform/audit', label: 'Platform Audit', icon: ShieldCheck, activePrefixes: ['/platform/audit'] },
+// Flat list derived from sections (for mobile tabs, permission filtering, etc.)
+const NAV_ITEMS: NavItem[] = NAV_SECTIONS.flatMap((s) => s.items);
+
+const PLATFORM_NAV_SECTIONS: NavSection[] = [
+  {
+    items: [
+      { href: '/platform', label: 'Overview', icon: LayoutGrid, activePrefixes: ['/platform'] },
+    ],
+  },
+  {
+    label: 'Management',
+    items: [
+      { href: '/platform/businesses', label: 'Businesses', icon: Building2, activePrefixes: ['/platform/businesses'] },
+      { href: '/platform/admins', label: 'Platform Admins', icon: Users, activePrefixes: ['/platform/admins'] },
+      { href: '/platform/audit', label: 'Platform Audit', icon: ShieldCheck, activePrefixes: ['/platform/audit'] },
+    ],
+  },
 ];
+
+const PLATFORM_NAV_ITEMS: NavItem[] = PLATFORM_NAV_SECTIONS.flatMap((s) => s.items);
 
 const PAGE_TITLE_RULES = [
   { prefix: '/', title: 'Dashboard' },
@@ -118,10 +150,42 @@ function getPageTitle(pathname: string) {
   return match?.title ?? 'Inventory Management';
 }
 
+const SIDEBAR_BG = '#FF5C00';
+// Active: solid white card with orange text (matches brand mockup)
+const SIDEBAR_ACTIVE_BG = '#FFFFFF';
+const SIDEBAR_ACTIVE_TEXT = '#FF5C00';
+const SIDEBAR_ACTIVE_ICON = '#FF5C00';
+// Hover: subtle white tint
+const SIDEBAR_HOVER_BG = 'rgba(255,255,255,0.12)';
+// Rest: white text/icons at 75% opacity
+const SIDEBAR_ICON_ACTIVE = '#FF5C00';
+const SIDEBAR_ICON_INACTIVE = 'rgba(255,255,255,0.75)';
+// Section label style
+const SIDEBAR_SECTION_COLOR = 'rgba(255,255,255,0.5)';
+// Divider
+const SIDEBAR_DIVIDER = 'rgba(255,255,255,0.13)';
+const SIDEBAR_LOGO_DIVIDER = 'rgba(255,255,255,0.35)';
+
+/** Section label divider for the full sidebar */
+function SidebarSectionLabel({ label }: { label: string }) {
+  return (
+    <View style={{ paddingHorizontal: 12, paddingTop: 16, paddingBottom: 4 }}>
+      <Text style={{ fontSize: 10, fontWeight: '500', letterSpacing: 1.2, textTransform: 'uppercase', color: SIDEBAR_SECTION_COLOR }}>
+        {label}
+      </Text>
+    </View>
+  );
+}
+
 // Full sidebar item (desktop ≥1024px) — icon + label
 function SidebarItem({ item, pathname }: { item: NavItem; pathname: string }) {
   const active = isActivePath(pathname, item.href, item.activePrefixes);
   const Icon = item.icon;
+  const [hovered, setHovered] = useState(false);
+
+  const bg = active ? SIDEBAR_ACTIVE_BG : hovered ? SIDEBAR_HOVER_BG : 'transparent';
+  const iconColor = active ? SIDEBAR_ACTIVE_ICON : hovered ? '#FFFFFF' : SIDEBAR_ICON_INACTIVE;
+  const textColor = active ? SIDEBAR_ACTIVE_TEXT : hovered ? '#FFFFFF' : 'rgba(255,255,255,0.75)';
 
   return (
     <Link href={item.href} asChild>
@@ -130,10 +194,12 @@ function SidebarItem({ item, pathname }: { item: NavItem; pathname: string }) {
         accessibilityLabel={item.label}
         accessibilityHint={`Opens the ${item.label} page.`}
         accessibilityState={{ selected: active }}
-        className={`mb-1 flex-row items-center gap-3 rounded-md px-3 py-2.5 ${active ? 'bg-primary-tint' : 'bg-transparent'}`}
+        onHoverIn={() => setHovered(true)}
+        onHoverOut={() => setHovered(false)}
+        style={{ backgroundColor: bg, borderRadius: 8, marginBottom: 2, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, paddingVertical: 10 }}
       >
-        <Icon size={18} color={active ? '#1F3A5F' : '#64748B'} />
-        <Text className={`text-small font-medium ${active ? 'text-primary' : 'text-muted'}`}>{item.label}</Text>
+        <Icon size={18} color={iconColor} />
+        <Text style={{ fontSize: 14, fontWeight: active ? '500' : '400', color: textColor }}>{item.label}</Text>
       </Pressable>
     </Link>
   );
@@ -143,6 +209,10 @@ function SidebarItem({ item, pathname }: { item: NavItem; pathname: string }) {
 function SidebarRailItem({ item, pathname }: { item: NavItem; pathname: string }) {
   const active = isActivePath(pathname, item.href, item.activePrefixes);
   const Icon = item.icon;
+  const [hovered, setHovered] = useState(false);
+
+  const bg = active ? SIDEBAR_ACTIVE_BG : hovered ? SIDEBAR_HOVER_BG : 'transparent';
+  const iconColor = active ? SIDEBAR_ACTIVE_ICON : hovered ? '#FFFFFF' : SIDEBAR_ICON_INACTIVE;
 
   return (
     <Link href={item.href} asChild>
@@ -151,9 +221,11 @@ function SidebarRailItem({ item, pathname }: { item: NavItem; pathname: string }
         accessibilityLabel={item.label}
         accessibilityHint={`Opens the ${item.label} page.`}
         accessibilityState={{ selected: active }}
-        className={`mb-1 h-10 w-10 items-center justify-center rounded-md ${active ? 'bg-primary-tint' : 'bg-transparent'}`}
+        onHoverIn={() => setHovered(true)}
+        onHoverOut={() => setHovered(false)}
+        style={{ backgroundColor: bg, borderRadius: 8, marginBottom: 2, width: 40, height: 40, alignItems: 'center', justifyContent: 'center' }}
       >
-        <Icon size={20} color={active ? '#1F3A5F' : '#64748B'} />
+        <Icon size={20} color={iconColor} />
       </Pressable>
     </Link>
   );
@@ -179,10 +251,10 @@ function DrawerSidebarItem({
         accessibilityHint={`Opens the ${item.label} page.`}
         accessibilityState={{ selected: active }}
         onPress={onNavigate}
-        className={`mb-1 flex-row items-center gap-3 rounded-md px-3 py-3 ${active ? 'bg-primary-tint' : 'bg-transparent'}`}
+        style={{ backgroundColor: active ? SIDEBAR_ACTIVE_BG : 'transparent', borderRadius: 8, marginBottom: 2, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, paddingVertical: 10 }}
       >
-        <Icon size={18} color={active ? '#1F3A5F' : '#64748B'} />
-        <Text className={`text-small font-medium ${active ? 'text-primary' : 'text-muted'}`}>{item.label}</Text>
+        <Icon size={18} color={active ? SIDEBAR_ACTIVE_ICON : SIDEBAR_ICON_INACTIVE} />
+        <Text style={{ fontSize: 14, fontWeight: active ? '500' : '400', color: active ? SIDEBAR_ACTIVE_TEXT : 'rgba(255,255,255,0.75)' }}>{item.label}</Text>
       </Pressable>
     </Link>
   );
@@ -201,7 +273,7 @@ function MobileTabItem({ item, pathname }: { item: NavItem; pathname: string }) 
         accessibilityState={{ selected: active }}
         className="flex-1 items-center gap-1 py-2"
       >
-        <Icon size={18} color={active ? '#1F3A5F' : '#64748B'} />
+        <Icon size={18} color={active ? '#FF5C00' : '#64748B'} />
         <Text className={`text-caption ${active ? 'text-primary' : 'text-muted'}`}>{item.label}</Text>
       </Pressable>
     </Link>
@@ -401,14 +473,22 @@ export function AppShell({ children }: { children: ReactNode }) {
   const showCompactSearchCard = !isDesktop && !isTablet && !hideSearch;
   const showInlineSearch = !hideSearch && !showCompactSearchCard;
 
-  const navItems = useMemo(
-    () =>
-      (isPlatformUser ? PLATFORM_NAV_ITEMS : NAV_ITEMS).filter((item) => {
-        if (!item.permissions || item.permissions.length === 0) return true;
-        return hasAnyPermission(item.permissions);
-      }),
-    [hasAnyPermission, isPlatformUser],
-  );
+  // Filtered sections for desktop/tablet sidebar and drawer
+  const navSections = useMemo((): NavSection[] => {
+    const sourceSections = isPlatformUser ? PLATFORM_NAV_SECTIONS : NAV_SECTIONS;
+    return sourceSections
+      .map((section) => ({
+        ...section,
+        items: section.items.filter((item) => {
+          if (!item.permissions || item.permissions.length === 0) return true;
+          return hasAnyPermission(item.permissions);
+        }),
+      }))
+      .filter((section) => section.items.length > 0);
+  }, [hasAnyPermission, isPlatformUser]);
+
+  // Flat list of all visible nav items (for mobile tabs / misc uses)
+  const navItems = useMemo(() => navSections.flatMap((s) => s.items), [navSections]);
 
   const mobileNavItems = useMemo(() => {
     const candidates = navItems.filter((item) =>
@@ -434,26 +514,64 @@ export function AppShell({ children }: { children: ReactNode }) {
       <View className="flex-1 flex-row">
         {/* Full labelled sidebar — desktop ≥1024px */}
         {isDesktop ? (
-          <View className="w-64 border-r border-border bg-surface px-3 py-4">
-            <View className="mb-6 items-center px-2 py-2">
-              <AppLogo showWordmark width={180} height={56} />
+          <View style={{ width: 256, backgroundColor: SIDEBAR_BG, flexDirection: 'column' }}>
+            {/* Logo */}
+            <View style={{ paddingHorizontal: 10, paddingTop: 18, paddingBottom: 8 }}>
+              <AppLogo showWordmark width={236} height={124} variant="dark" />
             </View>
-            <View>
-              {navItems.map((item) => (
-                <SidebarItem key={item.href} item={item} pathname={pathname} />
+            <View style={{ height: 1, backgroundColor: SIDEBAR_LOGO_DIVIDER, marginHorizontal: 12, marginBottom: 4 }} />
+
+            {/* Nav sections */}
+            <View style={{ flex: 1, paddingHorizontal: 8 }}>
+              {navSections.map((section, sectionIndex) => (
+                <View key={section.label ?? `section-${sectionIndex}`}>
+                  {/* Divider before sections that follow another section */}
+                  {sectionIndex > 0 ? (
+                    <View style={{ height: 1, backgroundColor: SIDEBAR_DIVIDER, marginHorizontal: 4, marginTop: 4 }} />
+                  ) : null}
+                  {section.label ? <SidebarSectionLabel label={section.label} /> : null}
+                  {section.items.map((item) => (
+                    <SidebarItem key={item.href} item={item} pathname={pathname} />
+                  ))}
+                </View>
               ))}
+            </View>
+
+            {/* User profile strip */}
+            <View style={{ borderTopWidth: 1, borderTopColor: SIDEBAR_DIVIDER, paddingHorizontal: 12, paddingVertical: 12 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: 'rgba(255,255,255,0.22)', alignItems: 'center', justifyContent: 'center' }}>
+                  <User size={16} color="#FFFFFF" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 13, fontWeight: '500', color: '#FFFFFF' }} numberOfLines={1}>
+                    {user?.email ?? 'Admin'}
+                  </Text>
+                  <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)' }} numberOfLines={1}>
+                    {user?.principalType === 'platform_admin' ? 'Platform Admin' : 'Store Manager'}
+                  </Text>
+                </View>
+              </View>
             </View>
           </View>
         ) : null}
 
         {/* Icon-only rail sidebar — tablet 768–1023px */}
         {isTablet ? (
-          <View className="w-14 border-r border-border bg-surface items-center py-4 gap-1">
-            <View className="mb-4">
-              <AppLogo size={32} />
+          <View style={{ width: 56, backgroundColor: SIDEBAR_BG, alignItems: 'center', paddingVertical: 16, gap: 4 }}>
+            <View style={{ marginBottom: 8 }}>
+              <AppLogo size={40} variant="dark" />
             </View>
-            {navItems.map((item) => (
-              <SidebarRailItem key={item.href} item={item} pathname={pathname} />
+            <View style={{ height: 1, width: 32, backgroundColor: SIDEBAR_LOGO_DIVIDER, marginBottom: 4 }} />
+            {navSections.map((section, sectionIndex) => (
+              <View key={section.label ?? `section-${sectionIndex}`} style={{ width: '100%', alignItems: 'center' }}>
+                {sectionIndex > 0 ? (
+                  <View style={{ height: 1, width: 32, backgroundColor: SIDEBAR_DIVIDER, marginVertical: 4 }} />
+                ) : null}
+                {section.items.map((item) => (
+                  <SidebarRailItem key={item.href} item={item} pathname={pathname} />
+                ))}
+              </View>
             ))}
           </View>
         ) : null}
@@ -503,14 +621,44 @@ export function AppShell({ children }: { children: ReactNode }) {
         description="Navigate the admin portal"
         side="left"
         widthClassName="w-full max-w-[320px]"
+        contentStyle={{ backgroundColor: SIDEBAR_BG }}
       >
-        <View className="mb-5 items-center px-2 py-2">
-          <AppLogo showWordmark width={180} height={56} />
+        {/* Logo */}
+        <View style={{ paddingHorizontal: 8, paddingTop: 8, paddingBottom: 8 }}>
+          <AppLogo showWordmark width={236} height={124} variant="dark" />
         </View>
-        <View>
-          {navItems.map((item) => (
-            <DrawerSidebarItem key={item.href} item={item} pathname={pathname} onNavigate={() => setMobileMenuOpen(false)} />
+        <View style={{ height: 1, backgroundColor: SIDEBAR_LOGO_DIVIDER, marginHorizontal: 12, marginBottom: 4 }} />
+
+        {/* Sectioned nav */}
+        <View style={{ paddingHorizontal: 4 }}>
+          {navSections.map((section, sectionIndex) => (
+            <View key={section.label ?? `drawer-section-${sectionIndex}`}>
+              {sectionIndex > 0 ? (
+                <View style={{ height: 1, backgroundColor: SIDEBAR_DIVIDER, marginHorizontal: 8, marginTop: 4 }} />
+              ) : null}
+              {section.label ? <SidebarSectionLabel label={section.label} /> : null}
+              {section.items.map((item) => (
+                <DrawerSidebarItem key={item.href} item={item} pathname={pathname} onNavigate={() => setMobileMenuOpen(false)} />
+              ))}
+            </View>
           ))}
+        </View>
+
+        {/* User strip */}
+        <View style={{ borderTopWidth: 1, borderTopColor: SIDEBAR_DIVIDER, marginTop: 16, paddingHorizontal: 12, paddingVertical: 12 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <View style={{ width: 34, height: 34, borderRadius: 17, backgroundColor: 'rgba(255,255,255,0.22)', alignItems: 'center', justifyContent: 'center' }}>
+              <User size={16} color="#FFFFFF" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 13, fontWeight: '500', color: '#FFFFFF' }} numberOfLines={1}>
+                {user?.email ?? 'Admin'}
+              </Text>
+              <Text style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)' }} numberOfLines={1}>
+                {user?.principalType === 'platform_admin' ? 'Platform Admin' : 'Store Manager'}
+              </Text>
+            </View>
+          </View>
         </View>
       </AppDrawer>
 

@@ -82,6 +82,9 @@ function renderWorkflowStatus(status?: string | null) {
   return status.replace(/_/g, ' ');
 }
 
+const ICON_PRIMARY = '#FF5C00';
+const ICON_SUBTLE = '#9CA3AF';
+
 const promptSuggestions = [
   'Show stock on hand for blue denim jackets in London.',
   'Create a PO draft for our spring replenishment.',
@@ -175,8 +178,6 @@ export function AssistantChatShell({
   const pendingAction = activeConversation?.pendingAction;
   const isSubmitting = isStreamingRun;
   const isDesktop = width >= 1280;
-  const showHistoryRail = isDesktop ? isHistoryRailOpen : isHistoryRailOpen;
-  const historyRailContainerClassName = isDesktop ? 'lg:w-[340px]' : 'w-full';
   const streamingAssistantBlocks = buildStreamingAssistantBlocks(streamingAssistantState);
 
   const attachmentsRef = useRef<Attachment[]>([]);
@@ -713,7 +714,7 @@ export function AssistantChatShell({
   }, [conversationId, incomingPrompt, mode]);
 
   return (
-    <View className="flex-1 bg-bg px-4 py-4 md:px-6 md:py-5">
+    <View className="theme-command flex-1 bg-bg px-4 py-4 md:px-6 md:py-5">
       <View className="mx-auto flex-1 w-full max-w-[1600px] gap-4">
         <View className="gap-3 md:flex-row md:items-start md:justify-between md:gap-4">
           <View className="gap-1">
@@ -729,10 +730,10 @@ export function AssistantChatShell({
 
           <View className="flex-row flex-wrap items-center gap-2">
             <AppButton
-              label={showHistoryRail ? 'Hide history' : 'Show history'}
+              label={isHistoryRailOpen ? 'Hide history' : 'Show history'}
               size="sm"
               variant="secondary"
-              leftIcon={showHistoryRail ? <PanelRightClose size={16} color="#1F3A5F" /> : <PanelRightOpen size={16} color="#1F3A5F" />}
+              leftIcon={isHistoryRailOpen ? <PanelRightClose size={16} color={ICON_PRIMARY} /> : <PanelRightOpen size={16} color={ICON_PRIMARY} />}
               onPress={toggleHistoryRail}
             />
             <Link href="/ai/approvals" asChild>
@@ -744,45 +745,45 @@ export function AssistantChatShell({
           </View>
         </View>
 
-        <View className={`flex-1 gap-4 ${showHistoryRail && isDesktop ? 'lg:flex-row' : ''}`}>
-          <View className="min-h-[620px] flex-1 overflow-hidden rounded-lg border border-border bg-surface shadow-sm">
-            <ScrollView
-              ref={scrollRef}
-              className="flex-1"
-            >
+        <View className={`flex-1 gap-4 ${isHistoryRailOpen && isDesktop ? 'lg:flex-row' : ''}`}>
+          <View className="min-h-[620px] flex-1 overflow-hidden rounded-xl border border-border bg-surface shadow-sm">
+            <ScrollView ref={scrollRef} className="flex-1">
               <View className={`px-5 py-6 md:px-8 ${activeConversation ? 'gap-6' : 'flex-1 items-center justify-center gap-8'}`}>
                 {mode === 'new' ? (
-                <View className="w-full max-w-3xl items-center">
-                  <View style={{ marginBottom: 32 }} className="rounded-full border border-primary/10 bg-primary-tint px-4 py-2">
-                    <View className="flex-row items-center gap-2">
-                      <Sparkles size={16} color="#1F3A5F" />
-                      <Text className="text-small font-medium text-primary">Inventory AI</Text>
+                  <View className="w-full max-w-3xl items-center">
+                    <View
+                      style={{ marginBottom: 32 }}
+                      className={`rounded-full border border-primary/20 bg-primary-tint px-4 py-2 ${Platform.OS === 'web' ? 'ai-badge-pulse' : ''}`}
+                    >
+                      <View className="flex-row items-center gap-2">
+                        <Sparkles size={16} color={ICON_PRIMARY} />
+                        <Text className="text-small font-medium text-primary">Inventory AI</Text>
+                      </View>
+                    </View>
+
+                    <View style={{ marginBottom: 24 }} className="items-center">
+                      <Text style={{ marginBottom: 12 }} className="text-center text-[26px] font-semibold leading-[32px] text-text md:text-[36px] md:leading-[44px]">
+                        What do you need help with today?
+                      </Text>
+                      <Text className="max-w-2xl text-center text-body text-muted">
+                        Start a conversation for stock checks, PO workflows, product updates, reporting, or in-app navigation.
+                      </Text>
+                    </View>
+
+                    <View className="w-full max-w-3xl flex-row flex-wrap justify-center gap-2">
+                      {promptSuggestions.map((suggestion) => (
+                        <Pressable
+                          key={suggestion}
+                          accessibilityRole="button"
+                          onPress={() => handleSuggestion(suggestion)}
+                          style={{ maxWidth: '48%' }}
+                          className="rounded-lg border border-border bg-surface-2 px-4 py-2.5"
+                        >
+                          <Text className="text-small text-text">{suggestion}</Text>
+                        </Pressable>
+                      ))}
                     </View>
                   </View>
-
-                  <View style={{ marginBottom: 24 }} className="items-center">
-                    <Text style={{ marginBottom: 12 }} className="text-center text-[26px] font-semibold leading-[32px] text-text md:text-[36px] md:leading-[44px]">
-                      What do you need help with today?
-                    </Text>
-                    <Text className="max-w-2xl text-center text-body text-muted">
-                      Start a conversation for stock checks, PO workflows, product updates, reporting, or in-app navigation.
-                    </Text>
-                  </View>
-
-                  <View className="w-full max-w-3xl flex-row flex-wrap justify-center gap-2">
-                    {promptSuggestions.map((suggestion) => (
-                      <Pressable
-                        key={suggestion}
-                        accessibilityRole="button"
-                        onPress={() => handleSuggestion(suggestion)}
-                        style={{ maxWidth: '48%' }}
-                        className="rounded-md border border-border bg-surface-2 px-4 py-2.5"
-                      >
-                        <Text className="text-small text-text">{suggestion}</Text>
-                      </Pressable>
-                    ))}
-                  </View>
-                </View>
                 ) : null}
 
                 {conversationQuery.isLoading && isThreadMode ? (
@@ -811,25 +812,14 @@ export function AssistantChatShell({
                 ) : null}
 
                 {activeConversation?.messages.map((turn) => (
-                  <View
-                    key={turn.id}
-                    className={`w-full ${turn.role === 'user' ? 'items-end' : 'items-start'}`}
-                  >
+                  <View key={turn.id} className={`w-full ${turn.role === 'user' ? 'items-end' : 'items-start'}`}>
                     <View className={`gap-2 ${turn.role === 'user' ? 'max-w-[70%] items-end' : 'max-w-3xl items-start'}`}>
                       <Text className="px-1 text-caption uppercase tracking-[0.16em] text-subtle">
                         {turn.role === 'assistant' ? 'Assistant' : turn.role === 'user' ? 'You' : turn.role}
                       </Text>
-
-                      <View
-                        className={`rounded-lg ${
-                          turn.role === 'user'
-                            ? 'bg-surface-2 px-5 py-4'
-                            : 'bg-[#F8F6F1] px-0 py-0'
-                        }`}
-                      >
+                      <View className={`rounded-xl ${turn.role === 'user' ? 'bg-primary-tint px-5 py-4' : 'bg-surface-2 px-5 py-4'}`}>
                         <AssistantMessageBlocks blocks={turn.blocks} />
                       </View>
-
                       <Text className="px-1 text-caption text-subtle">{formatDate(turn.createdAt)}</Text>
                     </View>
                   </View>
@@ -839,7 +829,7 @@ export function AssistantChatShell({
                   <View className="w-full items-start">
                     <View className="max-w-3xl items-start gap-2">
                       <Text className="px-1 text-caption uppercase tracking-[0.16em] text-subtle">Assistant</Text>
-                      <View className="rounded-lg bg-[#F8F6F1] px-0 py-0">
+                      <View className="rounded-xl bg-surface-2 px-5 py-4">
                         <AssistantMessageBlocks blocks={streamingAssistantBlocks} />
                       </View>
                     </View>
@@ -847,13 +837,13 @@ export function AssistantChatShell({
                 ) : null}
 
                 {activeConversation && activeConversation.messages.length === 0 ? (
-                  <View className="w-full max-w-3xl rounded-md border border-dashed border-border bg-surface-2 px-5 py-5">
+                  <View className="w-full max-w-3xl rounded-lg border border-dashed border-border bg-surface-2 px-5 py-5">
                     <Text className="text-small text-muted">No messages in this conversation yet.</Text>
                   </View>
                 ) : null}
 
                 {pendingAction?.actions?.length ? (
-                  <View className="w-full max-w-3xl rounded-lg border border-border bg-surface-2 px-5 py-5">
+                  <View className="w-full max-w-3xl rounded-xl border border-border bg-surface-2 px-5 py-5">
                     <Text className="text-small font-semibold text-text">{pendingAction.prompt}</Text>
                     <View className="mt-4 flex-row flex-wrap gap-2">
                       {pendingAction.actions.map((action) => (
@@ -873,7 +863,7 @@ export function AssistantChatShell({
             </ScrollView>
 
             <View className="border-t border-border bg-surface/95 px-4 py-4 md:px-6">
-              <View className="mx-auto w-full max-w-4xl rounded-lg border border-border bg-white px-4 py-4 shadow-sm">
+              <View className="mx-auto w-full max-w-4xl rounded-xl border border-border bg-surface px-4 py-4 shadow-sm">
                 {Platform.OS === 'web' ? (
                   <textarea
                     ref={webComposerRef}
@@ -889,8 +879,8 @@ export function AssistantChatShell({
                     style={{
                       minHeight: 80,
                       boxSizing: 'border-box',
-                      color: '#111827',
-                      caretColor: '#111827',
+                      color: 'rgb(var(--text))',
+                      caretColor: 'rgb(var(--primary))',
                       display: 'block',
                       lineHeight: '24px',
                       outline: 'none',
@@ -905,7 +895,7 @@ export function AssistantChatShell({
                     accessibilityHint="Send a message to create or continue an AI workflow."
                     placeholder="Ask anything"
                     placeholderTextColor="rgb(var(--text-subtle))"
-                    selectionColor="#111827"
+                    selectionColor="#FF5C00"
                     value={prompt}
                     onChangeText={setPrompt}
                     multiline
@@ -922,27 +912,18 @@ export function AssistantChatShell({
                 {attachments.length > 0 ? (
                   <View className="mt-3 flex-row flex-wrap gap-2">
                     {attachments.map((a) => (
-                      <View
-                        key={a.id}
-                        className="flex-row items-center gap-1.5 rounded-md border border-border bg-surface-2 px-2 py-1.5"
-                      >
+                      <View key={a.id} className="flex-row items-center gap-1.5 rounded-lg border border-border bg-surface-2 px-2 py-1.5">
                         {a.isImage && a.previewUrl ? (
-                          <Image
-                            source={{ uri: a.previewUrl }}
-                            style={{ width: 28, height: 28, borderRadius: 4 }}
-                            accessibilityLabel={a.filename}
-                          />
+                          <Image source={{ uri: a.previewUrl }} style={{ width: 28, height: 28, borderRadius: 4 }} accessibilityLabel={a.filename} />
                         ) : null}
-                        <Text className="max-w-[140px] text-caption text-text" numberOfLines={1}>
-                          {a.filename}
-                        </Text>
+                        <Text className="max-w-[140px] text-caption text-text" numberOfLines={1}>{a.filename}</Text>
                         <Pressable
                           accessibilityRole="button"
                           accessibilityLabel={`Remove ${a.filename}`}
                           onPress={() => handleRemoveAttachment(a.id)}
                           className="ml-0.5 rounded-full p-0.5 active:bg-surface"
                         >
-                          <X size={12} color="#6B7280" />
+                          <X size={12} color={ICON_SUBTLE} />
                         </Pressable>
                       </View>
                     ))}
@@ -957,7 +938,7 @@ export function AssistantChatShell({
                       onPress={handleNewChat}
                       className="h-11 w-11 items-center justify-center rounded-full border border-border bg-surface-2"
                     >
-                      <MessageSquarePlus size={18} color="#1F3A5F" />
+                      <MessageSquarePlus size={18} color={ICON_PRIMARY} />
                     </Pressable>
                     <Pressable
                       accessibilityRole="button"
@@ -968,7 +949,7 @@ export function AssistantChatShell({
                         isDictating ? 'border-primary bg-primary-tint' : 'border-border bg-surface-2'
                       }`}
                     >
-                      {isDictating ? <Square size={18} color="#1F3A5F" /> : <Mic size={18} color="#1F3A5F" />}
+                      {isDictating ? <Square size={18} color={ICON_PRIMARY} /> : <Mic size={18} color={ICON_PRIMARY} />}
                     </Pressable>
                     <Pressable
                       accessibilityRole="button"
@@ -976,7 +957,7 @@ export function AssistantChatShell({
                       onPress={handleAttach}
                       className="h-11 w-11 items-center justify-center rounded-full border border-border bg-surface-2"
                     >
-                      <Paperclip size={18} color="#1F3A5F" />
+                      <Paperclip size={18} color={ICON_PRIMARY} />
                     </Pressable>
                   </View>
 
@@ -994,72 +975,69 @@ export function AssistantChatShell({
             </View>
           </View>
 
-          {showHistoryRail ? (
-          <View className={historyRailContainerClassName}>
-            <View className="h-full min-h-[420px] rounded-lg border border-border bg-surface shadow-sm">
-              <View className="border-b border-border px-5 py-4">
-                <View className="flex-row items-center justify-between gap-3">
-                  <View>
-                    <Text className="text-section font-semibold text-text">Conversations</Text>
-                    <Text className="text-small text-muted">Recent assistant workflows</Text>
-                  </View>
-                  <AppButton label="New chat" size="sm" variant="secondary" onPress={handleNewChat} />
-                </View>
-              </View>
-
-              <ScrollView className="flex-1">
-                <View className="gap-2 p-3">
-                  {conversationsQuery.isLoading ? (
-                    <Text className="px-2 py-2 text-small text-muted">Loading conversations...</Text>
-                  ) : null}
-
-                  {conversationsQuery.error ? (
-                    <View className="gap-3 rounded-md border border-error/20 bg-error-tint px-4 py-4">
-                      <Text className="text-small text-error">{conversationsQuery.error.message}</Text>
-                      <AppButton label="Retry" size="sm" variant="secondary" onPress={() => void conversationsQuery.refetch()} />
+          {isHistoryRailOpen ? (
+            <View className={isDesktop ? 'lg:w-[340px]' : 'w-full'}>
+              <View className="h-full min-h-[420px] rounded-xl border border-border bg-surface shadow-sm">
+                <View className="border-b border-border px-5 py-4">
+                  <View className="flex-row items-center justify-between gap-3">
+                    <View>
+                      <Text className="text-section font-semibold text-text">Conversations</Text>
+                      <Text className="text-small text-muted">Recent assistant workflows</Text>
                     </View>
-                  ) : null}
-
-                  {!conversationsQuery.isLoading && !conversationsQuery.error ? (
-                    <>
-                      {conversations.map((item) => {
-                        const isActive = item.id === conversationId;
-                        return (
-                          <Pressable
-                            key={item.id}
-                            accessibilityRole="button"
-                            onPress={() => handleOpenConversation(item.id)}
-                            className={`rounded-md border px-4 py-3 ${
-                              isActive ? 'border-primary bg-primary text-on-primary' : 'border-border bg-surface-2'
-                            }`}
-                          >
-                            <Text className={`text-body font-semibold ${isActive ? 'text-on-primary' : 'text-text'}`}>
-                              {item.title}
-                            </Text>
-                            <Text
-                              numberOfLines={2}
-                              className={`mt-1 text-small ${isActive ? 'text-on-primary/80' : 'text-muted'}`}
-                            >
-                              {item.lastMessagePreview || 'No assistant response yet.'}
-                            </Text>
-                            <Text className={`mt-2 text-caption ${isActive ? 'text-on-primary/80' : 'text-subtle'}`}>
-                              {formatDate(item.updatedAt)}
-                            </Text>
-                          </Pressable>
-                        );
-                      })}
-
-                      {conversations.length === 0 ? (
-                        <View className="rounded-md border border-dashed border-border bg-surface-2 px-4 py-5">
-                          <Text className="text-small text-muted">No conversations yet.</Text>
-                        </View>
-                      ) : null}
-                    </>
-                  ) : null}
+                    <AppButton label="New chat" size="sm" variant="secondary" onPress={handleNewChat} />
+                  </View>
                 </View>
-              </ScrollView>
+
+                <ScrollView className="flex-1">
+                  <View className="gap-2 p-3">
+                    {conversationsQuery.isLoading ? (
+                      <Text className="px-2 py-2 text-small text-muted">Loading conversations...</Text>
+                    ) : null}
+
+                    {conversationsQuery.error ? (
+                      <View className="gap-3 rounded-lg border border-error/20 bg-error-tint px-4 py-4">
+                        <Text className="text-small text-error">{conversationsQuery.error.message}</Text>
+                        <AppButton label="Retry" size="sm" variant="secondary" onPress={() => void conversationsQuery.refetch()} />
+                      </View>
+                    ) : null}
+
+                    {!conversationsQuery.isLoading && !conversationsQuery.error ? (
+                      <>
+                        {conversations.map((item) => {
+                          const isActive = item.id === conversationId;
+                          return (
+                            <Pressable
+                              key={item.id}
+                              accessibilityRole="button"
+                              onPress={() => handleOpenConversation(item.id)}
+                              className={`rounded-lg border px-4 py-3 ${
+                                isActive ? 'border-primary bg-primary-tint' : 'border-border bg-surface-2'
+                              }`}
+                            >
+                              <Text className={`text-body font-semibold ${isActive ? 'text-primary' : 'text-text'}`}>
+                                {item.title}
+                              </Text>
+                              <Text numberOfLines={2} className={`mt-1 text-small ${isActive ? 'text-primary' : 'text-muted'}`}>
+                                {item.lastMessagePreview || 'No assistant response yet.'}
+                              </Text>
+                              <Text className={`mt-2 text-caption ${isActive ? 'text-primary' : 'text-subtle'}`}>
+                                {formatDate(item.updatedAt)}
+                              </Text>
+                            </Pressable>
+                          );
+                        })}
+
+                        {conversations.length === 0 ? (
+                          <View className="rounded-lg border border-dashed border-border bg-surface-2 px-4 py-5">
+                            <Text className="text-small text-muted">No conversations yet.</Text>
+                          </View>
+                        ) : null}
+                      </>
+                    ) : null}
+                  </View>
+                </ScrollView>
+              </View>
             </View>
-          </View>
           ) : null}
         </View>
       </View>
