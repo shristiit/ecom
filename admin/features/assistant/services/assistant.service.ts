@@ -4,7 +4,6 @@ import type {
   AssistantConversation,
   AssistantConversationSummary,
   AssistantDecisionResponse,
-  AssistantHistoryItem,
   AssistantRunEvent,
 } from '../types/assistant.types';
 
@@ -31,23 +30,6 @@ type ApprovalRow = {
   intent?: string | null;
   confidence?: number | null;
   conversationId?: string | null;
-};
-
-type HistoryRow = {
-  id: string;
-  transactionId: string;
-  requestText: string;
-  why?: string | null;
-  createdAt: string;
-  movementType?: string | null;
-  quantity?: number | null;
-  recordedTime?: string | null;
-  source?: string | null;
-  requestedBy?: string | null;
-  approvedBy?: string | null;
-  executedBy?: string | null;
-  toolName?: string | null;
-  status?: string | null;
 };
 
 type AttachmentUploadRow = {
@@ -174,29 +156,6 @@ export const assistantService = {
     return enginePost<{ status: string }, { approve: boolean }>(
       `/api/chat/approvals/${input.approvalId}/decision`,
       { approve: input.approve },
-    );
-  },
-
-  async listHistory() {
-    const payload = await engineGet<HistoryRow[]>('/api/chat/history');
-    return payload.map(
-      (item) =>
-        ({
-          id: item.id,
-          transactionId: item.transactionId,
-          requestText: item.requestText,
-          why: item.why ?? null,
-          createdAt: item.createdAt,
-          movementType: item.movementType ?? null,
-          quantity: item.quantity ?? null,
-          recordedTime: item.recordedTime ?? null,
-          source: item.source ?? null,
-          requestedBy: item.requestedBy ?? null,
-          approvedBy: item.approvedBy ?? null,
-          executedBy: item.executedBy ?? null,
-          toolName: item.toolName ?? null,
-          status: item.status ?? null,
-        }) satisfies AssistantHistoryItem,
     );
   },
 };
