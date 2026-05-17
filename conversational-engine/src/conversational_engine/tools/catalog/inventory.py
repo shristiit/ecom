@@ -237,6 +237,26 @@ def build_inventory_tools(
         rows = await backend.reporting_stock_summary(token, tenant, resolved)
         return {'rows': rows}
 
+    _PERIOD_TO_DAYS: dict[str, int] = {
+        'today': 1,
+        'yesterday': 1,
+        'this week': 7,
+        'last week': 7,
+        'this month': 30,
+        'last month': 30,
+        'this quarter': 90,
+        'last quarter': 90,
+        'this year': 365,
+        'last year': 365,
+        '7 days': 7,
+        '14 days': 14,
+        '30 days': 30,
+        '60 days': 60,
+        '90 days': 90,
+        '180 days': 180,
+        '365 days': 365,
+    }
+
     async def prepare_analytics(payload: dict[str, Any]) -> dict[str, Any]:
         resolved = {key: value for key, value in payload.items() if value is not None}
         if resolved.pop('allLocations', False):
@@ -248,6 +268,17 @@ def build_inventory_tools(
                 resolved['locationId'] = await resolver.location(loc)
         else:
             resolved.pop('locationId', None)
+        # Convert natural-language period to days when the API uses days
+        period = str(resolved.pop('period', None) or '').strip().lower()
+        if period and 'days' not in resolved:
+            days = _PERIOD_TO_DAYS.get(period)
+            if days is None:
+                import re as _re
+                m = _re.match(r'(\d+)\s*days?', period)
+                if m:
+                    days = int(m.group(1))
+            if days is not None:
+                resolved['days'] = days
         return resolved
 
     async def prepare_low_stock(payload: dict[str, Any]) -> dict[str, Any]:
@@ -625,6 +656,9 @@ def build_inventory_tools(
             input_schema=object_schema({
                 'locationId': {'type': ['string', 'null'], 'description': 'Optional location name, code, or UUID.'},
                 'days': {'type': ['integer', 'null']},
+                'period': {'type': ['string', 'null'], 'description': 'Natural-language period e.g. "last month", "last 30 days".'},
+                'from': {'type': ['string', 'null'], 'description': 'Start date YYYY-MM-DD'},
+                'to': {'type': ['string', 'null'], 'description': 'End date YYYY-MM-DD'},
                 'category': {'type': ['string', 'null']},
                 'color': {'type': ['string', 'null']},
                 'size': {'type': ['string', 'null']},
@@ -642,6 +676,9 @@ def build_inventory_tools(
             input_schema=object_schema({
                 'locationId': {'type': ['string', 'null'], 'description': 'Optional location name, code, or UUID.'},
                 'days': {'type': ['integer', 'null']},
+                'period': {'type': ['string', 'null'], 'description': 'Natural-language period e.g. "last month".'},
+                'from': {'type': ['string', 'null'], 'description': 'Start date YYYY-MM-DD'},
+                'to': {'type': ['string', 'null'], 'description': 'End date YYYY-MM-DD'},
                 'category': {'type': ['string', 'null']},
                 'color': {'type': ['string', 'null']},
                 'size': {'type': ['string', 'null']},
@@ -659,6 +696,8 @@ def build_inventory_tools(
             input_schema=object_schema({
                 'locationId': {'type': ['string', 'null'], 'description': 'Optional location name, code, or UUID.'},
                 'threshold': {'type': ['integer', 'null'], 'description': 'Optional reorder threshold override.'},
+                'days': {'type': ['integer', 'null']},
+                'period': {'type': ['string', 'null'], 'description': 'Natural-language period e.g. "last month".'},
                 'category': {'type': ['string', 'null']},
                 'color': {'type': ['string', 'null']},
                 'size': {'type': ['string', 'null']},
@@ -692,6 +731,7 @@ def build_inventory_tools(
                 'locationId': {'type': ['string', 'null'], 'description': 'Optional location name, code, or UUID.'},
                 'threshold': {'type': ['integer', 'null']},
                 'days': {'type': ['integer', 'null']},
+                'period': {'type': ['string', 'null'], 'description': 'Natural-language period e.g. "last month".'},
                 'limit': {'type': ['integer', 'null']},
             }),
             risk_level='low',
@@ -706,6 +746,7 @@ def build_inventory_tools(
             input_schema=object_schema({
                 'locationId': {'type': ['string', 'null'], 'description': 'Optional location name, code, or UUID.'},
                 'days': {'type': ['integer', 'null']},
+                'period': {'type': ['string', 'null'], 'description': 'Natural-language period e.g. "last month".'},
                 'limit': {'type': ['integer', 'null']},
                 'category': {'type': ['string', 'null']},
             }),
