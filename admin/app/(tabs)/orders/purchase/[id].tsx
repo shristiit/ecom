@@ -1,7 +1,8 @@
 import { useLocalSearchParams } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
-import { AppBadge, AppButton, AppCard, AppInput, AppTable, AppTableCell, AppTableHeaderCell, AppTableRow, PageHeader } from '@admin/components/ui';
+import { AppBadge, AppButton, AppCard, AppSelect, AppTable, AppTableCell, AppTableHeaderCell, AppTableRow, PageHeader } from '@admin/components/ui';
+import { useMasterLocationsQuery } from '@admin/features/master';
 import {
   useClosePurchaseOrderMutation,
   usePurchaseOrderQuery,
@@ -19,6 +20,7 @@ export default function PurchaseOrderDetailScreen() {
   const query = usePurchaseOrderQuery(orderId, Boolean(orderId));
   const receiveOrder = useReceivePurchaseOrderMutation();
   const closeOrder = useClosePurchaseOrderMutation();
+  const locationsQuery = useMasterLocationsQuery();
 
   const [locationId, setLocationId] = useState('');
   const [actionError, setActionError] = useState<string | null>(null);
@@ -38,12 +40,40 @@ export default function PurchaseOrderDetailScreen() {
         .filter((line) => line.qty > 0),
     [order?.lines],
   );
+  const canReceive = Boolean(order) && order?.status !== 'closed' && order?.status !== 'cancelled' && receivableLines.length > 0;
+  const canClose = Boolean(order) && !['closed', 'cancelled'].includes(order?.status ?? '');
+
+  const locationOptions = useMemo(
+    () =>
+      (locationsQuery.data ?? [])
+        .filter((location) => location.status === 'active')
+        .map((location) => ({
+          label: `${location.code} - ${location.name}`,
+          value: location.id,
+          description: location.type,
+        })),
+    [locationsQuery.data],
+  );
+
+  useEffect(() => {
+    if (locationOptions.length === 0) {
+      if (locationId) {
+        setLocationId('');
+      }
+      return;
+    }
+
+    const hasSelectedLocation = locationOptions.some((option) => option.value === locationId);
+    if (!hasSelectedLocation) {
+      setLocationId(locationOptions[0].value);
+    }
+  }, [locationId, locationOptions]);
 
   const handleReceive = async () => {
     if (!orderId) return;
 
-    if (!locationId.trim()) {
-      setActionError('Location ID is required to receive stock.');
+    if (!locationId) {
+      setActionError('Select a location to receive stock.');
       return;
     }
 
@@ -55,8 +85,8 @@ export default function PurchaseOrderDetailScreen() {
     setActionError(null);
     setActionMessage(null);
     try {
-      await receiveOrder.mutateAsync({ id: orderId, locationId: locationId.trim(), lines: receivableLines });
-      setActionMessage('Stock receipt posted successfully.');
+      await receiveOrder.mutateAsync({ id: orderId, locationId, lines: receivableLines });
+      setActionMessage('Purchase order closed after receipt.');
       await query.refetch();
     } catch (error) {
       setActionError(error instanceof Error ? error.message : 'Failed to receive stock.');
@@ -101,8 +131,21 @@ export default function PurchaseOrderDetailScreen() {
         actions={
           <View className="flex-row gap-2">
             <AppButton label="Download PDF" size="sm" variant="secondary" loading={downloadingPdf} onPress={() => void handleDownloadPdf()} />
-            <AppButton label="Receive" size="sm" loading={receiveOrder.isPending} onPress={() => void handleReceive()} />
-            <AppButton label="Close PO" size="sm" variant="secondary" loading={closeOrder.isPending} onPress={() => void handleClose()} />
+            <AppButton
+              label="Receive"
+              size="sm"
+              loading={receiveOrder.isPending}
+              disabled={!canReceive}
+              onPress={() => void handleReceive()}
+            />
+            <AppButton
+              label="Close PO"
+              size="sm"
+              variant="secondary"
+              loading={closeOrder.isPending}
+              disabled={!canClose}
+              onPress={() => void handleClose()}
+            />
           </View>
         }
       />
@@ -128,12 +171,32 @@ export default function PurchaseOrderDetailScreen() {
 
             <AppCard title="Receive settings">
               <View className="gap-3">
-                <AppInput
-                  label="Location ID"
-                  placeholder="Receiving location UUID"
+                <AppSelect
+                  label="Location"
+                  placeholder={
+                    locationsQuery.isLoading
+                      ? 'Loading locations...'
+                      : locationOptions.length > 0
+                        ? 'Select receiving location'
+                        : 'No active locations available'
+                  }
                   value={locationId}
-                  onChangeText={setLocationId}
+                  options={locationOptions}
+                  onValueChange={setLocationId}
+                  disabled={!canReceive || locationsQuery.isLoading || locationOptions.length === 0}
+                  modalTitle="Select receiving location"
                 />
+                {locationsQuery.isLoading ? <Text className="text-small text-muted">Loading tenant locations...</Text> : null}
+                {locationsQuery.error ? <Text className="text-small text-error">{locationsQuery.error.message}</Text> : null}
+                {!canReceive && order?.status === 'closed' ? (
+                  <Text className="text-small text-muted">This purchase order is already closed and cannot be received again.</Text>
+                ) : null}
+                {!canReceive && order?.status !== 'closed' && receivableLines.length === 0 ? (
+                  <Text className="text-small text-muted">There are no remaining lines to receive.</Text>
+                ) : null}
+                {!locationsQuery.isLoading && !locationsQuery.error && locationOptions.length === 0 ? (
+                  <Text className="text-small text-muted">Add an active location in master data before receiving stock.</Text>
+                ) : null}
                 {actionError ? <Text className="text-small text-error">{actionError}</Text> : null}
                 {actionMessage ? <Text className="text-small text-success">{actionMessage}</Text> : null}
               </View>

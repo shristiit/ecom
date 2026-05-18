@@ -136,7 +136,7 @@ export const dashboardService = {
     const stockValue = stockRows.reduce((sum, row) => sum + Number(row.onHand ?? 0) * 10, 0);
 
     const openPurchaseOrders = purchaseOrders.items.filter((po) => po.status !== 'closed' && po.status !== 'cancelled').length;
-    const openSalesOrders = salesOrders.items.filter((so) => so.status !== 'cancelled' && so.status !== 'dispatched').length;
+    const openSalesOrders = salesOrders.items.filter((so) => !['cancelled', 'dispatched', 'sent'].includes(so.status)).length;
     const pendingApprovals =
       approvals.filter((item) => item.status === 'pending').length +
       (movements.items ?? []).filter((item) => item.approvalStatus === 'pending').length;

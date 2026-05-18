@@ -214,6 +214,107 @@ async def test_state_update_does_not_treat_small_talk_as_pending_mutation_follow
     assert state.primary_intent == 'inventory.stock_on_hand'
 
 
+async def test_state_update_does_not_trust_active_workflow_for_one_word_chitchat():
+    class ForcedWorkflowStateUpdater:
+        async def decide(self, **kwargs):
+            del kwargs
+            return {
+                'useActiveWorkflow': True,
+                'primaryRoute': 'mutation',
+                'primaryIntent': 'purchasing.create_po',
+                'confidence': 0.99,
+                'rationale': 'Incorrectly continue the draft.',
+                'entityPatches': {},
+                'navigationQuery': None,
+                'postActionQuery': None,
+            }
+
+    state = await resolve_state_update(
+        user_message='good',
+        extracted_entities={
+            'taskContext': {
+                'primaryRoute': 'mutation',
+                'primaryIntent': 'purchasing.create_po',
+                'entities': {'supplierId': 'sup-1'},
+                'missingFields': ['lines'],
+                'postActions': [],
+                'clarificationCount': 2,
+                'status': 'drafting',
+            }
+        },
+        recent_messages=[],
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+        state_updater=ForcedWorkflowStateUpdater(),  # type: ignore[arg-type]
+    )
+
+    assert state.is_workflow_edit is False
+    assert state.primary_intent == 'inventory.stock_on_hand'
+
+
+async def test_state_update_routes_supplier_contact_reply_from_po_draft_into_supplier_creation():
+    state = await resolve_state_update(
+        user_message='Complex Sources Ltd\ncmp@gmail.com',
+        extracted_entities={
+            'taskContext': {
+                'primaryRoute': 'mutation',
+                'primaryIntent': 'purchasing.create_po',
+                'entities': {
+                    'productName': 'Bikes',
+                    'styleCode': 'BK-1',
+                },
+                'missingFields': ['supplier_id'],
+                'postActions': [],
+                'clarificationCount': 2,
+                'status': 'drafting',
+            }
+        },
+        recent_messages=[],
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+        state_updater=None,
+    )
+
+    assert state.is_workflow_edit is False
+    assert state.primary_route == 'mutation'
+    assert state.primary_intent == 'master.create_supplier'
+    assert state.extracted_entities['name'] == 'Complex Sources Ltd'
+    assert state.extracted_entities['email'] == 'cmp@gmail.com'
+
+
+async def test_state_update_keeps_relative_supplier_reply_inside_po_draft():
+    state = await resolve_state_update(
+        user_message='use the same supplier',
+        extracted_entities={
+            'taskContext': {
+                'primaryRoute': 'mutation',
+                'primaryIntent': 'purchasing.create_po',
+                'entities': {
+                    'supplierId': 'Acme Supply',
+                    'lines': [
+                        {
+                            'productName': 'Field Fresh Short',
+                            'colorName': 'Sand',
+                            'sizeLabel': 'L',
+                            'quantity': 10,
+                        }
+                    ],
+                },
+                'missingFields': ['supplier_id'],
+                'postActions': [],
+                'clarificationCount': 1,
+                'status': 'drafting',
+            }
+        },
+        recent_messages=[],
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+        state_updater=None,
+    )
+
+    assert state.is_workflow_edit is True
+    assert state.primary_route == 'mutation'
+    assert state.primary_intent == 'purchasing.create_po'
+    assert state.extracted_entities['supplierId'] == 'Acme Supply'
+
+
 async def test_state_update_does_not_invent_location_name_from_confirmation_phrase():
     state = await resolve_state_update(
         user_message='yes correct',

@@ -503,10 +503,10 @@ export async function executeDispatchInvoice(actorId: string, tenantId: string, 
   try {
     await client.query('BEGIN');
     const invRes = await client.query(
-      `SELECT id FROM invoices WHERE id = $1 AND tenant_id = $2 AND status IN ('draft','sent')`,
+      `SELECT id FROM invoices WHERE id = $1 AND tenant_id = $2 AND status = 'draft'`,
       [invoiceId, tenantId]
     );
-    if (invRes.rowCount === 0) throw new Error('Invoice not found');
+    if (invRes.rowCount === 0) throw new Error('Invoice not found or already dispatched');
 
     const linesRes = await client.query(
       `SELECT size_id, qty FROM invoice_lines WHERE invoice_id = $1 AND tenant_id = $2`,
@@ -559,12 +559,12 @@ export async function executeCancelInvoice(actorId: string, tenantId: string, in
        FROM invoices
        WHERE id = $1
          AND tenant_id = $2
-         AND status NOT IN ('cancelled', 'closed')
+         AND status NOT IN ('cancelled', 'sent')
        FOR UPDATE`,
       [invoiceId, tenantId],
     );
     if (invRes.rowCount === 0) {
-      throw new Error('Invoice not found or already cancelled/closed');
+      throw new Error('Invoice not found or already dispatched/cancelled');
     }
 
     const { status, dispatched_location_id: dispatchedLocationId } = invRes.rows[0];

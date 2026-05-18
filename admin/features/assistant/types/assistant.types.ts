@@ -125,20 +125,3 @@ export type AssistantApproval = {
   confidence?: number | null;
   conversationId?: string | null;
 };
-
-export type AssistantHistoryItem = {
-  id: string;
-  transactionId: string;
-  requestText: string;
-  why?: string | null;
-  createdAt: string;
-  movementType?: string | null;
-  quantity?: number | null;
-  recordedTime?: string | null;
-  source?: string | null;
-  requestedBy?: string | null;
-  approvedBy?: string | null;
-  executedBy?: string | null;
-  toolName?: string | null;
-  status?: string | null;
-};

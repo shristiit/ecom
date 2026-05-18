@@ -569,11 +569,15 @@ def build_commerce_tools(
         return {'rows': rows}
 
     async def prepare_create_po(payload: dict[str, Any]) -> dict[str, Any]:
-        resolved = dict(payload)
+        resolved: dict[str, Any] = {}
         supplier = str(payload.get('supplierId') or '').strip()
         if not supplier:
             raise ToolPreparationError('Which supplier should this purchase order use?', ['supplier_id'])
         resolved['supplierId'] = await resolve_reference(resolver.supplier(supplier), ['supplier_id'])
+
+        expected_date = payload.get('expectedDate')
+        if expected_date is not None:
+            resolved['expectedDate'] = expected_date
 
         raw_lines = payload.get('lines')
         if not isinstance(raw_lines, list) or not raw_lines:
@@ -696,7 +700,7 @@ def build_commerce_tools(
         if not po_ref:
             raise ToolPreparationError('Which purchase order should I receive?', ['po_id'])
 
-        resolved = dict(payload)
+        resolved: dict[str, Any] = {}
         po_id = await resolve_reference(resolver.purchase_order(po_ref), ['po_id'])
         resolved['poId'] = po_id
 
@@ -807,7 +811,7 @@ def build_commerce_tools(
         return {'result': await backend.cancel_po(token, tenant, str(payload['poId']))}
 
     async def prepare_create_invoice(payload: dict[str, Any]) -> dict[str, Any]:
-        resolved = dict(payload)
+        resolved: dict[str, Any] = {}
         customer = str(payload.get('customerId') or '').strip()
         if not customer:
             raise ToolPreparationError('Which customer should this sales order use?', ['customer_id'])

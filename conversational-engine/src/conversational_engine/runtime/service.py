@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-import asyncio
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import asdict
 import logging
 import re
@@ -47,6 +46,7 @@ from conversational_engine.runtime.state_update import (
     RuntimeStateUpdate,
     _extract_contact_create_entities,
     _extract_location_create_entities,
+    _is_non_action_small_talk,
     apply_task_context,
     build_post_action_blocks,
     increment_clarification_count,
@@ -391,6 +391,13 @@ def _normalize_size_label(value: object) -> str | None:
     return raw.upper()
 
 
+def _normalize_color_label(value: object) -> str | None:
+    raw = str(value or '').strip()
+    if not raw:
+        return None
+    return raw.title()
+
+
 def _extract_follow_up_quantity(message: str) -> int | None:
     patterns = (
         re.compile(r'\bx\s*(?P<qty>\d+)\b', re.IGNORECASE),
@@ -503,6 +510,68 @@ def _extract_grouped_variant_lines(
     return lines
 
 
+def _message_requests_all_variants(message: str) -> bool:
+    normalized = ' '.join(message.strip().lower().split())
+    return any(
+        phrase in normalized
+        for phrase in (
+            'all variants',
+            'use all variants',
+            'every variant',
+            'all colours',
+            'all colors',
+        )
+    )
+
+
+def _line_quantity_value(line: dict[str, object]) -> int | None:
+    for field in ('qty', 'quantity'):
+        value = line.get(field)
+        if value is None:
+            continue
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def _expand_all_variant_lines(
+    *,
+    product_name: str,
+    skus: list[dict[str, object]],
+    sizes: list[dict[str, object]],
+    quantity: int,
+    unit_field: str,
+    unit_value: int | None,
+) -> list[dict[str, object]]:
+    color_by_sku_id = {
+        str(sku.get('id') or '').strip(): str(sku.get('color_name') or '').strip()
+        for sku in skus
+        if isinstance(sku, dict) and str(sku.get('id') or '').strip()
+    }
+    lines: list[dict[str, object]] = []
+    for size in sizes:
+        if not isinstance(size, dict):
+            continue
+        sku_id = str(size.get('sku_id') or '').strip()
+        color_name = color_by_sku_id.get(sku_id, '').strip()
+        size_label = str(size.get('size_label') or '').strip().upper()
+        if not color_name or not size_label:
+            continue
+        line: dict[str, object] = {
+            'productName': product_name,
+            'colorName': color_name,
+            'sizeLabel': size_label,
+            'quantity': quantity,
+        }
+        if unit_value is not None:
+            line[unit_field] = unit_value
+        lines.append(line)
+    lines.sort(key=lambda item: (str(item.get('colorName') or ''), str(item.get('sizeLabel') or '')))
+    return lines
+
+
 class AgentRuntimeService:
     def __init__(
         self,
@@ -557,7 +626,7 @@ class AgentRuntimeService:
             context_entities=extracted_entities,
         )
         usage_entries: list[dict[str, object]] = []
-        trace_tasks: list[asyncio.Task[None]] = []
+        trace_tasks: list[Awaitable[None]] = []
 
         await self._backend_client.check_ai_usage_quota(
             access_token=auth.access_token or '',
@@ -718,21 +787,19 @@ class AgentRuntimeService:
                                 }
                             )
                         trace_tasks.append(
-                            asyncio.create_task(
-                                self._training_data_service.record_trace(
-                                    tenant_id=auth.tenant_id,
-                                    run_id=run_id,
-                                    conversation_id=conversation_id,
-                                    workflow_id=workflow_id,
-                                    agent_role=agent_role,
-                                    provider_name=provider_name,
-                                    model_name=model_name,
-                                    stage=f'{agent_role}_iteration_{current_iteration + 1}',
-                                    payload=payload,
-                                )
+                            self._training_data_service.record_trace(
+                                tenant_id=auth.tenant_id,
+                                run_id=run_id,
+                                conversation_id=conversation_id,
+                                workflow_id=workflow_id,
+                                agent_role=agent_role,
+                                provider_name=provider_name,
+                                model_name=model_name,
+                                stage=f'{agent_role}_iteration_{current_iteration + 1}',
+                                payload=payload,
                             )
                         )
-
+ 
                     return _record
 
                 plan = await self._run_phase(
@@ -938,6 +1005,10 @@ class AgentRuntimeService:
                     )
 
                 tool_name = str(proposal.get('toolName') or '')
+                tool_name = self._align_tool_name_with_primary_intent(
+                    primary_intent=state_update.primary_intent,
+                    tool_name=tool_name,
+                )
                 tool_arguments = proposal.get('toolArguments')
                 if isinstance(tool_arguments, dict):
                     tool_arguments = self._sanitize_tool_arguments(
@@ -1002,7 +1073,7 @@ class AgentRuntimeService:
                         blocks=render_failure(f'Unknown tool selected by AI runtime: {tool_name}'),
                         status=WorkflowStatus.FAILED,
                         current_task='tool_unknown',
-                        extracted_entities=current_entities,
+                        extracted_entities=mark_task_status(current_entities, 'failed'),
                     )
 
                 if tool.side_effect:
@@ -1071,7 +1142,7 @@ class AgentRuntimeService:
                         blocks=render_failure(last_error),
                         status=WorkflowStatus.FAILED,
                         current_task='tool_validation_failed',
-                        extracted_entities=current_entities,
+                        extracted_entities=mark_task_status(current_entities, 'failed'),
                     )
                 except Exception as exc:
                     emit(
@@ -1256,7 +1327,7 @@ class AgentRuntimeService:
                 blocks=render_failure('The AI runtime reached its planning limit before completing the task.'),
                 status=WorkflowStatus.FAILED,
                 current_task='iteration_limit_reached',
-                extracted_entities=current_entities,
+                extracted_entities=mark_task_status(current_entities, 'failed'),
             )
         except Exception:
             logger.exception('AI runtime failed for conversation %s workflow %s', conversation_id, workflow_id)
@@ -1264,11 +1335,19 @@ class AgentRuntimeService:
                 blocks=render_failure('The AI runtime could not complete this request.'),
                 status=WorkflowStatus.FAILED,
                 current_task='runtime_error',
-                extracted_entities=extracted_entities,
+                extracted_entities=mark_task_status(extracted_entities, 'failed'),
             )
         finally:
             if trace_tasks:
-                await asyncio.gather(*trace_tasks, return_exceptions=True)
+                for trace_task in trace_tasks:
+                    try:
+                        await trace_task
+                    except Exception:
+                        logger.exception(
+                            'Failed to persist training trace for conversation %s workflow %s',
+                            conversation_id,
+                            workflow_id,
+                        )
             if usage_entries:
                 try:
                     await self._backend_client.record_ai_usage(
@@ -1849,6 +1928,24 @@ class AgentRuntimeService:
             next_payload['lines'] = grouped_lines
             return next_payload
 
+        if _message_requests_all_variants(user_message):
+            quantity = _extract_follow_up_quantity(user_message)
+            if quantity is None:
+                quantity = _line_quantity_value(line)
+            if quantity is not None:
+                expanded_lines = _expand_all_variant_lines(
+                    product_name=reference,
+                    skus=skus,
+                    sizes=sizes,
+                    quantity=quantity,
+                    unit_field='unitCost',
+                    unit_value=existing_unit_cost,
+                )
+                if expanded_lines:
+                    next_payload = dict(merged_payload)
+                    next_payload['lines'] = expanded_lines
+                    return next_payload
+
         line_patch: dict[str, object] = {}
         color_name = _extract_follow_up_color_name(user_message, available_colors)
         if color_name:
@@ -1915,6 +2012,32 @@ class AgentRuntimeService:
             for size in sizes
             if isinstance(size, dict) and str(size.get('size_label') or '').strip()
         ]
+
+        existing_unit_price = None
+        raw_unit_price = line.get('unitPrice')
+        if raw_unit_price is not None:
+            try:
+                existing_unit_price = int(raw_unit_price)
+            except (TypeError, ValueError):
+                existing_unit_price = None
+
+        if _message_requests_all_variants(user_message):
+            quantity = _extract_follow_up_quantity(user_message)
+            if quantity is None:
+                quantity = _line_quantity_value(line)
+            if quantity is not None:
+                expanded_lines = _expand_all_variant_lines(
+                    product_name=reference,
+                    skus=skus,
+                    sizes=sizes,
+                    quantity=quantity,
+                    unit_field='unitPrice',
+                    unit_value=existing_unit_price,
+                )
+                if expanded_lines:
+                    next_payload = dict(merged_payload)
+                    next_payload['lines'] = expanded_lines
+                    return next_payload
 
         line_patch: dict[str, object] = {}
         color_name = _extract_follow_up_color_name(user_message, available_colors)
@@ -1986,10 +2109,53 @@ class AgentRuntimeService:
     ) -> dict[str, object]:
         merged_payload = dict(updated_payload)
 
+        if tool_name == 'products.create_product':
+            existing_colors = {
+                normalized
+                for variant in (merged_payload.get('variants') if isinstance(merged_payload.get('variants'), list) else [])
+                if isinstance(variant, dict)
+                if (normalized := _normalize_color_label(variant.get('colorName') or variant.get('color')))
+            }
+            ignored_color_tokens = {'Also', 'Too', 'Please', 'Another', 'New'}
+            color_names = [
+                normalized
+                for color_name in extract_color_names(user_message)
+                if (normalized := _normalize_color_label(color_name))
+                if normalized not in ignored_color_tokens
+            ]
+            add_color_match = re.search(r'\badd\s+([a-zA-Z][a-zA-Z\s-]*)\s+color\b', user_message, re.IGNORECASE)
+            if add_color_match:
+                fallback_color = _normalize_color_label(add_color_match.group(1))
+                if (
+                    fallback_color
+                    and fallback_color not in ignored_color_tokens
+                    and fallback_color not in existing_colors
+                    and fallback_color not in color_names
+                ):
+                    color_names.append(fallback_color)
+            size_labels = [
+                normalized
+                for size_label in parse_size_labels(user_message)
+                if (normalized := _normalize_size_label(size_label))
+            ]
+            if color_names or size_labels:
+                merged_payload['variants'] = self._merge_product_create_variants(
+                    merged_payload.get('variants'),
+                    color_names=color_names,
+                    size_labels=size_labels,
+                )
+            return merged_payload
+
         if tool_name == 'purchasing.create_po':
             supplier = await match_supplier(self._backend_client, auth, user_message)
             if supplier:
                 merged_payload['supplierId'] = supplier['id']
+            if _message_requests_all_variants(user_message):
+                return await self._merge_create_po_line_follow_up(
+                    auth=auth,
+                    user_message=user_message,
+                    merged_payload=merged_payload,
+                )
             lines = await parse_po_lines(
                 self._backend_client,
                 auth,
@@ -2010,6 +2176,12 @@ class AgentRuntimeService:
             customer = await match_customer(self._backend_client, auth, user_message)
             if customer:
                 merged_payload['customerId'] = customer['id']
+            if _message_requests_all_variants(user_message):
+                return await self._merge_create_invoice_line_follow_up(
+                    auth=auth,
+                    user_message=user_message,
+                    merged_payload=merged_payload,
+                )
             lines = await parse_sales_lines(
                 self._backend_client,
                 auth,
@@ -2238,6 +2410,68 @@ class AgentRuntimeService:
             return merged_payload
 
         return merged_payload
+
+    @staticmethod
+    def _merge_product_create_variants(
+        raw_variants: object,
+        *,
+        color_names: list[str],
+        size_labels: list[str],
+    ) -> list[dict[str, object]]:
+        variants = raw_variants if isinstance(raw_variants, list) else []
+        ordered_colors: list[str] = []
+        ordered_sizes: list[str] = []
+        variants_by_color: dict[str, dict[str, object]] = {}
+        sizes_by_color: dict[str, dict[str, dict[str, object]]] = {}
+
+        for raw_variant in variants:
+            if not isinstance(raw_variant, dict):
+                continue
+            color_name = _normalize_color_label(raw_variant.get('colorName') or raw_variant.get('color'))
+            if not color_name:
+                continue
+            if color_name not in ordered_colors:
+                ordered_colors.append(color_name)
+
+            variant_entry = variants_by_color.setdefault(color_name, {})
+            variant_entry['colorName'] = color_name
+            for field in ('skuCode', 'colorCode', 'priceOverride', 'media'):
+                if raw_variant.get(field) is not None and field not in variant_entry:
+                    variant_entry[field] = raw_variant[field]
+
+            color_sizes = sizes_by_color.setdefault(color_name, {})
+            size_candidates = raw_variant.get('sizes') if isinstance(raw_variant.get('sizes'), list) else [raw_variant]
+            for raw_size in size_candidates:
+                if not isinstance(raw_size, dict):
+                    continue
+                size_label = _normalize_size_label(raw_size.get('sizeLabel') or raw_size.get('size'))
+                if not size_label:
+                    continue
+                if size_label not in ordered_sizes:
+                    ordered_sizes.append(size_label)
+                size_entry = dict(raw_size)
+                size_entry['sizeLabel'] = size_label
+                color_sizes.setdefault(size_label, size_entry)
+
+        for color_name in color_names:
+            if color_name not in ordered_colors:
+                ordered_colors.append(color_name)
+        for size_label in size_labels:
+            if size_label not in ordered_sizes:
+                ordered_sizes.append(size_label)
+
+        merged: list[dict[str, object]] = []
+        for color_name in ordered_colors:
+            variant_entry = dict(variants_by_color.get(color_name) or {})
+            variant_entry['colorName'] = color_name
+            color_sizes = sizes_by_color.get(color_name) or {}
+            variant_entry['sizes'] = [
+                dict(color_sizes.get(size_label) or {'sizeLabel': size_label})
+                for size_label in ordered_sizes
+            ]
+            merged.append(variant_entry)
+
+        return merged
 
     async def _recover_sparse_mutation_payload(
         self,
@@ -2625,6 +2859,11 @@ class AgentRuntimeService:
         )
         enriched_task_context['entities'] = enriched_entities
         enriched_state_entities = apply_task_context(dict(state_update.extracted_entities), enriched_task_context)
+        confirmation_payload = self._confirmation_execution_payload(
+            tool_name=tool_name,
+            prepared_arguments=prepared_arguments,
+            task_entities=enriched_entities,
+        )
 
         next_entities = {
             **enriched_state_entities,
@@ -2636,7 +2875,7 @@ class AgentRuntimeService:
             ],
             '_pendingPrompt': confirmation_prompt,
             'toolName': tool_name,
-            'executionPayload': prepared_arguments,
+            'executionPayload': confirmation_payload,
             'preview': {
                 'tool': tool_name,
                 'arguments': tool_arguments,
@@ -2743,6 +2982,34 @@ class AgentRuntimeService:
                 product['basePrice'] = task_entities['basePrice']
             if product:
                 merged_payload['product'] = product
+            color_names: list[str] = []
+            raw_color_names = task_entities.get('colorNames')
+            if isinstance(raw_color_names, list):
+                for color_name in raw_color_names:
+                    normalized = _normalize_color_label(color_name)
+                    if normalized and normalized not in color_names:
+                        color_names.append(normalized)
+            normalized_single_color = _normalize_color_label(task_entities.get('colorName'))
+            if normalized_single_color and normalized_single_color not in color_names:
+                color_names.append(normalized_single_color)
+
+            size_labels: list[str] = []
+            raw_size_labels = task_entities.get('sizeLabels')
+            if isinstance(raw_size_labels, list):
+                for size_label in raw_size_labels:
+                    normalized = _normalize_size_label(size_label)
+                    if normalized and normalized not in size_labels:
+                        size_labels.append(normalized)
+            normalized_single_size = _normalize_size_label(task_entities.get('sizeLabel'))
+            if normalized_single_size and normalized_single_size not in size_labels:
+                size_labels.append(normalized_single_size)
+
+            if color_names or size_labels:
+                merged_payload['variants'] = AgentRuntimeService._merge_product_create_variants(
+                    merged_payload.get('variants'),
+                    color_names=color_names,
+                    size_labels=size_labels,
+                )
             return merged_payload
 
         if tool_name in {'purchasing.create_po', 'sales.create_invoice'}:
@@ -2952,6 +3219,44 @@ class AgentRuntimeService:
         return sanitized
 
     @staticmethod
+    def _confirmation_execution_payload(
+        *,
+        tool_name: str,
+        prepared_arguments: dict[str, object],
+        task_entities: dict[str, object],
+    ) -> dict[str, object]:
+        execution_payload = dict(prepared_arguments)
+
+        if tool_name == 'purchasing.receive_po' and _has_meaningful_value(task_entities.get('poNumber')):
+            execution_payload.setdefault('poNumber', task_entities['poNumber'])
+
+        return execution_payload
+
+    @staticmethod
+    def _align_tool_name_with_primary_intent(*, primary_intent: str, tool_name: str) -> str:
+        if not primary_intent or not tool_name or tool_name == primary_intent:
+            return tool_name
+        try:
+            primary_domain, primary_action = primary_intent.split('.', 1)
+            tool_domain, tool_action = tool_name.split('.', 1)
+        except ValueError:
+            return tool_name
+        if primary_domain != tool_domain:
+            return tool_name
+        primary_parts = primary_action.split('_', 1)
+        tool_parts = tool_action.split('_', 1)
+        if len(primary_parts) != 2 or len(tool_parts) != 2:
+            return tool_name
+        primary_verb, primary_target = primary_parts
+        tool_verb, tool_target = tool_parts
+        if (
+            primary_target == tool_target
+            and {primary_verb, tool_verb} <= {'create', 'update'}
+        ):
+            return primary_intent
+        return tool_name
+
+    @staticmethod
     def _tool_arguments_need_clarification(*, tool_name: str, tool_arguments: dict[str, object]) -> bool:
         if tool_name == 'master.create_location':
             return not tool_arguments
@@ -2989,6 +3294,10 @@ class AgentRuntimeService:
             return False
         if state_update.confidence >= 0.5:
             return False
+
+        normalized = ' '.join(user_message.strip().split()).lower()
+        if _is_non_action_small_talk(normalized):
+            return True
 
         task_entities = state_update.task_context.get('entities')
         if isinstance(task_entities, dict) and any(value is not None for value in task_entities.values()):

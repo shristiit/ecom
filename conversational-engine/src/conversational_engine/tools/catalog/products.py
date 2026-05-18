@@ -110,6 +110,28 @@ def build_product_tools(
             raise ToolPreparationError('Which sizes should I create? Reply like `S, M, L`.', ['size_labels'])
         return normalized
 
+    async def find_product(payload: dict[str, Any]) -> dict[str, Any]:
+        query = str(payload.get('query') or '').strip()
+        sku_code = str(payload.get('skuCode') or payload.get('sku') or '').strip()
+        rows: list[dict[str, Any]] = []
+        if sku_code:
+            sku_matches = await backend.search_skus(token, tenant, sku_code)
+            display_fields = ('sku_code', 'product_name', 'color_name', 'size_label', 'product_id')
+            rows = [
+                {k: row[k] for k in display_fields if k in row}
+                for row in (sku_matches if isinstance(sku_matches, list) else [])
+                if isinstance(row, dict)
+            ]
+        if not rows and query:
+            raw = await backend.search_products(token, tenant, q=query)
+            display_fields_p = ('name', 'style_code', 'category', 'brand', 'base_price', 'status')
+            rows = [
+                {k: row[k] for k in display_fields_p if k in row}
+                for row in (raw if isinstance(raw, list) else [])
+                if isinstance(row, dict)
+            ]
+        return {'rows': rows}
+
     async def create_product(payload: dict[str, Any]) -> dict[str, Any]:
         return {'result': await backend.create_product(token, tenant, payload)}
 
@@ -131,6 +153,23 @@ def build_product_tools(
             side_effect=False,
             output_mode='table',
             executor=search_products,
+        ),
+        'products.find_product': SemanticTool(
+            name='products.find_product',
+            description=(
+                'Find a product by name OR by SKU code / style code. '
+                'Use this when the user references a product by a SKU code like "NAR243-RED-01" '
+                'or a style code. Returns matching product and variant rows.'
+            ),
+            input_schema=object_schema({
+                'query': {'type': ['string', 'null'], 'description': 'Product name or partial name to search'},
+                'skuCode': {'type': ['string', 'null'], 'description': 'SKU code or style code (e.g. "NAR243-RED-01")'},
+                'sku': {'type': ['string', 'null'], 'description': 'Alias for skuCode'},
+            }),
+            risk_level='low',
+            side_effect=False,
+            output_mode='table',
+            executor=find_product,
         ),
         'products.create_product': SemanticTool(
             name='products.create_product',

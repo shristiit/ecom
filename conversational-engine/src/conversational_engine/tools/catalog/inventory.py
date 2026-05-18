@@ -49,6 +49,8 @@ def build_inventory_tools(
                 'sku': payload.get('sku'),
                 'locationId': payload.get('locationId'),
                 'productName': payload.get('productName'),
+                'colorName': payload.get('colorName') or payload.get('color'),
+                'sizeLabel': payload.get('sizeLabel') or payload.get('size'),
             }.items() if v
         }
         result = await backend.stock_on_hand(token, tenant, params)
@@ -235,6 +237,26 @@ def build_inventory_tools(
         rows = await backend.reporting_stock_summary(token, tenant, resolved)
         return {'rows': rows}
 
+    _PERIOD_TO_DAYS: dict[str, int] = {
+        'today': 1,
+        'yesterday': 1,
+        'this week': 7,
+        'last week': 7,
+        'this month': 30,
+        'last month': 30,
+        'this quarter': 90,
+        'last quarter': 90,
+        'this year': 365,
+        'last year': 365,
+        '7 days': 7,
+        '14 days': 14,
+        '30 days': 30,
+        '60 days': 60,
+        '90 days': 90,
+        '180 days': 180,
+        '365 days': 365,
+    }
+
     async def prepare_analytics(payload: dict[str, Any]) -> dict[str, Any]:
         resolved = {key: value for key, value in payload.items() if value is not None}
         if resolved.pop('allLocations', False):
@@ -246,6 +268,17 @@ def build_inventory_tools(
                 resolved['locationId'] = await resolver.location(loc)
         else:
             resolved.pop('locationId', None)
+        # Convert natural-language period to days when the API uses days
+        period = str(resolved.pop('period', None) or '').strip().lower()
+        if period and 'days' not in resolved:
+            days = _PERIOD_TO_DAYS.get(period)
+            if days is None:
+                import re as _re
+                m = _re.match(r'(\d+)\s*days?', period)
+                if m:
+                    days = int(m.group(1))
+            if days is not None:
+                resolved['days'] = days
         return resolved
 
     async def prepare_low_stock(payload: dict[str, Any]) -> dict[str, Any]:
@@ -341,6 +374,27 @@ def build_inventory_tools(
         rows = await backend.analytics_variant_availability(token, tenant, payload)
         return {'rows': rows}
 
+    async def movement_summary(payload: dict[str, Any]) -> dict[str, Any]:
+        resolved = dict(payload)
+        if loc := str(payload.get('locationId') or '').strip():
+            resolved['locationId'] = await resolver.location(loc)
+        rows = await backend.reporting_movement_summary(token, tenant, resolved)
+        return {'rows': rows}
+
+    async def po_summary(payload: dict[str, Any]) -> dict[str, Any]:
+        resolved = dict(payload)
+        if supplier := str(payload.get('supplierId') or '').strip():
+            resolved['supplierId'] = await resolver.supplier(supplier)
+        rows = await backend.reporting_po_summary(token, tenant, resolved)
+        return {'rows': rows}
+
+    async def receipt_summary(payload: dict[str, Any]) -> dict[str, Any]:
+        resolved = dict(payload)
+        if loc := str(payload.get('locationId') or '').strip():
+            resolved['locationId'] = await resolver.location(loc)
+        rows = await backend.reporting_receipt_summary(token, tenant, resolved)
+        return {'rows': rows}
+
     return {
         'inventory.stock_on_hand': SemanticTool(
             name='inventory.stock_on_hand',
@@ -360,6 +414,30 @@ def build_inventory_tools(
                 'locationId': {
                     'type': ['string', 'null'],
                     'description': 'Location name, code, or UUID.',
+                },
+                'colorName': {
+                    'type': ['string', 'null'],
+                    'description': 'Colour/variant name to narrow results.',
+                },
+                'color': {
+                    'type': ['string', 'null'],
+                    'description': 'Alias for colorName.',
+                },
+                'sizeLabel': {
+                    'type': ['string', 'null'],
+                    'description': 'Size label to narrow results (e.g. "M", "XL").',
+                },
+                'size': {
+                    'type': ['string', 'null'],
+                    'description': 'Alias for sizeLabel.',
+                },
+                'groupBy': {
+                    'type': ['string', 'null'],
+                    'description': 'Ignored — grouping is handled server-side.',
+                },
+                'availability': {
+                    'type': ['string', 'null'],
+                    'description': 'Ignored — use inventory.variant_availability for availability queries.',
                 },
             }),
             risk_level='low',
@@ -578,6 +656,9 @@ def build_inventory_tools(
             input_schema=object_schema({
                 'locationId': {'type': ['string', 'null'], 'description': 'Optional location name, code, or UUID.'},
                 'days': {'type': ['integer', 'null']},
+                'period': {'type': ['string', 'null'], 'description': 'Natural-language period e.g. "last month", "last 30 days".'},
+                'from': {'type': ['string', 'null'], 'description': 'Start date YYYY-MM-DD'},
+                'to': {'type': ['string', 'null'], 'description': 'End date YYYY-MM-DD'},
                 'category': {'type': ['string', 'null']},
                 'color': {'type': ['string', 'null']},
                 'size': {'type': ['string', 'null']},
@@ -595,6 +676,9 @@ def build_inventory_tools(
             input_schema=object_schema({
                 'locationId': {'type': ['string', 'null'], 'description': 'Optional location name, code, or UUID.'},
                 'days': {'type': ['integer', 'null']},
+                'period': {'type': ['string', 'null'], 'description': 'Natural-language period e.g. "last month".'},
+                'from': {'type': ['string', 'null'], 'description': 'Start date YYYY-MM-DD'},
+                'to': {'type': ['string', 'null'], 'description': 'End date YYYY-MM-DD'},
                 'category': {'type': ['string', 'null']},
                 'color': {'type': ['string', 'null']},
                 'size': {'type': ['string', 'null']},
@@ -612,6 +696,8 @@ def build_inventory_tools(
             input_schema=object_schema({
                 'locationId': {'type': ['string', 'null'], 'description': 'Optional location name, code, or UUID.'},
                 'threshold': {'type': ['integer', 'null'], 'description': 'Optional reorder threshold override.'},
+                'days': {'type': ['integer', 'null']},
+                'period': {'type': ['string', 'null'], 'description': 'Natural-language period e.g. "last month".'},
                 'category': {'type': ['string', 'null']},
                 'color': {'type': ['string', 'null']},
                 'size': {'type': ['string', 'null']},
@@ -645,6 +731,7 @@ def build_inventory_tools(
                 'locationId': {'type': ['string', 'null'], 'description': 'Optional location name, code, or UUID.'},
                 'threshold': {'type': ['integer', 'null']},
                 'days': {'type': ['integer', 'null']},
+                'period': {'type': ['string', 'null'], 'description': 'Natural-language period e.g. "last month".'},
                 'limit': {'type': ['integer', 'null']},
             }),
             risk_level='low',
@@ -659,6 +746,7 @@ def build_inventory_tools(
             input_schema=object_schema({
                 'locationId': {'type': ['string', 'null'], 'description': 'Optional location name, code, or UUID.'},
                 'days': {'type': ['integer', 'null']},
+                'period': {'type': ['string', 'null'], 'description': 'Natural-language period e.g. "last month".'},
                 'limit': {'type': ['integer', 'null']},
                 'category': {'type': ['string', 'null']},
             }),
@@ -684,5 +772,59 @@ def build_inventory_tools(
             output_mode='table',
             executor=analytics_data_quality,
             preparer=prepare_analytics,
+        ),
+        'reporting.movement_summary': SemanticTool(
+            name='reporting.movement_summary',
+            description=(
+                'Read stock movement summary report — receipts, transfers, adjustments, and write-offs '
+                'across products and locations. Use this when the user asks about movements, transfers, '
+                'or stock history over a time period.'
+            ),
+            input_schema=object_schema({
+                'locationId': {'type': ['string', 'null'], 'description': 'Location name, code, or UUID'},
+                'from': {'type': ['string', 'null'], 'description': 'Start date (YYYY-MM-DD)'},
+                'to': {'type': ['string', 'null'], 'description': 'End date (YYYY-MM-DD)'},
+                'type': {'type': ['string', 'null'], 'description': 'Movement type filter (e.g. receipt, transfer, adjust)'},
+                'limit': {'type': ['integer', 'null']},
+            }),
+            risk_level='low',
+            side_effect=False,
+            output_mode='table',
+            executor=movement_summary,
+        ),
+        'reporting.po_summary': SemanticTool(
+            name='reporting.po_summary',
+            description=(
+                'Read purchase order summary report — open, received, and closed POs with totals. '
+                'Use this when the user asks for a PO report, purchase summary, or supplier orders overview.'
+            ),
+            input_schema=object_schema({
+                'supplierId': {'type': ['string', 'null'], 'description': 'Supplier name or UUID'},
+                'status': {'type': ['string', 'null'], 'description': 'PO status filter (open, received, closed)'},
+                'from': {'type': ['string', 'null'], 'description': 'Start date (YYYY-MM-DD)'},
+                'to': {'type': ['string', 'null'], 'description': 'End date (YYYY-MM-DD)'},
+                'limit': {'type': ['integer', 'null']},
+            }),
+            risk_level='low',
+            side_effect=False,
+            output_mode='table',
+            executor=po_summary,
+        ),
+        'reporting.receipt_summary': SemanticTool(
+            name='reporting.receipt_summary',
+            description=(
+                'Read stock receipt summary report — what stock was received, when, and into which location. '
+                'Use this when the user asks about receipt history, what was booked in, or inbound stock.'
+            ),
+            input_schema=object_schema({
+                'locationId': {'type': ['string', 'null'], 'description': 'Location name, code, or UUID'},
+                'from': {'type': ['string', 'null'], 'description': 'Start date (YYYY-MM-DD)'},
+                'to': {'type': ['string', 'null'], 'description': 'End date (YYYY-MM-DD)'},
+                'limit': {'type': ['integer', 'null']},
+            }),
+            risk_level='low',
+            side_effect=False,
+            output_mode='table',
+            executor=receipt_summary,
         ),
     }

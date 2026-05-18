@@ -6,5 +6,8 @@ export function useAssistantApprovalsQuery(enabled = true) {
     key: queryKeys.assistant.approvals(),
     enabled,
     queryFn: () => assistantService.listApprovals(),
+    manualInvalidationOnly: false,
+    refetchOnWindowFocus: true,
+    gcTimeMs: 30 * 60 * 1000,
   });
 }

@@ -6,5 +6,8 @@ export function useAssistantConversationsQuery(enabled = true) {
     key: queryKeys.assistant.conversations(),
     enabled,
     queryFn: () => assistantService.listConversations(),
+    manualInvalidationOnly: false,
+    refetchOnWindowFocus: true,
+    gcTimeMs: 30 * 60 * 1000,
   });
 }

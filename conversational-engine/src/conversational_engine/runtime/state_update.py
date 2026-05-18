@@ -19,7 +19,9 @@ from conversational_engine.keyword_sets import (
     MUTATION_FOLLOW_UP_KEYWORDS,
     NAVIGATION_PREFIXES,
     NON_DOMAIN_SMALL_TALK,
+    RELATIVE_CUSTOMER_TERMS,
     REUSE_REFERENCE_PHRASES,
+    RELATIVE_SUPPLIER_TERMS,
     SUPPLIER_NOUNS_PATTERN,
 )
 from conversational_engine.retrieval.service import RetrievalService
@@ -56,8 +58,11 @@ _MUTATION_PATTERNS: tuple[tuple[str, str], ...] = (
     ('inventory.receive_stock', r'\b(receive|receipt)\b'),
     ('inventory.adjust_stock', r'\b(adjust)\b'),
     ('inventory.write_off_stock', r'\bwrite[ -]?off\b'),
-    ('purchasing.create_po', r'\b(purchase order|create po|create a po|draft po)\b'),
-    ('sales.create_invoice', r'\b(invoice|sales order|create so|create invoice)\b'),
+    ('purchasing.create_po', r'\b(create|make|raise|place|draft|new)\b.*\b(purchase order|po)\b|\b(purchase order|po)\b.*\b(create|make|raise|place|draft|new)\b|\b(create po|create a po|draft po|new po|raise po)\b'),
+    (
+        'sales.create_invoice',
+        r'\b(invoice|sales order|create so|create invoice|create order|new order|place order|raise order|raise invoice|make a sale)\b',
+    ),
     ('products.create_product', r'\b(create product|create a product|new product)\b'),
     (
         'master.create_location',
@@ -163,9 +168,16 @@ _READ_PATTERNS: tuple[tuple[str, str], ...] = (
         'sales.get_invoice',
         r'\b(status of|what(?:s| is) the status of|lines in|details of|inspect)\b.*\b(sales order|invoice|so)\b',
     ),
+    (
+        'analytics.top_selling',
+        r'\b(?:how\s+many\s+(?:sold|units|were\s+sold)|units?\s+sold|qty\s+sold|quantity\s+sold|total\s+sold|sales\s+count)\b',
+    ),
+    ('reporting.movement_summary', r'\b(movement|movements|movement\s+summary|stock\s+history|transfer\s+report|receipt\s+report|inbound\s+report)\b'),
+    ('reporting.po_summary', r'\b(po\s+summary|po\s+report|purchase\s+order\s+summary|purchase\s+order\s+report|supplier\s+orders\s+report)\b'),
+    ('reporting.receipt_summary', r'\b(receipt\s+summary|receipt\s+report|booked\s+in\s+report|inbound\s+stock\s+report)\b'),
     ('inventory.stock_on_hand', r'\b(stock|stock on hand|available)\b'),
     ('inventory.stock_on_hand', r'\b(size|sizes|variant|variants|color|colors)\b'),
-    ('reporting.stock_summary', r'\b(summary|report)\b'),
+    ('reporting.stock_summary', r'\b(stock\s+summary|stock\s+report|summary|report)\b'),
 )
 
 
@@ -353,6 +365,32 @@ async def resolve_state_update(
         rationale = f'{rationale} Queued a post-action navigation step after the mutation succeeds.'
 
     active_intent = str(task_context.get('primaryIntent') or '')
+    force_new_workflow = False
+    normalized_text = _normalize(action_text or text)
+    if _is_non_action_small_talk(normalized_text) and normalized_text not in GENERIC_CONFIRMATION_PHRASES:
+        is_workflow_edit = False
+        primary_route = route_fallback
+        primary_intent = intent_fallback
+        rationale = 'Detected small talk and ignored the active workflow context.'
+        confidence = fallback_confidence
+        used_memory = False
+        force_new_workflow = True
+
+    contact_entities = _extract_contact_create_entities(action_text or text)
+    related_party_intent = _should_start_related_party_creation(
+        task_context=task_context,
+        active_intent=active_intent,
+        route_fallback=route_fallback,
+        contact_entities=contact_entities,
+    )
+    if related_party_intent is not None:
+        primary_intent, rationale = related_party_intent
+        primary_route = ROUTE_MUTATION
+        confidence = max(confidence, 0.93)
+        is_workflow_edit = False
+        used_memory = True
+        force_new_workflow = True
+
     merged_entities.update(patches)
     if primary_intent == 'master.create_location' or active_intent == 'master.create_location':
         merged_entities.update(_extract_location_create_entities(action_text or text))
@@ -371,7 +409,7 @@ async def resolve_state_update(
     if primary_intent == 'inventory.variant_availability' or active_intent == 'inventory.variant_availability':
         merged_entities.update(_extract_variant_query_entities(action_text or text))
 
-    if not is_workflow_edit and _should_continue_pending_task(
+    if not is_workflow_edit and not force_new_workflow and _should_continue_pending_task(
         text=action_text or text,
         task_context=task_context,
         route_fallback=route_fallback,
@@ -397,6 +435,29 @@ async def resolve_state_update(
                     if value is not None:
                         carryover_entities[key] = value
             if active_intent == 'master.create_customer' and primary_intent == 'sales.create_invoice':
+                for key in ('customerId', 'customerName'):
+                    value = prior_entities.get(key)
+                    if value is not None:
+                        carryover_entities[key] = value
+            # Carry locationId forward when continuing at the same location
+            # (e.g. receive stock then transfer stock, both at the same warehouse)
+            if (
+                active_intent.startswith('inventory.')
+                and primary_intent.startswith('inventory.')
+                and active_intent != primary_intent
+            ):
+                for key in ('locationId', 'locationName'):
+                    value = prior_entities.get(key)
+                    if value is not None:
+                        carryover_entities[key] = value
+            # Carry supplierId when switching between PO operations for the same supplier
+            if active_intent.startswith('purchasing.') and primary_intent.startswith('purchasing.'):
+                for key in ('supplierId', 'supplierName'):
+                    value = prior_entities.get(key)
+                    if value is not None:
+                        carryover_entities[key] = value
+            # Carry customerId when switching between sales operations for the same customer
+            if active_intent.startswith('sales.') and primary_intent.startswith('sales.'):
                 for key in ('customerId', 'customerName'):
                     value = prior_entities.get(key)
                     if value is not None:
@@ -468,6 +529,10 @@ def _normalize(value: str) -> str:
     return ' '.join(value.lower().strip().split())
 
 
+def _is_non_action_small_talk(normalized: str) -> bool:
+    return normalized in {*NON_DOMAIN_SMALL_TALK, 'good', 'great'}
+
+
 def _coerce_confidence(value: object, default: float) -> float:
     if isinstance(value, (int, float)):
         return max(0.0, min(float(value), 1.0))
@@ -509,6 +574,26 @@ def _resolve_primary_route_and_intent(text: str) -> tuple[str, str, str, float]:
         return (ROUTE_READ, 'off_topic', 'Detected a request outside the inventory domain.', 0.95)
 
     return (ROUTE_READ, 'inventory.stock_on_hand', 'Defaulted to a read workflow.', 0.42)
+
+
+def _should_start_related_party_creation(
+    *,
+    task_context: dict[str, Any],
+    active_intent: str,
+    route_fallback: str,
+    contact_entities: dict[str, Any],
+) -> tuple[str, str] | None:
+    if route_fallback == ROUTE_MUTATION:
+        return None
+    if not str(contact_entities.get('name') or '').strip():
+        return None
+
+    missing_fields = {str(item) for item in task_context.get('missingFields') or []}
+    if active_intent == 'purchasing.create_po' and {'supplier_id', 'supplierId'} & missing_fields:
+        return ('master.create_supplier', 'Collected supplier contact details while drafting a purchase order.')
+    if active_intent == 'sales.create_invoice' and {'customer_id', 'customerId'} & missing_fields:
+        return ('master.create_customer', 'Collected customer contact details while drafting a sales order.')
+    return None
 
 
 def _is_off_topic(normalized: str) -> bool:
@@ -923,6 +1008,8 @@ def _should_continue_pending_task(
     active_intent = str(task_context.get('primaryIntent') or '')
     missing_fields = [str(item) for item in task_context.get('missingFields') or []]
     status = str(task_context.get('status') or '')
+    if status == 'failed':
+        return False
     if active_route not in {ROUTE_MUTATION, ROUTE_READ} or not active_intent:
         return False
     # A new mutation for a *different* intent starts a fresh workflow.
@@ -1103,9 +1190,16 @@ def _extract_contact_create_entities(text: str) -> dict[str, Any]:
         candidate = re.sub(_COMMAND_WORDS, '', working, flags=re.IGNORECASE)
         candidate = re.sub(_LABEL_ARTIFACTS, '', candidate, flags=re.IGNORECASE).strip(' ,;:')
         normalized_candidate = _normalize(candidate)
+        normalized_working = _normalize(working)
+        relative_party_terms = {*RELATIVE_SUPPLIER_TERMS, *RELATIVE_CUSTOMER_TERMS}
         if (
             candidate
             and normalized_candidate not in {*GENERIC_CONFIRMATION_PHRASES, *REUSE_REFERENCE_PHRASES}
+            and not normalized_candidate.startswith('use the same')
+            and not any(
+                term in normalized_candidate or term in normalized_working
+                for term in relative_party_terms
+            )
             and not re.search(r'\b(?:phone|email|address|status)\b', candidate, re.IGNORECASE)
         ):
             extracted['name'] = candidate
