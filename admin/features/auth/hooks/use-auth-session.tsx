@@ -134,6 +134,14 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
     configureApiClient({ getAccessToken: () => null, getTenantId: () => null, onUnauthorized: undefined });
   }, [portalMode]);
 
+  const expireSession = useCallback(() => {
+    sessionStorage.clear();
+    sessionStorage.writeAuthNotice('You were logged out. Please sign in again.');
+    setState({ ...initialState, status: 'signed_out' });
+    unauthorizedHandlerRef.current = null;
+    configureApiClient({ getAccessToken: () => null, getTenantId: () => null, onUnauthorized: undefined });
+  }, []);
+
   const applyApiContext = useCallback((nextState: SessionState) => {
     configureApiClient({
       getAccessToken: () => nextState.accessToken,
@@ -198,7 +206,7 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
     const refreshPromise = (async () => {
       const stored = sessionStorage.readSession();
       if (!stored.refreshToken) {
-        signOut();
+        expireSession();
         return false;
       }
 
@@ -207,7 +215,7 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
         await commitSignedInSession(refreshed.accessToken, refreshed.refreshToken, stored.selectedTenantId);
         return true;
       } catch {
-        signOut();
+        expireSession();
         return false;
       }
     })();
@@ -217,7 +225,7 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
     });
 
     return refreshInFlightRef.current;
-  }, [commitSignedInSession, signOut]);
+  }, [commitSignedInSession, expireSession]);
 
   useEffect(() => {
     unauthorizedHandlerRef.current = handleUnauthorized;
@@ -241,10 +249,10 @@ export function AuthSessionProvider({ children }: { children: ReactNode }) {
         const refreshed = await authService.refresh({ refreshToken: stored.refreshToken });
         await commitSignedInSession(refreshed.accessToken, refreshed.refreshToken, stored.selectedTenantId);
       } catch {
-        signOut();
+        expireSession();
       }
     }
-  }, [applyApiContext, commitSignedInSession, signOut]);
+  }, [applyApiContext, commitSignedInSession, expireSession]);
 
   useEffect(() => {
     void bootstrap();

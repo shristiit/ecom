@@ -73,6 +73,7 @@ const deprecatedRegisterSchema = z.object({
 const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1),
+  rememberMe: z.boolean().optional().default(false),
 });
 
 const forgotPasswordSchema = z.object({
@@ -240,7 +241,7 @@ export async function register(req: Request, res: Response) {
 export async function login(req: Request, res: Response) {
   const parsed = loginSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ message: 'Invalid payload' });
-  const { email, password } = parsed.data;
+  const { email, password, rememberMe } = parsed.data;
   try {
     const bcrypt = await getBcrypt();
     const result = await query(
@@ -265,13 +266,15 @@ export async function login(req: Request, res: Response) {
       principalType: 'tenant_user',
       tenantId: user.tenant_id,
       roleId: user.role_id,
+      rememberMe,
     });
     const refreshToken = signRefreshToken({
       sub: user.id,
       principalType: 'tenant_user',
       tenantId: user.tenant_id,
       roleId: user.role_id,
-    });
+      rememberMe,
+    }, { rememberMe });
     await query(`UPDATE users SET last_login_at = NOW() WHERE id = $1`, [user.id]);
     res.json({ accessToken, refreshToken });
   } catch (err) {

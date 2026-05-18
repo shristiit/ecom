@@ -1,9 +1,10 @@
 import jwt from 'jsonwebtoken';
 import type { SignOptions } from 'jsonwebtoken';
-import { JWT_SECRET, ACCESS_TOKEN_TTL, REFRESH_TOKEN_TTL } from '@backend/config/env.js';
+import { JWT_SECRET, ACCESS_TOKEN_TTL, REFRESH_TOKEN_TTL, REMEMBER_ME_REFRESH_TOKEN_TTL } from '@backend/config/env.js';
 
 const accessTokenTtl = ACCESS_TOKEN_TTL as SignOptions['expiresIn'];
 const refreshTokenTtl = REFRESH_TOKEN_TTL as SignOptions['expiresIn'];
+const rememberMeRefreshTokenTtl = REMEMBER_ME_REFRESH_TOKEN_TTL as SignOptions['expiresIn'];
 
 export type TenantUserTokenPayload = {
   sub: string;
@@ -22,6 +23,7 @@ export type AppTokenPayload = {
   principalType?: 'tenant_user' | 'platform_admin' | string;
   tenantId?: string;
   roleId?: string;
+  rememberMe?: boolean;
   [key: string]: unknown;
 };
 
@@ -29,8 +31,9 @@ export function signAccessToken(payload: AppTokenPayload) {
   return jwt.sign(payload, JWT_SECRET, { expiresIn: accessTokenTtl });
 }
 
-export function signRefreshToken(payload: AppTokenPayload) {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: refreshTokenTtl });
+export function signRefreshToken(payload: AppTokenPayload, options?: { rememberMe?: boolean }) {
+  const expiresIn = options?.rememberMe || payload.rememberMe ? rememberMeRefreshTokenTtl : refreshTokenTtl;
+  return jwt.sign(payload, JWT_SECRET, { expiresIn });
 }
 
 export function verifyToken(token: string) {
