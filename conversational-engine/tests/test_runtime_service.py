@@ -1983,6 +1983,69 @@ async def test_runtime_service_shows_variant_table_for_product_only_po_clarifica
     assert 'Which variant should I use?' in outcome.blocks[0].prompt
 
 
+async def test_runtime_service_expands_all_variants_follow_up_into_po_lines():
+    service = AgentRuntimeService(
+        backend_client=HarborVariantBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeExecutor('inventory.stock_on_hand', {'sku': 'unused'}),
+        reviewer=FakeReviewer(),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        state_updater=None,
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='use all variants 10 items each',
+        extracted_entities={
+            '_workflowEngine': 'runtime',
+            'toolName': 'purchasing.create_po',
+            'executionPayload': {
+                'supplierId': 'Acme Supply',
+                'lines': [
+                    {
+                        'productName': 'Harbor Intelligent Parka',
+                    }
+                ],
+            },
+            'taskContext': {
+                'primaryRoute': 'mutation',
+                'primaryIntent': 'purchasing.create_po',
+                'entities': {
+                    'supplierId': 'Acme Supply',
+                    'lines': [{'productName': 'Harbor Intelligent Parka'}],
+                },
+                'missingFields': ['lines'],
+                'postActions': [],
+                'clarificationCount': 1,
+                'status': 'drafting',
+            },
+        },
+        recent_messages=[],
+        workflow_status=WorkflowStatus.NEEDS_INPUT,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.AWAITING_CONFIRMATION
+    assert outcome.extracted_entities['executionPayload']['lines'] == [
+        {'sizeId': 'size-navy-l', 'qty': 10, 'unitCost': 55},
+        {'sizeId': 'size-navy-m', 'qty': 10, 'unitCost': 55},
+        {'sizeId': 'size-navy-s', 'qty': 10, 'unitCost': 55},
+        {'sizeId': 'size-navy-xl', 'qty': 10, 'unitCost': 55},
+        {'sizeId': 'size-navy-xs', 'qty': 10, 'unitCost': 55},
+        {'sizeId': 'size-sand-l', 'qty': 10, 'unitCost': 55},
+        {'sizeId': 'size-sand-m', 'qty': 10, 'unitCost': 55},
+        {'sizeId': 'size-sand-s', 'qty': 10, 'unitCost': 55},
+        {'sizeId': 'size-sand-xl', 'qty': 10, 'unitCost': 55},
+        {'sizeId': 'size-sand-xs', 'qty': 10, 'unitCost': 55},
+    ]
+
+
 async def test_runtime_service_applies_grouped_variant_follow_up_as_multiple_po_lines():
     service = AgentRuntimeService(
         backend_client=HarborVariantBackendClient(),  # type: ignore[arg-type]
@@ -2059,6 +2122,101 @@ async def test_runtime_service_applies_grouped_variant_follow_up_as_multiple_po_
     assert any(block.type == BlockType.CONFIRMATION_REQUIRED for block in outcome.blocks)
 
 
+async def test_runtime_service_ignores_wrong_update_tool_for_new_po_request():
+    service = AgentRuntimeService(
+        backend_client=FakeBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeExecutor('purchasing.update_po', {'poId': 'PO-0099'}),
+        reviewer=FakeReviewer(),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        state_updater=FakeStateUpdater(
+            {
+                'create a purchase order for Field Fresh Short from Acme Supply': {
+                    'useActiveWorkflow': False,
+                    'primaryRoute': 'mutation',
+                    'primaryIntent': 'purchasing.create_po',
+                    'confidence': 0.97,
+                    'rationale': 'Purchase order creation request detected.',
+                    'entityPatches': {},
+                    'navigationQuery': None,
+                    'postActionQuery': None,
+                }
+            }
+        ),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='create a purchase order for Field Fresh Short from Acme Supply',
+        extracted_entities={},
+        recent_messages=[],
+        workflow_status=WorkflowStatus.IDLE,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.NEEDS_INPUT
+    assert outcome.extracted_entities['toolName'] == 'purchasing.create_po'
+    assert any(block.type == BlockType.CLARIFICATION for block in outcome.blocks)
+    assert not any('poid' in str(getattr(block, 'prompt', '')).lower() for block in outcome.blocks)
+
+
+async def test_runtime_service_switches_po_supplier_reply_into_supplier_creation():
+    service = AgentRuntimeService(
+        backend_client=FakeBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeInvalidExecutor(),  # type: ignore[arg-type]
+        reviewer=FakeReviewer(),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        state_updater=None,
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='Complex Sources Ltd\ncmp@gmail.com',
+        extracted_entities={
+            '_workflowEngine': 'runtime',
+            'toolName': 'purchasing.create_po',
+            'executionPayload': {
+                'lines': [{'productName': 'Bikes', 'quantity': 10}],
+            },
+            'taskContext': {
+                'primaryRoute': 'mutation',
+                'primaryIntent': 'purchasing.create_po',
+                'entities': {
+                    'styleCode': 'BK-1',
+                    'productName': 'Bikes',
+                },
+                'missingFields': ['supplier_id'],
+                'postActions': [],
+                'clarificationCount': 1,
+                'status': 'drafting',
+            },
+        },
+        recent_messages=[],
+        workflow_status=WorkflowStatus.NEEDS_INPUT,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.AWAITING_CONFIRMATION
+    assert outcome.extracted_entities['toolName'] == 'master.create_supplier'
+    assert outcome.extracted_entities['executionPayload'] == {
+        'name': 'Complex Sources Ltd',
+        'email': 'cmp@gmail.com',
+    }
+
+
 async def test_runtime_service_edits_pending_po_in_awaiting_approval_and_requests_variant_selection():
     service = AgentRuntimeService(
         backend_client=FakeBackendClient(),  # type: ignore[arg-type]
@@ -2124,6 +2282,68 @@ async def test_runtime_service_edits_pending_po_in_awaiting_approval_and_request
     assert 'Which variant should I use?' in outcome.blocks[0].prompt
     assert 'Sand / L' in outcome.blocks[0].prompt
     assert outcome.extracted_entities['toolName'] == 'purchasing.create_po'
+
+
+async def test_runtime_service_does_not_reenter_clarification_for_chitchat():
+    service = AgentRuntimeService(
+        backend_client=HarborVariantBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeInvalidExecutor(),  # type: ignore[arg-type]
+        reviewer=FakeReviewer(),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        state_updater=FakeStateUpdater(
+            {
+                'hello': {
+                    'useActiveWorkflow': True,
+                    'primaryRoute': 'mutation',
+                    'primaryIntent': 'purchasing.create_po',
+                    'confidence': 0.99,
+                    'rationale': 'Incorrectly continue the active workflow.',
+                    'entityPatches': {},
+                    'navigationQuery': None,
+                    'postActionQuery': None,
+                }
+            }
+        ),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='hello',
+        extracted_entities={
+            '_workflowEngine': 'runtime',
+            'toolName': 'purchasing.create_po',
+            'executionPayload': {
+                'supplierId': 'Acme Supply',
+                'lines': [{'productName': 'Harbor Intelligent Parka', 'quantity': 10}],
+            },
+            'taskContext': {
+                'primaryRoute': 'mutation',
+                'primaryIntent': 'purchasing.create_po',
+                'entities': {
+                    'supplierId': 'Acme Supply',
+                    'lines': [{'productName': 'Harbor Intelligent Parka', 'quantity': 10}],
+                },
+                'missingFields': ['lines'],
+                'postActions': [],
+                'clarificationCount': 2,
+                'status': 'drafting',
+            },
+        },
+        recent_messages=[],
+        workflow_status=WorkflowStatus.NEEDS_INPUT,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.COMPLETED
+    assert not any(block.type == BlockType.CLARIFICATION for block in outcome.blocks)
+    assert not any(block.type == BlockType.TABLE_RESULT for block in outcome.blocks)
 
 
 async def test_runtime_service_clarification_reply_preserves_latest_po_lines_over_stale_task_context():
@@ -2385,6 +2605,92 @@ async def test_runtime_service_enriches_product_create_confirmation_context():
     assert task_entities['styleCode'] == 'FFS-001'
     assert task_entities['colorName'] == 'Sand'
     assert task_entities['sizeLabel'] == 'XL'
+
+
+async def test_runtime_service_preserves_full_product_variant_details_on_confirmation_edit():
+    service = AgentRuntimeService(
+        backend_client=FakeApprovalBackendClient(),  # type: ignore[arg-type]
+        planner=FakePlanner(),
+        executor=FakeExecutor('inventory.stock_on_hand', {'sku': 'unused'}),
+        reviewer=FakeReviewer(),
+        narrator=FakeNarrator(),  # type: ignore[arg-type]
+        state_updater=FakeStateUpdater(
+            {
+                'add green color also': {
+                    'useActiveWorkflow': True,
+                    'primaryRoute': 'mutation',
+                    'primaryIntent': 'products.create_product',
+                    'confidence': 0.96,
+                    'rationale': 'The user is editing the active product draft.',
+                    'entityPatches': {},
+                    'navigationQuery': None,
+                    'postActionQuery': None,
+                }
+            }
+        ),  # type: ignore[arg-type]
+        memory_service=FakeMemoryService(),  # type: ignore[arg-type]
+        training_data_service=FakeTrainingService(),  # type: ignore[arg-type]
+        retrieval_service=FakeRetrievalService(),  # type: ignore[arg-type]
+    )
+
+    draft_payload = {
+        'product': {
+            'styleCode': 'OR-098',
+            'name': 'Organe',
+            'basePrice': 75,
+        },
+        'variants': [
+            {
+                'colorName': 'Blue',
+                'sizes': [{'sizeLabel': 'S'}, {'sizeLabel': 'M'}, {'sizeLabel': 'L'}, {'sizeLabel': 'XL'}],
+            },
+            {
+                'colorName': 'Red',
+                'sizes': [{'sizeLabel': 'S'}, {'sizeLabel': 'M'}, {'sizeLabel': 'L'}, {'sizeLabel': 'XL'}],
+            },
+        ],
+    }
+
+    outcome = await service.execute(
+        auth=make_auth(),
+        conversation_id=uuid4(),
+        workflow_id=uuid4(),
+        user_message='add green color also',
+        extracted_entities={
+            '_workflowEngine': 'runtime',
+            'toolName': 'products.create_product',
+            'executionPayload': draft_payload,
+            'preview': {'arguments': draft_payload},
+            'taskContext': {
+                'primaryRoute': 'mutation',
+                'primaryIntent': 'products.create_product',
+                'entities': {
+                    'productName': 'Organe',
+                    'styleCode': 'OR-098',
+                    'basePrice': 75,
+                    'colorNames': ['Blue', 'Red'],
+                    'sizeLabels': ['S', 'M', 'L', 'XL'],
+                },
+                'missingFields': [],
+                'postActions': [],
+                'clarificationCount': 0,
+                'status': 'awaiting_confirmation',
+            },
+        },
+        recent_messages=[],
+        workflow_status=WorkflowStatus.AWAITING_CONFIRMATION,
+        emit=lambda *_args, **_kwargs: None,
+        run_id=uuid4(),
+    )
+
+    assert outcome.status == WorkflowStatus.AWAITING_CONFIRMATION
+    variants = outcome.extracted_entities['executionPayload']['variants']
+    assert [variant['colorName'] for variant in variants] == ['Blue', 'Red', 'Green']
+    assert [size['sizeLabel'] for size in variants[2]['sizes']] == ['S', 'M', 'L', 'XL']
+
+    preview_block = next(block for block in outcome.blocks if block.type == BlockType.PREVIEW)
+    variants_entity = next(entity for entity in preview_block.entities if entity.label == 'Variants')
+    assert variants_entity.value == 'Blue [S, M, L, XL]; Red [S, M, L, XL]; Green [S, M, L, XL]'
 
 
 async def test_runtime_service_invalid_executor_proposal_requests_clarification():

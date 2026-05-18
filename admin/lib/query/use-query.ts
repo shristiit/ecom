@@ -11,6 +11,7 @@ export function useQuery<TData>({
   retryDelayMs = 250,
   persist = true,
   manualInvalidationOnly = true,
+  refetchOnWindowFocus = false,
   staleTimeMs = 0,
   gcTimeMs,
 }: UseQueryOptions<TData>) {
@@ -183,6 +184,39 @@ export function useQuery<TData>({
       unsubscribeNamespace();
     };
   }, [enabled, getCachedState, initialData, isFresh, manualInvalidationOnly, normalizedKey, persist, retry, retryDelayMs, stableKey, syncFromCache]);
+
+  useEffect(() => {
+    if (!refetchOnWindowFocus || typeof window === 'undefined') {
+      return;
+    }
+
+    const handleFocus = () => {
+      if (!enabled) return;
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        return;
+      }
+      void runQuery(false).catch(() => undefined);
+    };
+
+    const handleVisibilityChange = () => {
+      if (typeof document === 'undefined' || document.visibilityState !== 'visible') {
+        return;
+      }
+      handleFocus();
+    };
+
+    window.addEventListener('focus', handleFocus);
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+    }
+
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+      }
+    };
+  }, [enabled, refetchOnWindowFocus, runQuery]);
 
   return {
     ...state,

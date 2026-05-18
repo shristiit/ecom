@@ -35,6 +35,7 @@ export type UseQueryOptions<TData> = {
   retryDelayMs?: number;
   persist?: boolean;
   manualInvalidationOnly?: boolean;
+  refetchOnWindowFocus?: boolean;
   staleTimeMs?: number;
   gcTimeMs?: number;
 };

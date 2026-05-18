@@ -25,8 +25,10 @@ class ToolSchemaValidationError(ValueError):
     def required_fields(self) -> list[str]:
         fields: list[str] = []
         for issue in self.issues:
-            if issue.path:
-                fields.append('.'.join(issue.path))
+            if issue.path and issue.message == 'required':
+                rendered = '.'.join(issue.path)
+                if rendered not in fields:
+                    fields.append(rendered)
         return fields
 
     @property

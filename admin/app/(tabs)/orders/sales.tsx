@@ -69,8 +69,8 @@ export default function SalesOrdersScreen() {
                 <AppTableCell>{formatDate(row.createdAt)}</AppTableCell>
                 <AppTableCell align="right">
                   <AppBadge
-                    label={row.status}
-                    tone={row.status === 'paid' ? 'success' : row.status === 'draft' ? 'warning' : 'info'}
+                    label={row.status === 'sent' ? 'closed' : row.status}
+                    tone={row.status === 'paid' || row.status === 'sent' ? 'success' : row.status === 'draft' ? 'warning' : 'info'}
                   />
                 </AppTableCell>
               </AppTableRow>

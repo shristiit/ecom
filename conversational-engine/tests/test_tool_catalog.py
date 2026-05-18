@@ -635,6 +635,38 @@ async def test_purchase_order_create_requests_supplier_disambiguation_when_name_
     assert 'Acme Source' in excinfo.value.prompt
 
 
+async def test_purchase_order_prepare_ignores_non_schema_metadata_fields():
+    backend = FakeBackendClient()
+    catalog = SemanticToolCatalog(backend=backend, auth=make_auth())  # type: ignore[arg-type]
+
+    prepared = await catalog.prepare(
+        'purchasing.create_po',
+        {
+            'supplierId': 'Acme Supply',
+            'description': 'Create a purchase order.',
+            'inputSchema': {'type': 'object'},
+            'riskLevel': 'high',
+            'sideEffect': True,
+            'expectedDate': '2026-05-30',
+            'lines': [
+                {
+                    'productName': 'Field Fresh Short',
+                    'colorName': 'Sand',
+                    'sizeLabel': 'L',
+                    'quantity': 5,
+                    'unitCost': 21,
+                }
+            ],
+        },
+    )
+
+    assert prepared == {
+        'supplierId': 'sup-1',
+        'expectedDate': '2026-05-30',
+        'lines': [{'sizeId': 'size-sand-l', 'qty': 5, 'unitCost': 21}],
+    }
+
+
 async def test_purchase_order_get_resolves_order_number():
     backend = FakeBackendClient()
     catalog = SemanticToolCatalog(backend=backend, auth=make_auth())  # type: ignore[arg-type]

@@ -7,6 +7,7 @@ export function useAssistantConversationQuery(id: string | undefined, enabled = 
     enabled: enabled && Boolean(id),
     queryFn: () => assistantService.getConversation(id ?? ''),
     manualInvalidationOnly: false,
+    refetchOnWindowFocus: true,
     staleTimeMs: 5 * 60 * 1000,
     gcTimeMs: 30 * 60 * 1000,
   });

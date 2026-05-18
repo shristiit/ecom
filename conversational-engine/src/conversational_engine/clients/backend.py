@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import asyncio
 from contextlib import contextmanager
 from contextvars import ContextVar
 from hashlib import sha256
 import json
 import random
 
+import anyio
 import httpx
 
 from conversational_engine.contracts.api import (
@@ -249,7 +249,7 @@ class BackendClient:
 
     async def _sleep_before_retry(self, attempt: int) -> None:
         base_delay = min(1.5, 0.15 * (2 ** (attempt - 1)))
-        await asyncio.sleep(base_delay + random.uniform(0.0, 0.1))
+        await anyio.sleep(base_delay + random.uniform(0.0, 0.1))
 
     async def resolve_auth_context(self, access_token: str, tenant_id: str | None) -> AuthContext:
         payload = await self._request('GET', '/auth/me', access_token, tenant_id)

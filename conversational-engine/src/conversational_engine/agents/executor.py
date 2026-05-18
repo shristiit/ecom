@@ -20,7 +20,17 @@ _SCHEMA_KEYS = frozenset({
     'tool_name',
     'arguments',
     'parameters',
+    # Tool catalog metadata fields — the AI sometimes echoes these back from the
+    # tool list it was given; they must never be treated as tool arguments.
+    'description',
+    'inputSchema',
+    'riskLevel',
+    'sideEffect',
 })
+
+# Catalog metadata keys that must be stripped from toolArguments if the AI
+# accidentally embeds them there alongside the real argument values.
+_CATALOG_METADATA_KEYS = frozenset({'description', 'inputSchema', 'riskLevel', 'sideEffect'})
 
 # Matches dotted tool names like "master.create_supplier" or "products.create_product".
 _DOTTED_TOOL_NAME_RE = re.compile(r'^[a-z_]+\.[a-z_]+$')
@@ -65,7 +75,10 @@ class ExecutorAgent:
                     content=(
                         'You are the execution agent for an internal inventory AI runtime. '
                         'If a tool is needed, select exactly one tool from the catalog '
-                        'and provide arguments that match its schema. '
+                        'and provide arguments that match its inputSchema. '
+                        'Set toolName to the tool name and toolArguments to an object containing ONLY '
+                        'the argument values from inputSchema — never include name, description, '
+                        'inputSchema, riskLevel, or sideEffect in toolArguments. '
                         'When action is "tool", prefer returning toolArguments as a JSON object. '
                         'Use toolArgumentsJson only as a fallback when nested objects cannot be emitted directly.'
                     ),
@@ -133,6 +146,13 @@ def _normalize_executor_payload(
         top_level = {k: v for k, v in normalized.items() if k not in excluded}
         if top_level:
             parsed_tool_arguments = top_level
+
+    # Strip catalog metadata keys from toolArguments if the AI accidentally
+    # mixed them in alongside the real argument values.
+    if isinstance(parsed_tool_arguments, dict):
+        parsed_tool_arguments = {k: v for k, v in parsed_tool_arguments.items() if k not in _CATALOG_METADATA_KEYS}
+        if not parsed_tool_arguments:
+            parsed_tool_arguments = None
 
     normalized['toolArguments'] = parsed_tool_arguments
 

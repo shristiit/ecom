@@ -519,7 +519,7 @@ export async function executeReceivePO(actorId: string, tenantId: string, poId: 
 
     const receiptRes = await client.query(
       `INSERT INTO receipts (tenant_id, po_id, location_id, status, created_by)
-       VALUES ($1,$2,$3,'partial',$4) RETURNING id`,
+       VALUES ($1,$2,$3,'complete',$4) RETURNING id`,
       [tenantId, poId, body.locationId, actorId]
     );
     const receiptId = receiptRes.rows[0].id;
@@ -540,8 +540,16 @@ export async function executeReceivePO(actorId: string, tenantId: string, poId: 
       );
     }
 
+    await client.query(
+      `UPDATE purchase_orders
+       SET status = 'closed',
+           updated_at = NOW()
+       WHERE id = $1 AND tenant_id = $2`,
+      [poId, tenantId],
+    );
+
     await client.query('COMMIT');
-    return { receiptId };
+    return { receiptId, id: poId, status: 'closed' };
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;

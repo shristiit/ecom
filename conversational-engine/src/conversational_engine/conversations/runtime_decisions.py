@@ -59,6 +59,16 @@ class RuntimeDecisionHandler:
         memory.pop('_approvalOperation', None)
         return tool_name, execution_payload if isinstance(execution_payload, dict) else {}
 
+    @staticmethod
+    def _prepared_execution_payload(memory: dict[str, object]) -> dict[str, object]:
+        preview = memory.get('preview')
+        if isinstance(preview, dict):
+            prepared_arguments = preview.get('preparedArguments')
+            if isinstance(prepared_arguments, dict):
+                return prepared_arguments
+        execution_payload = memory.get('executionPayload')
+        return execution_payload if isinstance(execution_payload, dict) else {}
+
     async def apply(
         self,
         *,
@@ -71,6 +81,7 @@ class RuntimeDecisionHandler:
         memory = dict(workflow.extracted_entities or {})
         tool_name = str(memory.get('toolName') or '')
         execution_payload = memory.get('executionPayload')
+        prepared_execution_payload = self._prepared_execution_payload(memory)
         active_approval_id = memory.get('activeApprovalId')
         approval_operation = str(memory.get('_approvalOperation') or 'create_new')
         is_pending_approval_update = (
@@ -143,7 +154,7 @@ class RuntimeDecisionHandler:
                 missing_fields=[],
             )
 
-        if not tool_name or not isinstance(execution_payload, dict):
+        if not tool_name or not isinstance(execution_payload, dict) or not prepared_execution_payload:
             return OrchestratorOutcome(
                 blocks=[
                     ErrorBlock(
@@ -170,7 +181,7 @@ class RuntimeDecisionHandler:
                 'reason': str(memory.get('approvalReason') or 'Approval required by policy.'),
                 'requestedBy': auth.email,
                 'preview': memory.get('preview') if isinstance(memory.get('preview'), dict) else {},
-                'executionPayload': execution_payload,
+                'executionPayload': prepared_execution_payload,
             }
             try:
                 if is_pending_approval_update:
@@ -213,7 +224,7 @@ class RuntimeDecisionHandler:
                     'actionType': tool_name,
                     'summary': str(memory.get('summary') or tool_name),
                     'status': approval.status,
-                    'executionPayload': execution_payload,
+                    'executionPayload': prepared_execution_payload,
                 },
             )
             memory['activeApprovalId'] = str(approval.id)
@@ -238,7 +249,7 @@ class RuntimeDecisionHandler:
         catalog = SemanticToolCatalog(backend=self._backend_client, auth=auth)
         try:
             with idempotency_scope(f'confirmation:{workflow_id}:{tool_name}'):
-                result = await catalog.invoke(tool_name, execution_payload)
+                result = await catalog.invoke(tool_name, prepared_execution_payload)
         except Exception:
             logger.exception('Failed to execute runtime confirmation tool %s', tool_name)
             return OrchestratorOutcome(
@@ -261,7 +272,7 @@ class RuntimeDecisionHandler:
         next_entities = AgentRuntimeService._merge_context_from_tool_interaction(
             current_entities=memory,
             tool_name=tool_name,
-            tool_arguments=execution_payload,
+            tool_arguments=prepared_execution_payload,
             tool_result=result,
         )
         await self._record_audit_event(
@@ -274,7 +285,7 @@ class RuntimeDecisionHandler:
             payload={
                 'actionType': tool_name,
                 'summary': str(memory.get('summary') or tool_name),
-                'executionPayload': execution_payload,
+                'executionPayload': prepared_execution_payload,
                 'result': result,
             },
         )

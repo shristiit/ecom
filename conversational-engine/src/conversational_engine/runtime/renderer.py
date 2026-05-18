@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
+
 from conversational_engine.contracts.common import (
     ApprovalPendingBlock,
     ClarificationBlock,
@@ -18,6 +19,69 @@ from conversational_engine.contracts.common import (
     TableResultBlock,
     TextBlock,
 )
+
+
+def _format_entity_value(value: Any) -> str | None:
+    """Convert a tool argument value to a human-readable string."""
+    if value is None or value == '' or value == [] or value == {}:
+        return None
+    if isinstance(value, list):
+        if not value:
+            return None
+        if all(isinstance(item, dict) for item in value):
+            if any('sizes' in item or 'colorName' in item or 'color' in item for item in value):
+                variants: list[str] = []
+                for item in value:
+                    color_name = str(item.get('colorName') or item.get('color') or 'Default').strip()
+                    raw_sizes = item.get('sizes') if isinstance(item.get('sizes'), list) else [item]
+                    size_values = [
+                        formatted
+                        for raw_size in raw_sizes
+                        if isinstance(raw_size, dict)
+                        if (formatted := _format_entity_value(raw_size))
+                    ]
+                    if size_values:
+                        variants.append(f'{color_name} [{", ".join(size_values)}]')
+                    elif color_name:
+                        variants.append(color_name)
+                if variants:
+                    return '; '.join(variants)
+            _name_keys = ('colorName', 'name', 'label', 'title', 'id')
+            names = []
+            for item in value:
+                for k in _name_keys:
+                    if item.get(k):
+                        names.append(str(item[k]))
+                        break
+            if names:
+                return ', '.join(names)
+            return f'{len(value)} item(s)'
+        return ', '.join(str(item) for item in value)
+    if isinstance(value, dict):
+        size_label = value.get('sizeLabel') or value.get('size')
+        if isinstance(size_label, str) and size_label.strip():
+            stock_by_location = value.get('stockByLocation')
+            if isinstance(stock_by_location, list) and stock_by_location:
+                stock_parts = []
+                for stock in stock_by_location:
+                    if not isinstance(stock, dict):
+                        continue
+                    quantity = stock.get('quantity')
+                    location_id = str(stock.get('locationId') or '').strip()
+                    if quantity is None:
+                        continue
+                    stock_parts.append(f'{quantity} @ {location_id}' if location_id else str(quantity))
+                if stock_parts:
+                    return f'{size_label.strip().upper()} ({", ".join(stock_parts)})'
+            return size_label.strip().upper()
+        parts = []
+        for k, v in value.items():
+            formatted = _format_entity_value(v)
+            if formatted is None:
+                continue
+            parts.append(f'{k.replace("_", " ")}: {formatted}')
+        return ', '.join(parts) if parts else None
+    return str(value)
 
 
 def render_clarification(message: str, required_inputs: list[str]) -> list[MessageBlock]:
@@ -72,9 +136,9 @@ def render_approval_pending(
     actor: str,
 ) -> list[MessageBlock]:
     entities = [
-        PreviewEntity(label=key, value=str(value))
+        PreviewEntity(label=key.replace('_', ' ').capitalize(), value=formatted)
         for key, value in tool_arguments.items()
-        if value is not None
+        if (formatted := _format_entity_value(value)) is not None
     ][:8]
     return [
         TextBlock(content=message),
@@ -105,9 +169,9 @@ def render_confirmation_required(
     warnings: list[str] | None = None,
 ) -> list[MessageBlock]:
     entities = [
-        PreviewEntity(label=key, value=str(value))
+        PreviewEntity(label=key.replace('_', ' ').capitalize(), value=formatted)
         for key, value in tool_arguments.items()
-        if value is not None
+        if (formatted := _format_entity_value(value)) is not None
     ][:8]
     return [
         TextBlock(content=message),
